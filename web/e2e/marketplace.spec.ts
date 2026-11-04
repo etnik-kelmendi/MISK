@@ -23,7 +23,7 @@ async function signInByPhone(browser: Browser, phone: string) {
   const page = await context.newPage();
   await page.goto('/signin');
   await page.getByLabel('Mobile number').fill(phone);
-  await page.getByRole('button', { name: /Continue with phone/ }).click();
+  await page.getByRole('button', { name: /Send me a sign-in code/ }).click();
   await expect(page.getByLabel('6-digit code')).toBeVisible();
   const response = await page.request.get(`${API}/test/last-code?phone=${encodeURIComponent(phone)}`);
   const { code } = (await response.json()) as { code: string };

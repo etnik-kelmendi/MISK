@@ -49,7 +49,7 @@ describe('sign-in', () => {
     renderAt('/');
 
     await user().type(await screen.findByLabelText('Mobile number'), '+49 151 12345678');
-    await user().click(screen.getByRole('button', { name: /Continue with phone/ }));
+    await user().click(screen.getByRole('button', { name: /Send me a sign-in code/ }));
     await user().type(await screen.findByLabelText('6-digit code'), '123456');
     await user().click(screen.getByRole('button', { name: 'Sign in' }));
     await user().type(await screen.findByLabelText('Your first name'), 'Sara');
@@ -59,13 +59,31 @@ describe('sign-in', () => {
     expect(api.bodies['POST /account/role']).toEqual({ role: 'customer', firstName: 'Sara' });
   });
 
+  it('offers sign-up on the sign-in page and remembers the choice in the address', async () => {
+    fakeApi(null);
+    renderAt('/signin');
+    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeInTheDocument();
+    await user().click(screen.getByRole('button', { name: 'Create an account' }));
+    expect(screen.getByRole('heading', { name: 'Create your MISK account' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Create account' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: /Create my account/ })).toBeDisabled();
+    await user().click(screen.getByRole('button', { name: 'Sign in', pressed: false }));
+    expect(screen.getByRole('heading', { name: 'Welcome back' })).toBeInTheDocument();
+  });
+
+  it('opens straight into sign-up from a link', async () => {
+    fakeApi(null);
+    renderAt('/signin?mode=signup');
+    expect(await screen.findByRole('heading', { name: 'Create your MISK account' })).toBeInTheDocument();
+  });
+
   it('explains a wrong code', async () => {
     const api = fakeApi(null);
     api.on('POST /auth/phone/start', { status: 202, body: { phone: '+4915112345678' } });
     api.on('POST /auth/phone/verify', { status: 401, body: { error: 'invalid_code' } });
     renderAt('/signin');
     await user().type(await screen.findByLabelText('Mobile number'), '+4915112345678');
-    await user().click(screen.getByRole('button', { name: /Continue with phone/ }));
+    await user().click(screen.getByRole('button', { name: /Send me a sign-in code/ }));
     await user().type(await screen.findByLabelText('6-digit code'), '000000');
     await user().click(screen.getByRole('button', { name: 'Sign in' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('That code is not right');

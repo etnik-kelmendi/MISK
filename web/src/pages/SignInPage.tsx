@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Navigate } from 'react-router';
+import { Navigate, useSearchParams } from 'react-router';
 import { useApi, useAppConfig } from '../api/ApiContext';
 import type { User } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
@@ -9,12 +9,15 @@ import { ErrorText } from '../components/ErrorText';
 import { Icon } from '../components/Icon';
 import { useAction } from '../lib/useAction';
 
-function PhoneStep({ onSent }: { onSent: (phone: string) => void }) {
+export type Mode = 'signin' | 'signup';
+
+function PhoneStep({ mode, onMode, onSent }: { mode: Mode; onMode: (mode: Mode) => void; onSent: (phone: string) => void }) {
   const { t } = useTranslation();
   const api = useApi();
   const config = useAppConfig();
   const [phone, setPhone] = useState('');
   const { run, busy, error } = useAction();
+  const modes: Mode[] = ['signin', 'signup'];
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -30,9 +33,18 @@ function PhoneStep({ onSent }: { onSent: (phone: string) => void }) {
         <span className="logo-mark big">
           <Icon name="leaf" />
         </span>
-        <h1 className="brand">{t('app.name')}</h1>
+        <p className="brand">{t('app.name')}</p>
         <p className="muted">{t('signIn.tagline')}</p>
       </div>
+      <div className="seg wide-seg" role="group" aria-label={t('signIn.modeLabel')}>
+        {modes.map((m) => (
+          <button key={m} type="button" className={m === mode ? 'on' : ''} aria-pressed={m === mode} onClick={() => onMode(m)}>
+            {t(`signIn.mode.${m}`)}
+          </button>
+        ))}
+      </div>
+      <h1 className="signin-title">{t(`signIn.title.${mode}`)}</h1>
+      {mode === 'signup' && <p className="small muted">{t('signIn.signupIntro')}</p>}
       <div className="field">
         <label htmlFor="phone">{t('signIn.phone')}</label>
         <input
@@ -49,8 +61,14 @@ function PhoneStep({ onSent }: { onSent: (phone: string) => void }) {
       </div>
       <ErrorText error={error} />
       <button className="cta" type="submit" disabled={busy || !phone.trim()}>
-        <Icon name="phone" /> {busy ? t('common.sending') : t('signIn.sendCode')}
+        <Icon name="phone" /> {busy ? t('common.sending') : t(`signIn.submit.${mode}`)}
       </button>
+      <p className="small center">
+        {t(`signIn.switchQuestion.${mode}`)}{' '}
+        <button type="button" className="link" onClick={() => onMode(mode === 'signin' ? 'signup' : 'signin')}>
+          {t(`signIn.switchAction.${mode}`)}
+        </button>
+      </p>
       {(config.termsUrl || config.privacyUrl) && (
         <p className="tiny muted center">
           {t('signIn.agree')}{' '}
@@ -197,6 +215,9 @@ function RoleStep() {
 export function SignInPage() {
   const { state } = useAuth();
   const [phone, setPhone] = useState<string | null>(null);
+  const [params, setParams] = useSearchParams();
+  const mode: Mode = params.get('mode') === 'signup' ? 'signup' : 'signin';
+  const setMode = (next: Mode) => setParams(next === 'signup' ? { mode: 'signup' } : {}, { replace: true });
 
   if (state.status === 'signedIn') {
     return state.user.role ? (
@@ -212,7 +233,11 @@ export function SignInPage() {
   return (
     <div className="app-frame signin-frame">
       <main className="app-body">
-        {phone ? <CodeStep phone={phone} onBack={() => setPhone(null)} /> : <PhoneStep onSent={setPhone} />}
+        {phone ? (
+          <CodeStep phone={phone} onBack={() => setPhone(null)} />
+        ) : (
+          <PhoneStep mode={mode} onMode={setMode} onSent={setPhone} />
+        )}
       </main>
     </div>
   );

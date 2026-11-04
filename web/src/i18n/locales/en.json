@@ -88,7 +88,6 @@
     "phone": "Mobile number",
     "phonePlaceholder": "+49 151 1234 5678",
     "phoneHint": "We text you a code. No password needed.",
-    "sendCode": "Continue with phone",
     "agree": "By continuing you agree to the",
     "terms": "Terms",
     "privacy": "Privacy Policy",
@@ -108,7 +107,29 @@
     "roleFinal": "You cannot change this later. Pros who also want to book help use a second number.",
     "firstName": "Your first name",
     "openCustomer": "Open the customer app",
-    "openPro": "Open the pro app"
+    "openPro": "Open the pro app",
+    "modeLabel": "Sign in or create an account",
+    "mode": {
+      "signin": "Sign in",
+      "signup": "Create account"
+    },
+    "title": {
+      "signin": "Welcome back",
+      "signup": "Create your MISK account"
+    },
+    "signupIntro": "Book trusted help at a fixed price, or join as a pro. All you need is your mobile number.",
+    "submit": {
+      "signin": "Send me a sign-in code",
+      "signup": "Create my account"
+    },
+    "switchQuestion": {
+      "signin": "New to MISK?",
+      "signup": "Already have an account?"
+    },
+    "switchAction": {
+      "signin": "Create an account",
+      "signup": "Sign in"
+    }
   },
   "home": {
     "hello": "Good to see you,",
