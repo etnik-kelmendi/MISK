@@ -1,4 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type { Pool } from 'pg';
+import type { Config } from '../config.js';
 import type { AppContext } from '../context.js';
 import { withTransaction } from '../db.js';
 import { conflict } from '../errors.js';
@@ -11,22 +13,27 @@ import { deleteSession, findUser, SESSION_MAX_AGE_SECONDS, type User } from './s
 const phoneProperty = { type: 'string', minLength: 6, maxLength: 32 } as const;
 const firstNameProperty = { type: 'string', minLength: 1, maxLength: 60, pattern: '\\S' } as const;
 
-export function publicUser({ id, role, phone, username, firstName }: User) {
-  return { id, role, phone, username, firstName };
+export function publicUser({ id, role, phone, username, email, firstName, lastName }: User) {
+  return { id, role, phone, username, email, firstName, lastName };
+}
+
+const cookieOptionsFor = (config: Config) => ({ path: '/', httpOnly: true, secure: config.secureCookies, sameSite: 'lax' }) as const;
+
+/** Sets the session cookie after any successful sign-in. */
+export async function startSessionCookie(request: FastifyRequest, reply: FastifyReply, pool: Pool, config: Config, token: string) {
+  // Replacing any earlier session means a session planted before sign-in is never upgraded.
+  const previous = request.cookies[SESSION_COOKIE];
+  if (previous) {
+    await deleteSession(pool, previous);
+  }
+  reply.setCookie(SESSION_COOKIE, token, { ...cookieOptionsFor(config), maxAge: SESSION_MAX_AGE_SECONDS });
 }
 
 export async function authRoutes(app: FastifyInstance, ctx: AppContext) {
   const { pool, config, guards } = ctx;
-  const cookieOptions = { path: '/', httpOnly: true, secure: config.secureCookies, sameSite: 'lax' } as const;
-
-  async function startSession(request: FastifyRequest, reply: FastifyReply, token: string) {
-    // Replacing any earlier session means a session planted before sign-in is never upgraded.
-    const previous = request.cookies[SESSION_COOKIE];
-    if (previous) {
-      await deleteSession(pool, previous);
-    }
-    reply.setCookie(SESSION_COOKIE, token, { ...cookieOptions, maxAge: SESSION_MAX_AGE_SECONDS });
-  }
+  const cookieOptions = cookieOptionsFor(config);
+  const startSession = (request: FastifyRequest, reply: FastifyReply, token: string) =>
+    startSessionCookie(request, reply, pool, config, token);
 
   async function requireUser(userId: string): Promise<User> {
     const found = await findUser(pool, userId);

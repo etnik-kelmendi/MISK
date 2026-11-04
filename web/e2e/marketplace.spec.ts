@@ -21,7 +21,7 @@ async function expectAccessible(page: Page) {
 async function signInByPhone(browser: Browser, phone: string) {
   const context = await browser.newContext();
   const page = await context.newPage();
-  await page.goto('/signin');
+  await page.goto('/signin?method=phone');
   await page.getByLabel('Mobile number').fill(phone);
   await page.getByRole('button', { name: /Send me a sign-in code/ }).click();
   await expect(page.getByLabel('6-digit code')).toBeVisible();
@@ -114,6 +114,27 @@ test.describe.serial('MISK marketplace', () => {
     await expect(customer.getByText('Paid.')).toBeVisible();
     await expectAccessible(customer);
     await customer.context().close();
+  });
+
+  test('a new customer signs up with email and password', async ({ browser }) => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.goto('/signin');
+    await page.getByRole('button', { name: 'Sign up', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Create your account' })).toBeVisible();
+    await page.getByLabel(/^First name/).fill('Lena');
+    await page.getByLabel(/^Last name/).fill('Berg');
+    await page.getByLabel(/^Email address/).fill('lena@example.com');
+    await page.getByLabel(/^Password/).fill('garden42');
+    await page.getByLabel(/^Confirm password/).fill('garden42');
+    await page.getByRole('checkbox', { name: /I accept the terms/ }).check();
+    await expectAccessible(page);
+    await page.getByRole('button', { name: 'Sign up', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Welcome!' })).toBeVisible();
+    await expect(page.getByLabel('Your first name')).toHaveValue('Lena');
+    await page.getByRole('button', { name: /Open the customer app/ }).click();
+    await expect(page.getByRole('heading', { name: 'Lena' })).toBeVisible();
+    await context.close();
   });
 
   test('the MISK team sees the job and the money on the overview', async ({ browser }) => {

@@ -39,7 +39,30 @@ function booking(overrides: Partial<CustomerBooking> = {}): CustomerBooking {
   };
 }
 
-describe('sign-in', () => {
+describe('log in', () => {
+  it('logs in with email and password', async () => {
+    const api = fakeApi(null);
+    api.on('POST /auth/login', { body: { user: { ...users.customer, email: 'sara@example.com' } } });
+    api.on('GET /bookings', { body: { bookings: [] } });
+    renderAt('/');
+    expect(await screen.findByRole('heading', { name: 'Log in to MISK' })).toBeInTheDocument();
+    await user().type(screen.getByLabelText('Email address'), 'sara@example.com');
+    await user().type(screen.getByLabelText('Password'), 'garden42');
+    await user().click(screen.getByRole('button', { name: 'Log in' }));
+    expect(await screen.findByRole('heading', { name: 'Sara' })).toBeInTheDocument();
+    expect(api.bodies['POST /auth/login']).toEqual({ email: 'sara@example.com', password: 'garden42' });
+  });
+
+  it('explains a wrong email or password', async () => {
+    const api = fakeApi(null);
+    api.on('POST /auth/login', { status: 401, body: { error: 'invalid_login' } });
+    renderAt('/signin');
+    await user().type(await screen.findByLabelText('Email address'), 'sara@example.com');
+    await user().type(screen.getByLabelText('Password'), 'wrong123');
+    await user().click(screen.getByRole('button', { name: 'Log in' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('The email or password is not right.');
+  });
+
   it('signs a new person in by phone code and lets them choose to be a customer', async () => {
     const api = fakeApi(null);
     api.on('POST /auth/phone/start', { status: 202, body: { phone: '+4915112345678' } });
@@ -48,6 +71,7 @@ describe('sign-in', () => {
     api.on('GET /bookings', { body: { bookings: [] } });
     renderAt('/');
 
+    await user().click(await screen.findByRole('button', { name: 'Phone' }));
     await user().type(await screen.findByLabelText('Mobile number'), '+49 151 12345678');
     await user().click(screen.getByRole('button', { name: /Send me a sign-in code/ }));
     await user().type(await screen.findByLabelText('6-digit code'), '123456');
@@ -59,29 +83,11 @@ describe('sign-in', () => {
     expect(api.bodies['POST /account/role']).toEqual({ role: 'customer', firstName: 'Sara' });
   });
 
-  it('offers sign-up on the sign-in page and remembers the choice in the address', async () => {
-    fakeApi(null);
-    renderAt('/signin');
-    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeInTheDocument();
-    await user().click(screen.getByRole('button', { name: 'Create an account' }));
-    expect(screen.getByRole('heading', { name: 'Create your MISK account' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Create account' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: /Create my account/ })).toBeDisabled();
-    await user().click(screen.getByRole('button', { name: 'Sign in', pressed: false }));
-    expect(screen.getByRole('heading', { name: 'Welcome back' })).toBeInTheDocument();
-  });
-
-  it('opens straight into sign-up from a link', async () => {
-    fakeApi(null);
-    renderAt('/signin?mode=signup');
-    expect(await screen.findByRole('heading', { name: 'Create your MISK account' })).toBeInTheDocument();
-  });
-
   it('explains a wrong code', async () => {
     const api = fakeApi(null);
     api.on('POST /auth/phone/start', { status: 202, body: { phone: '+4915112345678' } });
     api.on('POST /auth/phone/verify', { status: 401, body: { error: 'invalid_code' } });
-    renderAt('/signin');
+    renderAt('/signin?method=phone');
     await user().type(await screen.findByLabelText('Mobile number'), '+4915112345678');
     await user().click(screen.getByRole('button', { name: /Send me a sign-in code/ }));
     await user().type(await screen.findByLabelText('6-digit code'), '000000');
@@ -93,6 +99,149 @@ describe('sign-in', () => {
     fakeApi(users.pro);
     renderAt('/bookings');
     await waitFor(() => expect(screen.queryByRole('heading', { name: 'Bookings' })).not.toBeInTheDocument());
+  });
+
+  it('goes to sign-up from the log-in page', async () => {
+    fakeApi(null);
+    renderAt('/signin');
+    await user().click(await screen.findByRole('button', { name: 'Sign up' }));
+    expect(await screen.findByRole('heading', { name: 'Create your account' })).toBeInTheDocument();
+  });
+});
+
+describe('sign up', () => {
+  type Label = 'First name' | 'Last name' | 'Email address' | 'Password' | 'Confirm password';
+  const field = (label: Label) => screen.getByLabelText(new RegExp(`^${label}`));
+  const fill = async (values: Partial<Record<Label, string>>) => {
+    for (const [label, value] of Object.entries(values) as [Label, string][]) {
+      await user().type(field(label), value);
+    }
+  };
+  const complete: Record<Label, string> = {
+    'First name': 'Sara',
+    'Last name': 'Meier',
+    'Email address': 'sara@example.com',
+    Password: 'garden42',
+    'Confirm password': 'garden42',
+  };
+
+  it('creates the account and asks how the person will use MISK', async () => {
+    const api = fakeApi(null);
+    const created = { ...users.new, phone: null, email: 'sara@example.com', firstName: 'Sara', lastName: 'Meier' };
+    api.on('POST /auth/register', { status: 201, body: { user: created } });
+    renderAt('/signup');
+    await screen.findByRole('heading', { name: 'Create your account' });
+    await fill(complete);
+    await user().click(screen.getByRole('checkbox', { name: /I accept the terms and conditions/ }));
+    await user().click(screen.getByRole('button', { name: 'Sign up' }));
+
+    expect(await screen.findByRole('heading', { name: 'Welcome!' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Your first name')).toHaveValue('Sara');
+    expect(api.bodies['POST /auth/register']).toEqual({
+      firstName: 'Sara',
+      lastName: 'Meier',
+      email: 'sara@example.com',
+      password: 'garden42',
+      acceptTerms: true,
+    });
+  });
+
+  it('marks required fields and keeps Sign up disabled until all are filled and the terms accepted', async () => {
+    fakeApi(null);
+    renderAt('/signup');
+    await screen.findByRole('heading', { name: 'Create your account' });
+    for (const label of Object.keys(complete) as Label[]) {
+      expect(field(label)).toBeRequired();
+      expect(field(label).closest('.field')?.querySelector('label .required')).toHaveTextContent('*');
+    }
+    const submit = screen.getByRole('button', { name: 'Sign up' });
+    expect(submit).toBeDisabled();
+    await fill(complete);
+    expect(submit).toBeDisabled();
+    await user().click(screen.getByRole('checkbox', { name: /I accept the terms and conditions/ }));
+    expect(submit).toBeEnabled();
+    await user().clear(field('Last name'));
+    expect(submit).toBeDisabled();
+  });
+
+  it('says when the email is already registered', async () => {
+    const api = fakeApi(null);
+    api.on('POST /auth/register', { status: 409, body: { error: 'email_taken' } });
+    renderAt('/signup');
+    await screen.findByRole('heading', { name: 'Create your account' });
+    await fill(complete);
+    await user().click(screen.getByRole('checkbox', { name: /I accept/ }));
+    await user().click(screen.getByRole('button', { name: 'Sign up' }));
+    expect(await screen.findByText('An account with this email already exists')).toBeInTheDocument();
+    expect(field('Email address')).toHaveAttribute('aria-invalid', 'true');
+  });
+
+  it('checks the email format when the field is left', async () => {
+    fakeApi(null);
+    renderAt('/signup');
+    await screen.findByRole('heading', { name: 'Create your account' });
+    const email = field('Email address');
+    await user().type(email, 'sara@example');
+    expect(screen.queryByText('Please enter a valid email address')).not.toBeInTheDocument();
+    await user().tab();
+    expect(await screen.findByText('Please enter a valid email address')).toBeInTheDocument();
+    await user().type(email, '.com');
+    expect(screen.queryByText('Please enter a valid email address')).not.toBeInTheDocument();
+  });
+
+  it('shows the password rules while typing and lets the person show or hide the password', async () => {
+    fakeApi(null);
+    renderAt('/signup');
+    await screen.findByRole('heading', { name: 'Create your account' });
+    const password = field('Password');
+    await user().type(password, 'garden');
+    const rules = screen.getByRole('list', { name: 'Password requirements' });
+    const rule = (text: string) => within(rules).getByText(text).closest('li');
+    expect(rule('At least 8 characters')).not.toHaveClass('ok');
+    expect(rule('At least one letter')).toHaveClass('ok');
+    expect(rule('At least one number')).not.toHaveClass('ok');
+    await user().type(password, '42');
+    expect(rule('At least 8 characters')).toHaveClass('ok');
+    expect(rule('At least one number')).toHaveClass('ok');
+
+    expect(password).toHaveAttribute('type', 'password');
+    const toggle = password.parentElement?.querySelector('button') as HTMLButtonElement;
+    expect(toggle).toHaveAccessibleName('Show password');
+    await user().click(toggle);
+    expect(password).toHaveAttribute('type', 'text');
+    expect(toggle).toHaveAccessibleName('Hide password');
+    await user().click(toggle);
+    expect(password).toHaveAttribute('type', 'password');
+  });
+
+  it('says the passwords do not match when Sign up is clicked, and sends nothing', async () => {
+    const api = fakeApi(null);
+    renderAt('/signup');
+    await screen.findByRole('heading', { name: 'Create your account' });
+    await fill({ ...complete, 'Confirm password': 'garden43' });
+    await user().click(screen.getByRole('checkbox', { name: /I accept/ }));
+    expect(screen.queryByText('Passwords do not match')).not.toBeInTheDocument();
+    await user().click(screen.getByRole('button', { name: 'Sign up' }));
+    expect(await screen.findByText('Passwords do not match')).toBeInTheDocument();
+    expect(api.calls).not.toContain('POST /auth/register');
+  });
+
+  it('does not sign up with a weak password', async () => {
+    const api = fakeApi(null);
+    renderAt('/signup');
+    await screen.findByRole('heading', { name: 'Create your account' });
+    await fill({ ...complete, Password: 'gardening', 'Confirm password': 'gardening' });
+    await user().click(screen.getByRole('checkbox', { name: /I accept/ }));
+    await user().click(screen.getByRole('button', { name: 'Sign up' }));
+    expect(screen.getByText('At least one number').closest('li')).toHaveClass('bad');
+    expect(api.calls).not.toContain('POST /auth/register');
+  });
+
+  it('takes people with an account to the log-in page', async () => {
+    fakeApi(null);
+    renderAt('/signup');
+    await user().click(await screen.findByRole('button', { name: 'Log in' }));
+    expect(await screen.findByRole('heading', { name: 'Log in to MISK' })).toBeInTheDocument();
   });
 });
 

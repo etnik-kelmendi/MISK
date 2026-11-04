@@ -96,7 +96,7 @@ export async function verifyPhoneSignIn(
     const upserted = await client.query<User & { disabled: boolean; isNew: boolean }>(
       `INSERT INTO users (phone) VALUES ($1)
        ON CONFLICT (phone) DO UPDATE SET phone = EXCLUDED.phone
-       RETURNING id, role, phone, username, first_name AS "firstName",
+       RETURNING id, role, phone, username, email, first_name AS "firstName", last_name AS "lastName",
                  disabled_at IS NOT NULL AS disabled, (xmax = 0) AS "isNew"`,
       [input.phone],
     );

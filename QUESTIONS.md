@@ -16,3 +16,4 @@ Each question records the default that is built until the owner answers. Answere
 | Q9 | Should pros set different hours per day? The demo says "you can change hours per day later". | Slots start 08:00–18:00 every two hours on the chosen working days, and a job must end by 20:00. |
 | Q10 | The demo says "you can add the other role later". Can one phone number be both a customer and a pro? | No: the role chosen at first sign-in is final. A pro who also wants to book uses a second number. |
 | Q11 | Should a pro who is suspended keep their already accepted jobs? | Yes; admins reassign them from the booking list if needed. |
+| Q12 | Should people who register by email get "Forgot password?" too, and should pros who registered by email be asked for a phone number for job-offer texts? | Not yet: email-registered customers and pros have no password reset, and get no text messages until they have a phone number. |

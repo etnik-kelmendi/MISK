@@ -77,7 +77,11 @@
     "username_taken": "Another admin already has this username.",
     "email_unavailable": "Email is not set up yet, so no link can be sent. Ask another admin, or whoever runs the server.",
     "invalid_reset_link": "This link has expired or was already used. Ask for a new one from the sign-in page.",
-    "email_taken": "Another admin already uses this email."
+    "email_taken": "An account with this email already exists",
+    "invalid_login": "The email or password is not right.",
+    "invalid_email": "Please enter a valid email address",
+    "weak_password": "The password needs at least 8 characters, a letter and a number.",
+    "terms_not_accepted": "Please accept the terms and conditions."
   },
   "nav": {
     "customer": "Main menu",
@@ -93,7 +97,7 @@
     "tagline": "Trusted help for your home and garden",
     "phone": "Mobile number",
     "phonePlaceholder": "+49 151 1234 5678",
-    "phoneHint": "We text you a code. No password needed.",
+    "phoneHint": "We text you a code. A new number gets a new account.",
     "agree": "By continuing you agree to the",
     "terms": "Terms",
     "privacy": "Privacy Policy",
@@ -114,28 +118,16 @@
     "firstName": "Your first name",
     "openCustomer": "Open the customer app",
     "openPro": "Open the pro app",
-    "modeLabel": "Sign in or create an account",
-    "mode": {
-      "signin": "Sign in",
-      "signup": "Create account"
+    "title": "Log in to MISK",
+    "methodLabel": "How to log in",
+    "method": {
+      "email": "Email",
+      "phone": "Phone"
     },
-    "title": {
-      "signin": "Welcome back",
-      "signup": "Create your MISK account"
-    },
-    "signupIntro": "Book trusted help at a fixed price, or join as a pro. All you need is your mobile number.",
-    "submit": {
-      "signin": "Send me a sign-in code",
-      "signup": "Create my account"
-    },
-    "switchQuestion": {
-      "signin": "New to MISK?",
-      "signup": "Already have an account?"
-    },
-    "switchAction": {
-      "signin": "Create an account",
-      "signup": "Sign in"
-    }
+    "logIn": "Log in",
+    "sendCode": "Send me a sign-in code",
+    "noAccount": "Don't have an account?",
+    "signUp": "Sign up"
   },
   "home": {
     "hello": "Good to see you,",
@@ -648,6 +640,41 @@
       "submit": "Save new password",
       "done": "Your password is changed, and you were signed out everywhere else. Sign in with the new password.",
       "back": "Back to sign-in"
+    }
+  },
+  "signUp": {
+    "title": "Create your account",
+    "requiredNote": "Required fields",
+    "requiredSuffix": "(required)",
+    "firstName": "First name",
+    "lastName": "Last name",
+    "email": "Email address",
+    "password": "Password",
+    "confirm": "Confirm password",
+    "show": "Show",
+    "hide": "Hide",
+    "showPassword": "Show password",
+    "hidePassword": "Hide password",
+    "rules": {
+      "title": "Password requirements",
+      "length": "At least {{min}} characters",
+      "letter": "At least one letter",
+      "number": "At least one number",
+      "met": "done",
+      "notMet": "not yet"
+    },
+    "terms": "I accept the terms and conditions.",
+    "readTerms": "Read them",
+    "submit": "Sign up",
+    "creating": "Creating your account…",
+    "fillAll": "Fill in all fields and accept the terms to sign up.",
+    "haveAccount": "Already have an account?",
+    "logIn": "Log in",
+    "usePhone": "Sign up with your phone number instead",
+    "errors": {
+      "email": "Please enter a valid email address",
+      "emailTaken": "An account with this email already exists",
+      "mismatch": "Passwords do not match"
     }
   }
 }

@@ -28,6 +28,7 @@ import { ProJobPage } from './pages/pro/ProJobPage';
 import { ProProfilePage } from './pages/pro/ProProfilePage';
 import { ProWeekPage } from './pages/pro/ProWeekPage';
 import { SignInPage } from './pages/SignInPage';
+import { SignUpPage } from './pages/SignUpPage';
 import { AdminShell, CustomerShell, ProShell } from './shells/Shells';
 
 function NotFoundPage() {
@@ -46,6 +47,7 @@ export function AppRoutes() {
   return (
     <Routes>
       <Route path="/signin" element={<SignInPage />} />
+      <Route path="/signup" element={<SignUpPage />} />
       <Route path="/admin/login" element={<AdminLoginPage />} />
       <Route path="/admin/reset-password" element={<ResetPasswordPage />} />
       <Route

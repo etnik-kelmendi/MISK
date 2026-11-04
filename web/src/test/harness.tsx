@@ -42,10 +42,10 @@ export const catalogue: Catalogue = {
 };
 
 export const users: Record<'customer' | 'pro' | 'admin' | 'new', User> = {
-  customer: { id: 'u-customer', role: 'customer', phone: '+4915100000001', username: null, firstName: 'Sara' },
-  pro: { id: 'u-pro', role: 'pro', phone: '+4915100000002', username: null, firstName: 'Daniel' },
-  admin: { id: 'u-admin', role: 'admin', phone: null, username: 'admin', firstName: null },
-  new: { id: 'u-new', role: null, phone: '+4915100000003', username: null, firstName: null },
+  customer: { id: 'u-customer', role: 'customer', phone: '+4915100000001', username: null, email: null, firstName: 'Sara', lastName: null },
+  pro: { id: 'u-pro', role: 'pro', phone: '+4915100000002', username: null, email: null, firstName: 'Daniel', lastName: null },
+  admin: { id: 'u-admin', role: 'admin', phone: null, username: 'admin', email: null, firstName: null, lastName: null },
+  new: { id: 'u-new', role: null, phone: '+4915100000003', username: null, email: null, firstName: null, lastName: null },
 };
 
 type Reply = { status?: number; body?: unknown } | ((request: { body: unknown; url: URL }) => { status?: number; body?: unknown });

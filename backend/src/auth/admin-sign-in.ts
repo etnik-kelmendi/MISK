@@ -28,7 +28,7 @@ export async function adminLogin(
   }
 
   const found = await pool.query<User & { password_hash: string }>(
-    `SELECT id, role, phone, username, first_name AS "firstName", password_hash
+    `SELECT id, role, phone, username, email, first_name AS "firstName", last_name AS "lastName", password_hash
      FROM users WHERE username = $1 AND role = 'admin' AND disabled_at IS NULL`,
     [username],
   );
@@ -41,6 +41,14 @@ export async function adminLogin(
     return { outcome: 'invalid_credentials' };
   }
   await clearAttempts(pool, [accountKey]);
-  const user: User = { id: row.id, role: row.role, phone: row.phone, username: row.username, firstName: row.firstName };
+  const user: User = {
+    id: row.id,
+    role: row.role,
+    phone: row.phone,
+    username: row.username,
+    email: row.email,
+    firstName: row.firstName,
+    lastName: row.lastName,
+  };
   return { outcome: 'success', user, token: await createSession(pool, user.id) };
 }

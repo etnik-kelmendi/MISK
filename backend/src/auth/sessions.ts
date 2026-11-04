@@ -10,7 +10,9 @@ export interface User {
   role: Role | null;
   phone: string | null;
   username: string | null;
+  email: string | null;
   firstName: string | null;
+  lastName: string | null;
 }
 
 export const SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
@@ -68,7 +70,7 @@ export async function createSession(pool: Queryable, userId: string): Promise<st
   return token;
 }
 
-const USER_COLUMNS = `users.id, users.role, users.phone, users.username, users.first_name AS "firstName"`;
+export const USER_COLUMNS = `users.id, users.role, users.phone, users.username, users.email, users.first_name AS "firstName", users.last_name AS "lastName"`;
 
 export async function findSessionUser(pool: Queryable, token: string): Promise<User | null> {
   const result = await pool.query<User>(

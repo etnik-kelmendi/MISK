@@ -7,7 +7,9 @@ export interface User {
   role: Role | null;
   phone: string | null;
   username: string | null;
+  email: string | null;
   firstName: string | null;
+  lastName: string | null;
 }
 
 export type IconName = 'leaf' | 'hammer' | 'drop' | 'bolt' | 'sparkle' | 'brush' | 'wrench' | 'sun';
