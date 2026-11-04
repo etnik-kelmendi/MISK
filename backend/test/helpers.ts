@@ -9,7 +9,7 @@ import { hashPassword } from '../src/auth/passwords.js';
 import type { BookingDeps } from '../src/bookings/events.js';
 import { loadConfig, type Config } from '../src/config.js';
 import type { EmailMessage } from '../src/notifications/email.js';
-import { createDiskStorage } from '../src/uploads/storage.js';
+import { createDiskStorage, type FileStorage } from '../src/uploads/storage.js';
 import { createFakeGateway, type FakeGateway } from './fake-gateway.js';
 
 export const ORIGIN = 'http://localhost:5173';
@@ -33,6 +33,8 @@ export interface TestContext {
   texts: { to: string; body: string }[];
   /** Every email the app sent. */
   emails: EmailMessage[];
+  /** Where the app keeps uploads, for tests that add files directly. */
+  storage: FileStorage;
   deps: BookingDeps;
   close: () => Promise<void>;
 }
@@ -48,6 +50,7 @@ export async function createTestContext(): Promise<TestContext> {
   const texts: { to: string; body: string }[] = [];
   const emails: EmailMessage[] = [];
   const uploadDir = mkdtempSync(join(tmpdir(), 'misk-test-uploads-'));
+  const storage = createDiskStorage(uploadDir);
   const app = await buildApp({
     config,
     pool,
@@ -59,7 +62,7 @@ export async function createTestContext(): Promise<TestContext> {
     email: async (message) => {
       emails.push(message);
     },
-    storage: createDiskStorage(uploadDir),
+    storage,
     // TEST_LOG=1 npm test shows the API's error log while debugging a failing test.
     logger: process.env.TEST_LOG ? { level: 'error' } : false,
   });
@@ -70,6 +73,7 @@ export async function createTestContext(): Promise<TestContext> {
     fake,
     texts,
     emails,
+    storage,
     deps: { pool, gateway: fake.gateway, config, log: app.log },
     close: async () => {
       await app.close();

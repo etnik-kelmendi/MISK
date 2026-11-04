@@ -55,6 +55,35 @@ under **Catalogue**. Sign up a pro at `/signin`, approve them under **Pros**, an
 (Stripe test onboarding accepts test bank details). Customers can book once a pro covers their postcode.
 Pay with Stripe's test card `4242 4242 4242 4242`.
 
+## Demo data
+
+Two ways to work with a full, realistic marketplace without typing data in:
+
+| Command (in `backend/`) | What you get |
+| ----------------------- | ------------ |
+| `npm run preview:server` | A throwaway API on port 3100 with fake payments, filled with demo data on every start. Run the web app with `VITE_API_BASE_URL=http://localhost:3100`. Everything works end to end, including completing, paying and refunding the demo jobs. |
+| `npm run db:seed` | Fills your own development database (`npm run db:dev`). Refuses a database that already has users; `npm run db:seed -- --reset` empties it first. Never runs with `NODE_ENV=production`. |
+
+The demo data (`backend/src/seed/demo-data.ts`) is the same every time, with dates relative to today:
+
+- 8 Berlin postcodes, the demo's 6 categories and 18 services, 4 monthly plans (3 live, 1 draft)
+- 9 pros: 6 approved with payouts, plus one each submitted (to review), rejected (with a note) and draft, all with documents
+- 9 customers: 5 sign in by phone, 4 by email
+- About 74 bookings: eight weeks of finished jobs with ratings, photos, extra work, payouts, cancellations and refunds,
+  plus one job of each live state today: working, on the way (with extra work waiting for approval), accepted,
+  searching (with a 15-minute offer), unassigned and awaiting payment
+
+| Sign in as | Where | With |
+| ---------- | ----- | ---- |
+| Admin | `/admin/login` | `admin` / `demo admin password` |
+| Customer by email | `/signin` | `anna@example.com` (or `ben@`, `clara@`, `emil@example.com`) / `garden42` |
+| Customer by phone | `/signin?method=phone` | `+4915100000001` (Sara, has a job in progress) |
+| Pro by phone | `/signin?method=phone` | `+4915200000001` (Daniel, gardener) |
+
+Phone codes appear in the API log without Twilio; in the preview also at
+`http://localhost:3100/test/last-code?phone=%2B4915100000001`. With `db:seed` and real Stripe test keys, seeded bookings carry
+made-up payment ids, so do not complete or refund them there; use the preview for that.
+
 ## Checks
 
 | Where      | Command              | What it checks                                                  |

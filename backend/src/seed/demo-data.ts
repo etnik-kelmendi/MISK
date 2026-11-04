@@ -1,0 +1,540 @@
+import type { Pool, PoolClient } from 'pg';
+import { hashPassword } from '../auth/passwords.js';
+import { jobPriceCents, proShareCents, type JobSize } from '../catalogue/pricing.js';
+import { withTransaction } from '../db.js';
+import type { FileStorage } from '../uploads/storage.js';
+import { makeDocument, makePhoto } from './images.js';
+
+/**
+ * Demo data for development and the preview: a served city, the demo's catalogue and plans, pros in
+ * every application state, customers who sign in by phone or email, and eight weeks of bookings in
+ * every status with ratings, extra work and payouts. Times are relative to today, so the data never
+ * goes stale. Deterministic: the same people and bookings every run.
+ *
+ * Never for production: every password below is public.
+ */
+export const DEMO_ADMIN = { username: 'admin', password: 'demo admin password' };
+export const DEMO_CUSTOMER_PASSWORD = 'garden42';
+
+export interface SeededIntent {
+  id: string;
+  amountCents: number;
+  status: 'held' | 'captured' | 'released' | 'refunded';
+}
+
+export interface SeedSummary {
+  postcodes: number;
+  categories: number;
+  services: number;
+  plans: number;
+  pros: number;
+  customers: number;
+  bookings: number;
+  ratings: number;
+  /** Payment ids the data refers to, so a fake payment provider can be told about them. */
+  intents: SeededIntent[];
+}
+
+const POSTCODES: [string, string, number, number][] = [
+  ['10115', 'Mitte', 52.5323, 13.3846],
+  ['10117', 'Mitte South', 52.517, 13.3889],
+  ['10405', 'Prenzlauer Berg', 52.5373, 13.4245],
+  ['10557', 'Moabit', 52.5246, 13.361],
+  ['10785', 'Tiergarten South', 52.505, 13.364],
+  ['10961', 'Kreuzberg', 52.493, 13.399],
+  ['12043', 'Neukölln', 52.481, 13.435],
+  ['14167', 'Zehlendorf', 52.418, 13.26],
+];
+
+type Icon = 'leaf' | 'hammer' | 'drop' | 'bolt' | 'sparkle' | 'brush';
+/** The demo's catalogue: [slug, name, icon, [name, price €, minutes, description][]]. */
+const CATALOGUE: [string, string, Icon, [string, number, number, string][]][] = [
+  ['gardening', 'Gardening', 'leaf', [
+    ['Lawn mowing', 35, 60, 'Mow, edge and clear the clippings'],
+    ['Hedge trimming', 45, 90, 'Shape hedges and bushes, waste taken away'],
+    ['Garden clean-up', 79, 180, 'Weeding, leaves and flower beds tidied'],
+    ['Planting', 55, 120, 'Flowers, shrubs or small trees planted'],
+  ]],
+  ['handyman', 'Handyman', 'hammer', [
+    ['Furniture assembly', 40, 90, 'Wardrobes, beds, shelves and more'],
+    ['TV & shelf mounting', 49, 60, 'Wall mounting with cables hidden'],
+    ['Small repairs', 32, 60, 'Doors, handles, hinges, silicone'],
+  ]],
+  ['plumbing', 'Plumbing', 'drop', [
+    ['Leak repair', 59, 60, 'Find and fix leaking pipes and joints'],
+    ['Tap replacement', 49, 45, 'Kitchen or bathroom tap swapped'],
+    ['Drain unblocking', 69, 60, 'Sinks, showers and toilets cleared'],
+  ]],
+  ['electrical', 'Electrical', 'bolt', [
+    ['Light fitting', 45, 60, 'Install or replace ceiling lights'],
+    ['Socket install', 39, 45, 'New or replacement sockets and switches'],
+    ['Fault finding', 55, 60, 'Tripping fuses and dead circuits'],
+  ]],
+  ['cleaning', 'Cleaning', 'sparkle', [
+    ['Home cleaning', 49, 150, 'Kitchen, bathrooms, floors and dusting'],
+    ['Deep cleaning', 119, 300, 'Top-to-bottom, inside cupboards and appliances'],
+    ['Window cleaning', 39, 90, 'Inside and out, frames included'],
+  ]],
+  ['painting', 'Painting', 'brush', [
+    ['Room painting', 189, 480, 'Walls and ceiling of one room, paint included'],
+    ['Wall touch-up', 69, 120, 'Patch holes and repaint marks'],
+  ]],
+];
+
+interface ProSeed {
+  key: string;
+  firstName: string;
+  phone: string;
+  status: 'approved' | 'submitted' | 'rejected' | 'draft';
+  trades: string[];
+  home: string;
+  radius: number;
+  days: number[];
+  /** Stars this pro's customers usually give, cycled through. */
+  stars: number[];
+  note?: string;
+}
+
+const EVERY_DAY = [1, 2, 3, 4, 5, 6, 7];
+const PROS: ProSeed[] = [
+  { key: 'daniel', firstName: 'Daniel', phone: '+4915200000001', status: 'approved', trades: ['gardening'], home: '10115', radius: 15, days: EVERY_DAY, stars: [5, 5, 5, 4, 5] },
+  { key: 'arben', firstName: 'Arben', phone: '+4915200000002', status: 'approved', trades: ['plumbing'], home: '10961', radius: 15, days: EVERY_DAY, stars: [5, 4, 5, 5] },
+  { key: 'marta', firstName: 'Marta', phone: '+4915200000003', status: 'approved', trades: ['handyman', 'painting'], home: '10405', radius: 12, days: [1, 2, 3, 4, 5, 6], stars: [5, 4, 4, 5] },
+  { key: 'ina', firstName: 'Ina', phone: '+4915200000004', status: 'approved', trades: ['cleaning'], home: '10557', radius: 12, days: EVERY_DAY, stars: [5, 5, 4] },
+  { key: 'faton', firstName: 'Faton', phone: '+4915200000005', status: 'approved', trades: ['electrical', 'handyman'], home: '12043', radius: 15, days: [1, 2, 3, 4, 5], stars: [4, 5, 4, 3, 5] },
+  { key: 'jonas', firstName: 'Jonas', phone: '+4915200000006', status: 'approved', trades: ['gardening', 'cleaning'], home: '10785', radius: 10, days: [2, 4, 6, 7], stars: [4, 4, 5] },
+  { key: 'luan', firstName: 'Luan', phone: '+4915200000007', status: 'submitted', trades: ['painting'], home: '10117', radius: 12, days: [1, 2, 3, 4, 5], stars: [] },
+  { key: 'besa', firstName: 'Besa', phone: '+4915200000008', status: 'rejected', trades: ['electrical'], home: '12043', radius: 8, days: [1, 3, 5], stars: [], note: 'The trade certificate is not readable. Please upload a clearer scan.' },
+  { key: 'dren', firstName: 'Dren', phone: '+4915200000009', status: 'draft', trades: ['handyman'], home: '10405', radius: 10, days: [6, 7], stars: [] },
+];
+
+interface CustomerSeed {
+  key: string;
+  firstName: string;
+  lastName: string | null;
+  phone: string | null;
+  email: string | null;
+  postcode: string;
+  address: string;
+}
+
+const CUSTOMERS: CustomerSeed[] = [
+  { key: 'sara', firstName: 'Sara', lastName: null, phone: '+4915100000001', email: null, postcode: '10115', address: '12 Linden Street' },
+  { key: 'tom', firstName: 'Tom', lastName: null, phone: '+4915100000002', email: null, postcode: '10405', address: '4 Elm Court' },
+  { key: 'lea', firstName: 'Lea', lastName: null, phone: '+4915100000003', email: null, postcode: '10961', address: '21 Birch Road' },
+  { key: 'noah', firstName: 'Noah', lastName: null, phone: '+4915100000004', email: null, postcode: '10557', address: '9 Cedar Close' },
+  { key: 'mila', firstName: 'Mila', lastName: null, phone: '+4915100000005', email: null, postcode: '12043', address: '2 Pine Street' },
+  { key: 'anna', firstName: 'Anna', lastName: 'Schmidt', phone: null, email: 'anna@example.com', postcode: '10117', address: '17 Maple Lane' },
+  { key: 'ben', firstName: 'Ben', lastName: 'Keller', phone: null, email: 'ben@example.com', postcode: '10785', address: '8 Oak Avenue' },
+  { key: 'clara', firstName: 'Clara', lastName: 'Wolf', phone: null, email: 'clara@example.com', postcode: '10115', address: '30 Willow Way' },
+  { key: 'emil', firstName: 'Emil', lastName: 'Braun', phone: null, email: 'emil@example.com', postcode: '14167', address: '5 Ash Road' },
+];
+
+const PLANS = [
+  { name: 'Lawn care', category: 'gardening', price: 4900, frequency: 'weekly', minutes: 60, tasks: ['Mow', 'Edge', 'Blow paths'], addon: ['Hedge trimming', 1500], season: [4, 10], status: 'published' },
+  { name: 'Full garden care', category: 'gardening', price: 8900, frequency: 'weekly', minutes: 120, tasks: ['Lawn', 'Beds & weeding', 'Hedges', 'Watering check'], addon: ['Seasonal pruning', 1900], season: null, status: 'published' },
+  { name: 'Home cleaning', category: 'cleaning', price: 6900, frequency: 'every_2_weeks', minutes: 150, tasks: ['Kitchen', 'Bathrooms', 'Floors', 'Dusting'], addon: ['Oven cleaning', 1200], season: null, status: 'published' },
+  { name: 'Handyman on call', category: 'handyman', price: 3900, frequency: 'every_2_weeks', minutes: 60, tasks: ['1 h per visit', 'Small repairs', 'Assembly', 'Odd jobs'], addon: ['Same-day priority', 2000], season: null, status: 'draft' },
+] as const;
+
+const EXTRAS: [string, number][] = [
+  ['Trim the front hedge', 2000],
+  ['Clear the gutter', 2500],
+  ['Replace a second tap washer', 1200],
+  ['Hang two extra shelves', 1800],
+];
+
+const TAGS = [['on_time', 'tidy'], ['friendly'], ['great_value', 'on_time'], ['extra_mile', 'friendly', 'tidy'], []];
+const SIZES: JobSize[] = ['M', 'S', 'L', 'M'];
+const HOURS = [8, 10, 12, 14, 16];
+
+interface ServiceRow {
+  id: string;
+  categoryId: string;
+  slug: string;
+  name: string;
+  priceCents: number;
+  durationMinutes: number;
+  sizeSmallPct: number;
+  sizeMediumPct: number;
+  sizeLargePct: number;
+}
+
+/** A local slot in the market time zone, `day` days from today, as SQL. */
+const SLOT = `((now() AT TIME ZONE $tz)::date + $day::int + make_interval(hours => $hour::int)) AT TIME ZONE $tz`;
+
+export async function seedDemoData(pool: Pool, storage: FileStorage, options: { timezone: string }): Promise<SeedSummary> {
+  const existing = await pool.query<{ n: number }>('SELECT count(*)::int AS n FROM users');
+  if ((existing.rows[0]?.n ?? 0) > 0) {
+    throw new Error('The database already has users. Seed only an empty database (npm run db:seed -- --reset empties it).');
+  }
+
+  // Hashing is slow, so each password is hashed once, before the transaction.
+  const [adminHash, customerHash] = await Promise.all([hashPassword(DEMO_ADMIN.password), hashPassword(DEMO_CUSTOMER_PASSWORD)]);
+  const savedFiles: string[] = [];
+  const save = async (content: Buffer) => {
+    const key = await storage.save(content);
+    savedFiles.push(key);
+    return key;
+  };
+
+  try {
+    return await withTransaction(pool, (client) => fill(client, save, options.timezone, adminHash, customerHash));
+  } catch (error) {
+    await Promise.all(savedFiles.map((key) => storage.remove(key)));
+    throw error;
+  }
+}
+
+async function fill(
+  db: PoolClient,
+  save: (content: Buffer) => Promise<string>,
+  tz: string,
+  adminHash: string,
+  customerHash: string,
+): Promise<SeedSummary> {
+  const intents: SeededIntent[] = [];
+  let ratings = 0;
+  let bookings = 0;
+
+  async function upload(ownerId: string, kind: 'document' | 'photo', content: Buffer, mime: string) {
+    const key = await save(content);
+    const row = await db.query<{ id: string }>(
+      'INSERT INTO uploads (owner_id, kind, mime, size_bytes, storage_key) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+      [ownerId, kind, mime, content.length, key],
+    );
+    return row.rows[0]?.id ?? '';
+  }
+
+  await db.query("INSERT INTO users (username, password_hash, role) VALUES ($1, $2, 'admin')", [DEMO_ADMIN.username, adminHash]);
+
+  for (const [code, name, lat, lng] of POSTCODES) {
+    await db.query('INSERT INTO postcodes (code, name, lat, lng) VALUES ($1, $2, $3, $4)', [code, name, lat, lng]);
+  }
+
+  const categoryIds = new Map<string, string>();
+  const services: ServiceRow[] = [];
+  for (const [order, [slug, name, icon, items]] of CATALOGUE.entries()) {
+    const category = await db.query<{ id: string }>(
+      'INSERT INTO categories (slug, name, icon, sort_order) VALUES ($1, $2, $3, $4) RETURNING id',
+      [slug, name, icon, order],
+    );
+    const categoryId = category.rows[0]?.id ?? '';
+    categoryIds.set(slug, categoryId);
+    for (const [index, [serviceName, euros, minutes, description]] of items.entries()) {
+      const row = await db.query<{ id: string }>(
+        `INSERT INTO services (category_id, name, description, price_cents, duration_minutes, sort_order)
+         VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+        [categoryId, serviceName, description, euros * 100, minutes, index],
+      );
+      services.push({
+        id: row.rows[0]?.id ?? '',
+        categoryId,
+        slug,
+        name: serviceName,
+        priceCents: euros * 100,
+        durationMinutes: minutes,
+        sizeSmallPct: 100,
+        sizeMediumPct: 130,
+        sizeLargePct: 170,
+      });
+    }
+  }
+
+  for (const plan of PLANS) {
+    await db.query(
+      `INSERT INTO plans (name, category_id, price_cents, frequency, visit_minutes, tasks, addon_name, addon_price_cents,
+         seasonal, season_from, season_to, status, published_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, CASE WHEN $12 = 'published' THEN now() - interval '20 days' END)`,
+      [
+        plan.name,
+        categoryIds.get(plan.category),
+        plan.price,
+        plan.frequency,
+        plan.minutes,
+        [...plan.tasks],
+        plan.addon[0],
+        plan.addon[1],
+        plan.season !== null,
+        plan.season?.[0] ?? null,
+        plan.season?.[1] ?? null,
+        plan.status,
+      ],
+    );
+  }
+
+  const proIds = new Map<string, string>();
+  for (const [index, pro] of PROS.entries()) {
+    const user = await db.query<{ id: string }>(
+      `INSERT INTO users (phone, role, first_name, created_at) VALUES ($1, 'pro', $2, now() - make_interval(days => $3)) RETURNING id`,
+      [pro.phone, pro.firstName, 90 - index * 5],
+    );
+    const id = user.rows[0]?.id ?? '';
+    proIds.set(pro.key, id);
+    const approved = pro.status === 'approved';
+    await db.query(
+      `INSERT INTO pro_profiles (user_id, status, home_postcode, radius_km, working_days, submitted_at, reviewed_at,
+         review_note, stripe_account_id, payouts_enabled)
+       VALUES ($1, $2, $3, $4, $5, CASE WHEN $2 <> 'draft' THEN now() - interval '60 days' END,
+         CASE WHEN $2 IN ('approved', 'rejected') THEN now() - interval '58 days' END, $6, $7, $8)`,
+      [id, pro.status, pro.home, pro.radius, pro.days, pro.note ?? null, approved ? `acct_seed_${pro.key}` : null, approved],
+    );
+    for (const trade of pro.trades) {
+      await db.query('INSERT INTO pro_trades (pro_id, category_id) VALUES ($1, $2)', [id, categoryIds.get(trade)]);
+    }
+    if (pro.status !== 'draft') {
+      for (const [kind, title] of [
+        ['id', 'Identity card'],
+        ['certificate', 'Trade certificate'],
+        ['insurance', 'Liability insurance'],
+      ] as const) {
+        const uploadId = await upload(id, 'document', makeDocument(`${title}: ${pro.firstName} (demo)`), 'application/pdf');
+        await db.query('INSERT INTO pro_documents (pro_id, kind, upload_id) VALUES ($1, $2, $3)', [id, kind, uploadId]);
+      }
+    }
+  }
+
+  const customerIds = new Map<string, string>();
+  for (const customer of CUSTOMERS) {
+    const user = await db.query<{ id: string }>(
+      `INSERT INTO users (phone, email, password_hash, role, first_name, last_name, terms_accepted_at, stripe_customer_id)
+       VALUES ($1, $2, $3, 'customer', $4, $5, CASE WHEN $2::text IS NOT NULL THEN now() END, $6) RETURNING id`,
+      [customer.phone, customer.email, customer.email ? customerHash : null, customer.firstName, customer.lastName, `cus_seed_${customer.key}`],
+    );
+    customerIds.set(customer.key, user.rows[0]?.id ?? '');
+  }
+
+  const approvedFor = (slug: string) => PROS.filter((p) => p.status === 'approved' && p.trades.includes(slug));
+
+  async function addBooking(input: {
+    tag: string;
+    customer: CustomerSeed;
+    service: ServiceRow;
+    size: JobSize;
+    status: string;
+    startsAt: { day: number; hour: number } | { minutesFromNow: number };
+    pro: ProSeed | null;
+    paymentStatus: 'pending' | 'held' | 'captured' | 'released' | 'refunded';
+    events: string[];
+    cancelledBy?: 'customer' | 'admin' | 'system';
+    notes?: string;
+  }) {
+    const price = jobPriceCents(input.service, input.size);
+    const intentId = `pi_seed_${input.tag}`;
+    const startSql =
+      'day' in input.startsAt
+        ? SLOT.replaceAll('$tz', '$14').replaceAll('$day', '$15').replaceAll('$hour', '$16')
+        : // Every parameter must appear in the SQL, so the unused time zone and hour cancel out here.
+          `date_trunc('minute', now()) + make_interval(mins => $15::int, hours => COALESCE($16::int, 0)) + ($14::text IS NULL)::int * interval '0'`;
+    const startValues = 'day' in input.startsAt ? [input.startsAt.day, input.startsAt.hour] : [input.startsAt.minutesFromNow, null];
+    const row = await db.query<{ id: string; starts_at: Date; ends_at: Date }>(
+      `WITH s AS (SELECT ${startSql} AS starts_at)
+       INSERT INTO bookings (customer_id, service_id, category_id, service_name, size, address, postcode, notes,
+         starts_at, ends_at, status, price_cents, fee_cents, pro_share_pct, pro_id, payment_intent_id, payment_status,
+         cancelled_by, created_at, completed_at)
+       SELECT $1, $2, $3, $4, $5, $6, $7, $8, s.starts_at, s.starts_at + make_interval(mins => $9::int), $10, $11, 290, 82,
+         $12, $13, $17, $18,
+         CASE WHEN s.starts_at < now() THEN s.starts_at - interval '2 days' ELSE LEAST(now(), s.starts_at - interval '3 hours') END,
+         CASE WHEN $10 = 'completed' THEN s.starts_at + make_interval(mins => $9::int) END
+       FROM s
+       RETURNING id, starts_at, ends_at`,
+      [
+        customerIds.get(input.customer.key),
+        input.service.id,
+        input.service.categoryId,
+        input.service.name,
+        input.size,
+        input.customer.address,
+        input.customer.postcode,
+        input.notes ?? '',
+        input.service.durationMinutes,
+        input.status,
+        price,
+        input.pro ? proIds.get(input.pro.key) : null,
+        intentId,
+        tz,
+        ...startValues,
+        input.paymentStatus,
+        input.cancelledBy ?? null,
+      ],
+    );
+    const booking = row.rows[0];
+    if (!booking) {
+      throw new Error('Booking insert returned nothing');
+    }
+    bookings += 1;
+    if (input.paymentStatus !== 'pending') {
+      intents.push({ id: intentId, amountCents: price + 290, status: input.paymentStatus });
+    }
+    // Each step of the timeline at a plausible moment between booking and finishing, never in the future.
+    for (const status of input.events) {
+      await db.query(
+        `INSERT INTO booking_events (booking_id, status, created_at)
+         SELECT id, $2, LEAST(now(), CASE $2
+           WHEN 'awaiting_payment' THEN created_at
+           WHEN 'searching' THEN created_at + interval '1 minute'
+           WHEN 'accepted' THEN created_at + interval '9 minutes'
+           WHEN 'unassigned' THEN created_at + interval '50 minutes'
+           WHEN 'cancelled' THEN created_at + interval '3 hours'
+           WHEN 'on_the_way' THEN starts_at - interval '30 minutes'
+           WHEN 'working' THEN starts_at
+           ELSE ends_at END)
+         FROM bookings WHERE id = $1`,
+        [booking.id, status],
+      );
+    }
+    return { id: booking.id, price, startsAt: booking.starts_at, endsAt: booking.ends_at };
+  }
+
+  async function addPayout(bookingId: string, pro: ProSeed, tag: string, amountCents: number, reversed = false) {
+    await db.query(
+      `INSERT INTO payouts (booking_id, pro_id, payment_intent_id, charge_id, amount_cents, transfer_id, status, created_at)
+       SELECT $1, $2, $3, $4, $5, $6, $7, completed_at FROM bookings WHERE id = $1`,
+      [bookingId, proIds.get(pro.key), `pi_seed_${tag}`, `ch_seed_${tag}`, amountCents, `tr_seed_${tag}`, reversed ? 'reversed' : 'sent'],
+    );
+  }
+
+  const COMPLETED_EVENTS = ['awaiting_payment', 'searching', 'accepted', 'on_the_way', 'working', 'completed'];
+  const bookable = services.filter((s) => approvedFor(s.slug).length > 0);
+
+  // Eight weeks of history: mostly finished jobs, some cancelled, a few refunded.
+  for (let i = 0; i < 64; i += 1) {
+    const service = bookable[(i * 7) % bookable.length] as ServiceRow;
+    const pros = approvedFor(service.slug);
+    const pro = pros[i % pros.length] as ProSeed;
+    const customer = CUSTOMERS[i % CUSTOMERS.length] as CustomerSeed;
+    const day = -1 - Math.floor((i * 55) / 64);
+    const hour = HOURS[(i * 3) % HOURS.length] as number;
+    const size = SIZES[i % SIZES.length] as JobSize;
+    const tag = `past${i}`;
+
+    if (i % 13 === 5) {
+      await addBooking({
+        tag, customer, service, size, pro: null, status: 'cancelled', paymentStatus: 'released', cancelledBy: 'customer',
+        startsAt: { day, hour }, events: ['awaiting_payment', 'searching', 'cancelled'],
+      });
+      continue;
+    }
+    const refunded = i % 17 === 9;
+    const booking = await addBooking({
+      tag, customer, service, size, pro, status: 'completed', paymentStatus: refunded ? 'refunded' : 'captured',
+      startsAt: { day, hour }, events: COMPLETED_EVENTS,
+    });
+    await addPayout(booking.id, pro, tag, proShareCents(booking.price, 82), refunded);
+
+    if (i % 7 === 3) {
+      const [description, extraPrice] = EXTRAS[i % EXTRAS.length] as [string, number];
+      const extraTag = `${tag}x`;
+      await db.query(
+        `INSERT INTO extra_requests (booking_id, description, price_cents, status, payment_intent_id, payment_status, created_at, decided_at)
+         VALUES ($1, $2, $3, 'approved', $4, $5, $6, $6)`,
+        [booking.id, description, extraPrice, `pi_seed_${extraTag}`, refunded ? 'refunded' : 'captured', booking.startsAt],
+      );
+      intents.push({ id: `pi_seed_${extraTag}`, amountCents: extraPrice, status: refunded ? 'refunded' : 'captured' });
+      await addPayout(booking.id, pro, extraTag, proShareCents(extraPrice, 82), refunded);
+    }
+    if (i < 8) {
+      const proId = proIds.get(pro.key) ?? '';
+      for (let p = 0; p < 2; p += 1) {
+        const photoId = await upload(proId, 'photo', makePhoto([62 + p * 20, 155 - i * 4, 107]), 'image/png');
+        await db.query("INSERT INTO booking_photos (upload_id, booking_id, kind, created_at) VALUES ($1, $2, 'completion', $3)", [
+          photoId,
+          booking.id,
+          booking.endsAt,
+        ]);
+      }
+    }
+    if (i % 6 !== 4) {
+      const stars = pro.stars[i % pro.stars.length] ?? 5;
+      await db.query(
+        `INSERT INTO ratings (booking_id, pro_id, customer_id, stars, tags, created_at) VALUES ($1, $2, $3, $4, $5, $6)`,
+        [booking.id, proIds.get(pro.key), customerIds.get(customer.key), stars, TAGS[i % TAGS.length], booking.endsAt],
+      );
+      ratings += 1;
+    }
+  }
+
+  // What is happening now and next: one job of each live status.
+  const find = (name: string) => services.find((s) => s.name === name) as ServiceRow;
+  const byKey = (list: { key: string }[], key: string) => list.find((x) => x.key === key);
+  const customer = (key: string) => byKey(CUSTOMERS, key) as CustomerSeed;
+  const pro = (key: string) => byKey(PROS, key) as ProSeed;
+  const LIVE = ['awaiting_payment', 'searching', 'accepted'];
+
+  await addBooking({
+    tag: 'working', customer: customer('sara'), service: find('Lawn mowing'), size: 'M', pro: pro('daniel'), status: 'working',
+    paymentStatus: 'held', startsAt: { minutesFromNow: -30 }, events: [...LIVE, 'on_the_way', 'working'],
+    notes: 'Gate code 4411. The lawn at the back is the larger part.',
+  });
+  const extraBooking = await addBooking({
+    tag: 'ontheway', customer: customer('lea'), service: find('Leak repair'), size: 'M', pro: pro('arben'), status: 'on_the_way',
+    paymentStatus: 'held', startsAt: { minutesFromNow: 40 }, events: [...LIVE, 'on_the_way'],
+    notes: 'The leak is under the kitchen sink.',
+  });
+  await db.query(`INSERT INTO extra_requests (booking_id, description, price_cents) VALUES ($1, 'Replace the old siphon too', 1800)`, [
+    extraBooking.id,
+  ]);
+
+  const upcoming: [string, string, string, JobSize, number, number][] = [
+    ['tom', 'Furniture assembly', 'marta', 'L', 1, 10],
+    ['anna', 'Home cleaning', 'ina', 'M', 1, 8],
+    ['clara', 'Hedge trimming', 'daniel', 'M', 2, 12],
+    ['noah', 'Light fitting', 'faton', 'S', 3, 14],
+  ];
+  for (const [index, [who, serviceName, proKey, size, day, hour]] of upcoming.entries()) {
+    const booking = await addBooking({
+      tag: `next${index}`, customer: customer(who), service: find(serviceName), size, pro: pro(proKey), status: 'accepted',
+      paymentStatus: 'held', startsAt: { day, hour }, events: LIVE,
+    });
+    if (index === 0) {
+      const photoId = await upload(customerIds.get(who) ?? '', 'photo', makePhoto([180, 150, 110]), 'image/png');
+      await db.query("INSERT INTO booking_photos (upload_id, booking_id, kind) VALUES ($1, $2, 'customer')", [photoId, booking.id]);
+    }
+  }
+
+  // Waiting for a pro to accept, with a live 15-minute offer.
+  for (const [index, [who, serviceName, proKey, day, hour]] of (
+    [
+      ['mila', 'Drain unblocking', 'arben', 2, 10],
+      ['ben', 'Window cleaning', 'jonas', 4, 14],
+    ] as const
+  ).entries()) {
+    const booking = await addBooking({
+      tag: `offer${index}`, customer: customer(who), service: find(serviceName), size: 'M', pro: null, status: 'searching',
+      paymentStatus: 'held', startsAt: { day, hour }, events: ['awaiting_payment', 'searching'],
+    });
+    await db.query(
+      `INSERT INTO booking_offers (booking_id, pro_id, expires_at) VALUES ($1, $2, now() + interval '12 minutes')`,
+      [booking.id, proIds.get(proKey)],
+    );
+  }
+
+  // Nobody could take it: the admins see it under "Needs attention".
+  const lonely = await addBooking({
+    tag: 'unassigned', customer: customer('emil'), service: find('Room painting'), size: 'M', pro: null, status: 'unassigned',
+    paymentStatus: 'held', startsAt: { day: 1, hour: 8 }, events: ['awaiting_payment', 'searching', 'unassigned'],
+  });
+  await db.query(
+    `INSERT INTO booking_offers (booking_id, pro_id, status, expires_at, responded_at)
+     VALUES ($1, $2, 'declined', now() - interval '1 hour', now() - interval '70 minutes')`,
+    [lonely.id, proIds.get('marta')],
+  );
+
+  // Booked a moment ago, card not confirmed yet.
+  await addBooking({
+    tag: 'unpaid', customer: customer('tom'), service: find('Socket install'), size: 'S', pro: null, status: 'awaiting_payment',
+    paymentStatus: 'pending', startsAt: { day: 3, hour: 16 }, events: ['awaiting_payment'],
+  });
+
+  return {
+    postcodes: POSTCODES.length,
+    categories: CATALOGUE.length,
+    services: services.length,
+    plans: PLANS.length,
+    pros: PROS.length,
+    customers: CUSTOMERS.length,
+    bookings,
+    ratings,
+    intents,
+  };
+}

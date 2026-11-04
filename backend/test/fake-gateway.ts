@@ -91,6 +91,12 @@ export function createFakeGateway(options: { instantHolds?: boolean } = {}) {
     intents,
     transfers,
     failures,
+    /** Makes payments that already exist in seeded data known to the fake. */
+    addIntents(seeded: { id: string; amountCents: number; status: FakeIntent['status'] }[]) {
+      for (const intent of seeded) {
+        intents.set(intent.id, { ...intent, metadata: {} });
+      }
+    },
     /** Forgets everything, for a clean start in each test. */
     reset() {
       intents.clear();

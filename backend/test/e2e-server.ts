@@ -10,6 +10,8 @@ import { createSmtpSender, type EmailMessage } from '../src/notifications/email.
 import { startWorkers } from '../src/workers.js';
 import { startTemporaryDatabase } from './embedded-db.js';
 import { createFakeGateway } from './fake-gateway.js';
+import { DEMO_ADMIN, seedDemoData } from '../src/seed/demo-data.js';
+import { createDiskStorage } from '../src/uploads/storage.js';
 
 /**
  * The real API on a throwaway database, for the web app's browser tests. Payments use the in-memory
@@ -36,32 +38,42 @@ const config = loadConfig({
 const smtp = config.smtp ? createSmtpSender(config.smtp) : null;
 const pool = new pg.Pool({ connectionString: config.databaseUrl });
 
-await pool.query(
-  `INSERT INTO postcodes (code, name, lat, lng) VALUES ('10115', 'Mitte', 52.5323, 13.3846), ('10117', 'Mitte South', 52.517, 13.3889)`,
-);
-const category = await pool.query<{ id: string }>(
-  `INSERT INTO categories (slug, name, icon) VALUES ('gardening', 'Gardening', 'leaf') RETURNING id`,
-);
-const categoryId = category.rows[0]?.id;
-await pool.query(
-  `INSERT INTO services (category_id, name, description, price_cents, duration_minutes)
-   VALUES ($1, 'Lawn mowing', 'Mow, edge and clear the clippings', 3500, 60)`,
-  [categoryId],
-);
-await pool.query(`INSERT INTO users (username, password_hash, role) VALUES ('admin', $1, 'admin')`, [
-  await hashPassword('e2e admin password'),
-]);
-// One approved pro who works every day near 10115, ready for offers.
-const pro = await pool.query<{ id: string }>(
-  `INSERT INTO users (phone, role, first_name) VALUES ('+4915100000002', 'pro', 'Daniel') RETURNING id`,
-);
-const proId = pro.rows[0]?.id;
-await pool.query(
-  `INSERT INTO pro_profiles (user_id, status, home_postcode, radius_km, working_days, stripe_account_id, payouts_enabled)
-   VALUES ($1, 'approved', '10115', 15, '{1,2,3,4,5,6,7}', 'acct_e2e', true)`,
-  [proId],
-);
-await pool.query('INSERT INTO pro_trades (pro_id, category_id) VALUES ($1, $2)', [proId, categoryId]);
+// --demo fills the database with the full demo data (the preview); without it, the small fixed data the
+// browser tests rely on.
+const demo = process.argv.includes('--demo');
+const fake = createFakeGateway({ instantHolds: true });
+if (demo) {
+  const summary = await seedDemoData(pool, createDiskStorage(uploadDir), { timezone: config.timezone });
+  fake.addIntents(summary.intents);
+  console.log(`Demo data: ${summary.bookings} bookings, ${summary.pros} pros, ${summary.customers} customers. Admin: ${DEMO_ADMIN.username} / ${DEMO_ADMIN.password}`);
+} else {
+  await pool.query(
+    `INSERT INTO postcodes (code, name, lat, lng) VALUES ('10115', 'Mitte', 52.5323, 13.3846), ('10117', 'Mitte South', 52.517, 13.3889)`,
+  );
+  const category = await pool.query<{ id: string }>(
+    `INSERT INTO categories (slug, name, icon) VALUES ('gardening', 'Gardening', 'leaf') RETURNING id`,
+  );
+  const categoryId = category.rows[0]?.id;
+  await pool.query(
+    `INSERT INTO services (category_id, name, description, price_cents, duration_minutes)
+     VALUES ($1, 'Lawn mowing', 'Mow, edge and clear the clippings', 3500, 60)`,
+    [categoryId],
+  );
+  await pool.query(`INSERT INTO users (username, password_hash, role) VALUES ('admin', $1, 'admin')`, [
+    await hashPassword('e2e admin password'),
+  ]);
+  // One approved pro who works every day near 10115, ready for offers.
+  const pro = await pool.query<{ id: string }>(
+    `INSERT INTO users (phone, role, first_name) VALUES ('+4915100000002', 'pro', 'Daniel') RETURNING id`,
+  );
+  const proId = pro.rows[0]?.id;
+  await pool.query(
+    `INSERT INTO pro_profiles (user_id, status, home_postcode, radius_km, working_days, stripe_account_id, payouts_enabled)
+     VALUES ($1, 'approved', '10115', 15, '{1,2,3,4,5,6,7}', 'acct_e2e', true)`,
+    [proId],
+  );
+  await pool.query('INSERT INTO pro_trades (pro_id, category_id) VALUES ($1, $2)', [proId, categoryId]);
+}
 
 // An extra admin for trying the preview, from backend/.env (never from the repository).
 const previewEmail = process.env.PREVIEW_ADMIN_EMAIL?.trim().toLowerCase();
@@ -77,7 +89,6 @@ if (previewEmail && previewPassword) {
 const texts: { to: string; body: string }[] = [];
 // Emails stay in memory and are printed here, so the preview can show a reset link without a mail server.
 const emails: EmailMessage[] = [];
-const fake = createFakeGateway({ instantHolds: true });
 const app = await buildApp({
   config,
   pool,
