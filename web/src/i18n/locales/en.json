@@ -694,7 +694,7 @@
       "visitsHint": "≈ {{visits}} visits a month",
       "visitHint": "Reserves the pro's time in their calendar",
       "newTask": "Add a task",
-      "addTask": "Add",
+      "addTask": "Add task",
       "removeTask": "Remove {{task}}",
       "tasksHint": "Add at least one task.",
       "addonHint": "Leave empty for no extra.",
@@ -716,7 +716,11 @@
       "unpublish": "Unpublish",
       "saved": "Draft saved.",
       "liveNote": "Customers can subscribe now.",
-      "draftNote": "Changes appear in the app once you publish."
+      "draftNote": "Changes appear in the app once you publish.",
+      "newTaskPlaceholder": "Add task + Enter",
+      "taskDuplicate": "\"{{task}}\" is already in the list.",
+      "taskLimit": "A plan can include at most 12 tasks.",
+      "subscribe": "Subscribe"
     }
   },
   "signUp": {

@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { CustomerBooking, ProProfile } from './api/types';
 import { fakeApi, renderAt, users } from './test/harness';
@@ -529,6 +529,107 @@ describe('plan builder', () => {
     expect(await screen.findByRole('heading', { name: 'Plan published' })).toBeInTheDocument();
     expect(api.bodies['POST /admin/plans']).toMatchObject({ name: 'Weekly lawn care', priceCents: 4900, tasks: ['Mow', 'Edge'], frequency: 'weekly' });
     expect(api.bodies['POST /admin/plans/plan-1/status']).toEqual({ published: true });
+  });
+});
+
+describe('plan page', () => {
+  function openNewPlan() {
+    const api = fakeApi(users.admin);
+    api.on('GET /admin/catalogue', {
+      body: {
+        categories: [
+          { id: 'cat-garden', slug: 'gardening', name: 'Gardening', icon: 'leaf', sortOrder: 0, active: true },
+          { id: 'cat-clean', slug: 'cleaning', name: 'Cleaning', icon: 'sparkle', sortOrder: 1, active: true },
+        ],
+        services: [],
+      },
+    });
+    renderAt('/admin/plans/new');
+    return api;
+  }
+
+  it('sets the name, category, monthly price, how often, visit length and minimum term', async () => {
+    const api = openNewPlan();
+    api.on('POST /admin/plans', ({ body }) => ({ status: 201, body: { plan: { id: 'p1', status: 'draft', categoryName: 'Cleaning', categoryIcon: 'sparkle', publishedAt: null, updatedAt: '', ...(body as object) } } }));
+    api.on('GET /admin/plans/p1', { status: 404, body: { error: 'not_found' } });
+    await user().type(await screen.findByLabelText('Plan name'), 'Home cleaning');
+    await user().selectOptions(screen.getByLabelText('Category'), 'Cleaning');
+    await user().type(screen.getByLabelText('Monthly price (€)'), '69');
+    expect(screen.getByText('Medium size. Small −15%, large +35%.')).toBeInTheDocument();
+    await user().selectOptions(screen.getByLabelText('How often'), 'Every 2 weeks');
+    expect(screen.getByText('≈ 2.2 visits a month')).toBeInTheDocument();
+    await user().clear(screen.getByLabelText('Visit length (minutes)'));
+    await user().type(screen.getByLabelText('Visit length (minutes)'), '150');
+    await user().clear(screen.getByLabelText('Minimum term (months)'));
+    await user().type(screen.getByLabelText('Minimum term (months)'), '6');
+    await user().type(screen.getByRole('textbox', { name: 'Add a task' }), 'Kitchen{Enter}');
+    await user().click(screen.getByRole('button', { name: 'Save draft' }));
+    await waitFor(() =>
+      expect(api.bodies['POST /admin/plans']).toMatchObject({
+        name: 'Home cleaning',
+        categoryId: 'cat-clean',
+        priceCents: 6900,
+        frequency: 'every_2_weeks',
+        visitMinutes: 150,
+        minTermMonths: 6,
+        tasks: ['Kitchen'],
+      }),
+    );
+  });
+
+  it('adds tasks with Enter or the plus button, shows them as tags with an x, and skips empty or duplicate ones', async () => {
+    openNewPlan();
+    const input = await screen.findByRole('textbox', { name: 'Add a task' });
+    expect(input).toHaveAttribute('placeholder', 'Add task + Enter');
+    const plus = screen.getByRole('button', { name: 'Add task' });
+    expect(plus).toHaveTextContent('');
+    expect(plus).toBeDisabled();
+
+    await user().type(input, 'Mow{Enter}');
+    await user().type(input, 'Edge');
+    await user().click(plus);
+    await user().type(input, '   {Enter}');
+    const tags = () => screen.getAllByRole('listitem').filter((li) => li.classList.contains('taskchip')).map((li) => li.textContent);
+    expect(tags()).toEqual(['Mow', 'Edge']);
+
+    await user().clear(input);
+    await user().type(input, 'mow{Enter}');
+    expect(tags()).toEqual(['Mow', 'Edge']);
+    expect(screen.getByRole('status')).toHaveTextContent('"mow" is already in the list.');
+
+    await user().clear(input);
+    await user().type(input, 'Blow paths');
+    await user().click(plus);
+    expect(tags()).toEqual(['Mow', 'Edge', 'Blow paths']);
+    await user().click(screen.getByRole('button', { name: 'Remove Edge' }));
+    expect(tags()).toEqual(['Mow', 'Blow paths']);
+  });
+
+  it('turns the season on with a switch and shows the months', async () => {
+    openNewPlan();
+    const seasonal = await screen.findByRole('switch', { name: 'Seasonal plan' });
+    expect(seasonal).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByText('Runs all year')).toBeInTheDocument();
+    await user().click(seasonal);
+    expect(seasonal).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByText('Runs Apr – Oct, pauses automatically outside it')).toBeInTheDocument();
+    await user().selectOptions(screen.getByLabelText('From'), 'May');
+    expect(screen.getByText('Runs May – Oct, pauses automatically outside it')).toBeInTheDocument();
+  });
+
+  it('shows the optional extra and what the pro earns in the preview', async () => {
+    openNewPlan();
+    await user().type(await screen.findByLabelText('Monthly price (€)'), '49');
+    await user().type(screen.getByLabelText('Optional extra'), 'Hedge trimming');
+    await user().type(screen.getByLabelText('Extra price (€ / month)'), '15');
+    const preview = screen.getByRole('complementary', { name: 'Live preview · customer app' });
+    expect(within(preview).getByText('Hedge trimming')).toBeInTheDocument();
+    expect(within(preview).getByText('+€15')).toBeInTheDocument();
+    expect(within(preview).getByText('Subscribe')).toBeInTheDocument();
+    expect(screen.getByText('Pro: €34.30/month per customer')).toBeInTheDocument();
+    expect(screen.getByText('MISK: €14.70')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Pro earns: 70% of the monthly price'), { target: { value: '80' } });
+    expect(screen.getByText('Pro: €39.20/month per customer')).toBeInTheDocument();
   });
 });
 

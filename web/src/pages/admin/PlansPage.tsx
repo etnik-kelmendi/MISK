@@ -144,6 +144,7 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
   const [draft, setDraft] = useState<Draft>(() => toDraft(plan, categories));
   const [current, setCurrent] = useState<Plan | null>(plan);
   const [saved, setSaved] = useState(false);
+  const [taskNotice, setTaskNotice] = useState<string | null>(null);
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) => {
     setSaved(false);
     setDraft((d) => ({ ...d, [key]: value }));
@@ -159,10 +160,20 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
 
   function addTask() {
     const task = draft.newTask.trim();
-    if (task && !draft.tasks.some((x) => x.toLowerCase() === task.toLowerCase()) && draft.tasks.length < 12) {
-      setDraft((d) => ({ ...d, tasks: [...d.tasks, task], newTask: '' }));
-      setSaved(false);
+    if (!task) {
+      return;
     }
+    if (draft.tasks.some((x) => x.toLowerCase() === task.toLowerCase())) {
+      setTaskNotice(t('admin.plans.taskDuplicate', { task }));
+      return;
+    }
+    if (draft.tasks.length >= 12) {
+      setTaskNotice(t('admin.plans.taskLimit'));
+      return;
+    }
+    setDraft((d) => ({ ...d, tasks: [...d.tasks, task], newTask: '' }));
+    setTaskNotice(null);
+    setSaved(false);
   }
 
   function input(): PlanInput | null {
@@ -325,10 +336,13 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
               </label>
               <input
                 id="plan-new-task"
-                placeholder={t('admin.plans.newTask')}
+                placeholder={t('admin.plans.newTaskPlaceholder')}
                 maxLength={60}
                 value={draft.newTask}
-                onChange={(e) => set('newTask', e.target.value)}
+                onChange={(e) => {
+                  set('newTask', e.target.value);
+                  setTaskNotice(null);
+                }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     e.preventDefault();
@@ -336,10 +350,21 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
                   }
                 }}
               />
-              <button type="button" className="abtn ghost" onClick={addTask} disabled={!draft.newTask.trim()}>
-                <Icon name="plus" /> {t('admin.plans.addTask')}
+              <button
+                type="button"
+                className="abtn ghost icon-only"
+                aria-label={t('admin.plans.addTask')}
+                onClick={addTask}
+                disabled={!draft.newTask.trim()}
+              >
+                <Icon name="plus" />
               </button>
             </div>
+            {taskNotice && (
+              <span className="error-text" role="status">
+                {taskNotice}
+              </span>
+            )}
             {draft.tasks.length === 0 && <span className="hint">{t('admin.plans.tasksHint')}</span>}
           </fieldset>
 
@@ -361,10 +386,16 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
           </div>
 
           <div className="af">
-            <label className="row gap8" htmlFor="plan-seasonal">
-              <input id="plan-seasonal" type="checkbox" checked={draft.seasonal} onChange={(e) => set('seasonal', e.target.checked)} />
-              {t('admin.plans.fields.seasonal')}
-            </label>
+            <span id="plan-seasonal-label">{t('admin.plans.fields.seasonal')}</span>
+            <button
+              type="button"
+              role="switch"
+              id="plan-seasonal"
+              aria-checked={draft.seasonal}
+              aria-labelledby="plan-seasonal-label"
+              className={`toggle ${draft.seasonal ? 'on' : ''}`}
+              onClick={() => set('seasonal', !draft.seasonal)}
+            />
             <span className="hint">
               {draft.seasonal
                 ? t('admin.plans.seasonOn', { from: t(`month.${draft.seasonFrom}`), to: t(`month.${draft.seasonTo}`) })
@@ -439,6 +470,9 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
                 <b>+{euro(addonPriceCents ?? 0)}</b>
               </p>
             )}
+            <span className="cta preview-cta" aria-hidden="true">
+              {t('admin.plans.subscribe')}
+            </span>
             <p className="tiny muted">
               {draft.seasonal && `${t('admin.plans.seasonShort', { from: t(`month.${draft.seasonFrom}`), to: t(`month.${draft.seasonTo}`) })} · `}
               {t('admin.plans.rulesShort', { skips: draft.skipsPerMonth, months: draft.minTermMonths })}
