@@ -141,7 +141,7 @@ test.describe.serial('MISK marketplace', () => {
     const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
     const page = await context.newPage();
     await page.goto('/admin');
-    await page.getByLabel('Username').fill('admin');
+    await page.getByLabel('Username or email').fill('admin');
     await page.getByLabel('Password').fill('e2e admin password');
     await page.getByRole('button', { name: 'Sign in' }).click();
 

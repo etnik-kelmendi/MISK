@@ -29,7 +29,7 @@ export async function adminLogin(
 
   const found = await pool.query<User & { password_hash: string }>(
     `SELECT id, role, phone, username, email, first_name AS "firstName", last_name AS "lastName", password_hash
-     FROM users WHERE username = $1 AND role = 'admin' AND disabled_at IS NULL`,
+     FROM users WHERE (username = $1 OR email = $1) AND role = 'admin' AND disabled_at IS NULL`,
     [username],
   );
   const row = found.rows[0];

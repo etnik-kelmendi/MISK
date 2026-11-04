@@ -50,9 +50,9 @@ export async function setAdminPassword(
     throw badRequest('password_too_short');
   }
   const passwordHash = await hashPassword(password);
-  const updated = await db.query<{ id: string; username: string }>(
+  const updated = await db.query<{ id: string; username: string; email: string | null }>(
     `UPDATE users SET password_hash = $3
-     WHERE role = 'admin' AND (id = $1::uuid OR username = $2) RETURNING id, username`,
+     WHERE role = 'admin' AND (id = $1::uuid OR username = $2) RETURNING id, username, email`,
     ['id' in where ? where.id : null, 'username' in where ? normalizeUsername(where.username) : null, passwordHash],
   );
   const admin = updated.rows[0];
@@ -63,7 +63,7 @@ export async function setAdminPassword(
     admin.id,
     keepToken ? hashToken(keepToken) : null,
   ]);
-  await db.query('DELETE FROM login_attempts WHERE key = $1', [`admin:${admin.username}`]);
+  await db.query('DELETE FROM login_attempts WHERE key = ANY($1)', [[`admin:${admin.username}`, `admin:${admin.email ?? ''}`]]);
   return true;
 }
 

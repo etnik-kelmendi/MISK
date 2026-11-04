@@ -63,6 +63,17 @@ await pool.query(
 );
 await pool.query('INSERT INTO pro_trades (pro_id, category_id) VALUES ($1, $2)', [proId, categoryId]);
 
+// An extra admin for trying the preview, from backend/.env (never from the repository).
+const previewEmail = process.env.PREVIEW_ADMIN_EMAIL?.trim().toLowerCase();
+const previewPassword = process.env.PREVIEW_ADMIN_PASSWORD;
+if (previewEmail && previewPassword) {
+  await pool.query(`INSERT INTO users (username, email, password_hash, role) VALUES ($1, $1, $2, 'admin')`, [
+    previewEmail,
+    await hashPassword(previewPassword),
+  ]);
+  console.log(`Preview admin: ${previewEmail}`);
+}
+
 const texts: { to: string; body: string }[] = [];
 // Emails stay in memory and are printed here, so the preview can show a reset link without a mail server.
 const emails: EmailMessage[] = [];

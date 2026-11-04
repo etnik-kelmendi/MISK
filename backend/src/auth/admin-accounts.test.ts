@@ -25,6 +25,17 @@ describe('admin team', () => {
     expect(list.body).not.toContain('password');
   });
 
+  it('lets an admin log in with their email as well as their username', async () => {
+    const admin = await signInAdmin(t);
+    await call(t, 'POST', '/admin/team', {
+      cookie: admin,
+      body: { username: 'robin', password: NEW_PASSWORD, email: 'robin@example.com' },
+    });
+    expect((await login('Robin@Example.com', NEW_PASSWORD)).statusCode).toBe(200);
+    expect((await login('robin', NEW_PASSWORD)).statusCode).toBe(200);
+    expect((await login('robin@example.com', 'a wrong long password')).statusCode).toBe(401);
+  });
+
   it('refuses short passwords and taken usernames', async () => {
     const admin = await signInAdmin(t);
     expect((await call(t, 'POST', '/admin/team', { cookie: admin, body: { username: 'x1y', password: 'short' } })).statusCode).toBe(400);

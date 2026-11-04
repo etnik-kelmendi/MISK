@@ -92,7 +92,7 @@ export function AdminLoginPage() {
           <h1>{t('admin.title')}</h1>
         </div>
         <div className="af">
-          <label htmlFor="username">{t('admin.login.username')}</label>
+          <label htmlFor="username">{t('admin.login.identifier')}</label>
           <input id="username" autoComplete="username" required value={username} onChange={(e) => setUsername(e.target.value)} />
         </div>
         <div className="af">

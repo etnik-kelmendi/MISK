@@ -416,7 +416,7 @@ describe('admin', () => {
   it('sends signed-out visitors to the admin sign-in', async () => {
     fakeApi(null);
     renderAt('/admin');
-    expect(await screen.findByLabelText('Username')).toBeInTheDocument();
+    expect(await screen.findByLabelText('Username or email')).toBeInTheDocument();
   });
 
   it('emails a reset link from the forgot-password form', async () => {

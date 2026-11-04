@@ -33,7 +33,7 @@
     "too_many_attempts": "Too many tries. Please wait 15 minutes and try again.",
     "invalid_code": "That code is not right or has expired. Check it or ask for a new one.",
     "account_disabled": "This account is closed. Please contact the MISK team.",
-    "invalid_credentials": "The username or password is not right.",
+    "invalid_credentials": "The username, email or password is not right.",
     "sms_unavailable": "We could not send the text message. Please try again in a minute.",
     "role_already_chosen": "You have already chosen how you use MISK.",
     "unauthenticated": "Please sign in again.",
@@ -451,7 +451,8 @@
       "forgotIdentifier": "Username or email",
       "forgotSend": "Email me a reset link",
       "forgotSent": "If an admin account matches and has an email address, a link is on its way. It works once, for 30 minutes. Check your spam folder too.",
-      "forgotNoEmail": "No email on your account? Ask another admin to set a new password under Team, or whoever runs the server can use"
+      "forgotNoEmail": "No email on your account? Ask another admin to set a new password under Team, or whoever runs the server can use",
+      "identifier": "Username or email"
     },
     "overview": {
       "title": "Overview",
