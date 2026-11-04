@@ -270,6 +270,44 @@ describe('admin', () => {
     expect(await screen.findByLabelText('Username')).toBeInTheDocument();
   });
 
+  it('explains how to get back in after forgetting the password', async () => {
+    fakeApi(null);
+    renderAt('/admin/login');
+    const forgot = await screen.findByRole('button', { name: 'Forgot password?' });
+    expect(forgot).toHaveAttribute('aria-expanded', 'false');
+    await user().click(forgot);
+    expect(forgot).toHaveAttribute('aria-expanded', 'true');
+    const help = screen.getByRole('region', { name: 'Getting back in' });
+    expect(help).toHaveTextContent('Ask another MISK admin');
+    expect(help).toHaveTextContent('npm run user:reset-password');
+  });
+
+  it('lets an admin set a new password for a colleague', async () => {
+    const api = fakeApi(users.admin);
+    api.on('GET /admin/team', {
+      body: {
+        admins: [
+          { id: 'u-admin', username: 'admin', createdAt: '', disabled: false },
+          { id: 'u-elion', username: 'elion', createdAt: '', disabled: false },
+        ],
+      },
+    });
+    api.on('POST /admin/team/u-elion/password', { status: 204 });
+    renderAt('/admin/team');
+    const row = (await screen.findByText('elion')).closest('li') as HTMLElement;
+    await user().click(within(row).getByRole('button', { name: 'Set new password' }));
+    const form = within(row).getByRole('form', { name: 'New password for elion' });
+    const submit = within(form).getByRole('button', { name: 'Set new password' });
+    await user().type(within(form).getByLabelText('Password'), 'a brand new long password');
+    await user().type(within(form).getByLabelText('Repeat password'), 'a brand new long passwor');
+    expect(within(form).getByText('The passwords do not match.')).toBeInTheDocument();
+    expect(submit).toBeDisabled();
+    await user().type(within(form).getByLabelText('Repeat password'), 'd');
+    await user().click(submit);
+    expect(await screen.findByRole('status')).toHaveTextContent('Password changed for elion.');
+    expect(api.bodies['POST /admin/team/u-elion/password']).toEqual({ password: 'a brand new long password' });
+  });
+
   it('approves a pro application', async () => {
     const api = fakeApi(users.admin);
     const pro = {

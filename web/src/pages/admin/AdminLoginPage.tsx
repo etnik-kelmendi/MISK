@@ -9,12 +9,16 @@ import { ErrorText } from '../../components/ErrorText';
 import { Icon } from '../../components/Icon';
 import { useAction } from '../../lib/useAction';
 
+/** Server command for when no admin can sign in; a command, so never translated. */
+const RESET_COMMAND = 'npm run user:reset-password';
+
 export function AdminLoginPage() {
   const { t } = useTranslation();
   const api = useApi();
   const { state, setUser } = useAuth();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [forgotOpen, setForgotOpen] = useState(false);
   const { run, busy, error } = useAction();
 
   if (state.status === 'signedIn' && state.user.role) {
@@ -57,6 +61,28 @@ export function AdminLoginPage() {
         <button type="submit" className="abtn big" disabled={busy}>
           {busy ? t('common.checking') : t('admin.login.submit')}
         </button>
+        <button
+          type="button"
+          className="link"
+          aria-expanded={forgotOpen}
+          aria-controls="forgot-help"
+          onClick={() => setForgotOpen((open) => !open)}
+        >
+          {t('admin.login.forgot')}
+        </button>
+        {forgotOpen && (
+          <div id="forgot-help" className="info" role="region" aria-label={t('admin.login.forgotTitle')}>
+            <Icon name="lock" />
+            <div className="stack">
+              <p className="b">{t('admin.login.forgotTitle')}</p>
+              <p>{t('admin.login.forgotAskAdmin')}</p>
+              <p>
+                {t('admin.login.forgotServer')} <code>{RESET_COMMAND}</code>
+              </p>
+              <p className="small">{t('admin.login.forgotWhy')}</p>
+            </div>
+          </div>
+        )}
       </form>
     </main>
   );

@@ -71,7 +71,10 @@
     "pro_not_eligible": "This pro cannot take this job.",
     "not_refundable": "Only finished, paid jobs can be refunded.",
     "internal_error": "Something went wrong on our side. Please try again.",
-    "request_failed": "That did not work. Please try again."
+    "request_failed": "That did not work. Please try again.",
+    "password_too_short": "The password must have at least 12 characters.",
+    "invalid_username": "Use 3 or more characters with no spaces.",
+    "username_taken": "Another admin already has this username."
   },
   "nav": {
     "customer": "Main menu",
@@ -440,12 +443,18 @@
       "pros": "Pros",
       "catalogue": "Catalogue",
       "areas": "Areas",
-      "settings": "Settings"
+      "settings": "Settings",
+      "team": "Team"
     },
     "login": {
       "username": "Username",
       "password": "Password",
-      "submit": "Sign in"
+      "submit": "Sign in",
+      "forgot": "Forgot password?",
+      "forgotTitle": "Getting back in",
+      "forgotAskAdmin": "Ask another MISK admin to set a new password for you under Team in the control panel.",
+      "forgotServer": "If nobody can sign in, whoever runs the MISK server can set one with",
+      "forgotWhy": "For safety, admin passwords are never sent by email or text."
     },
     "overview": {
       "title": "Overview",
@@ -603,6 +612,25 @@
       "share": "Pros earn {{pct}}% of the job price",
       "example": "Example: on a {{price}} job the pro gets {{pro}} and MISK keeps {{misk}} plus the service fee.",
       "onlyNew": "Changes apply to new bookings only. Existing bookings keep the fee and share they were made with."
+    },
+    "team": {
+      "title": "Team",
+      "intro": "People who can sign in to this control panel. Admins can refund money and approve pros, so only add people you trust.",
+      "admins": "Admins",
+      "you": "You",
+      "setPassword": "Set new password",
+      "resetFor": "New password for {{name}}",
+      "resetOther": "They are signed out everywhere and use the new password from now on. Tell it to them in person or by phone.",
+      "resetOwn": "Your other sessions are signed out; you stay signed in here.",
+      "changed": "Password changed for {{name}}.",
+      "add": "Add an admin",
+      "addButton": "Add admin",
+      "added": "Admin added. Give them their username and password in person or by phone.",
+      "password": "Password",
+      "passwordHint": "At least {{min}} characters. A few unrelated words work well.",
+      "repeat": "Repeat password",
+      "mismatch": "The passwords do not match.",
+      "shareSafely": "Share the password in person or by phone, never by email or chat."
     }
   }
 }

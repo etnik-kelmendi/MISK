@@ -258,3 +258,10 @@ export interface Settings {
   serviceFeeCents: number;
   proSharePct: number;
 }
+
+export interface AdminAccount {
+  id: string;
+  username: string;
+  createdAt: string;
+  disabled: boolean;
+}

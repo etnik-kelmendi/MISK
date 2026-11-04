@@ -91,6 +91,7 @@ export function AdminShell() {
     { to: '/admin/catalogue', icon: 'grid', label: t('admin.nav.catalogue') },
     { to: '/admin/areas', icon: 'pin', label: t('admin.nav.areas') },
     { to: '/admin/settings', icon: 'sliders', label: t('admin.nav.settings') },
+    { to: '/admin/team', icon: 'lock', label: t('admin.nav.team') },
   ];
   return (
     <div className="admin">

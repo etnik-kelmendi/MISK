@@ -16,6 +16,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "user:create-first-admin": "tsx --env-file=.env src/create-admin-cli.ts",
+    "user:reset-password": "tsx --env-file=.env src/reset-password-cli.ts",
     "e2e:server": "tsx test/e2e-server.ts"
   },
   "dependencies": {

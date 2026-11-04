@@ -121,7 +121,10 @@ in production; sign-in is impossible without it.
 2. Serve the API and web app over HTTPS on the same site (for example `api.misk.app` and `misk.app`),
    so the session cookie works. Set `WEB_ORIGIN` to the web app's exact origin and `NODE_ENV=production`.
 3. Behind a reverse proxy, set `TRUST_PROXY=true` so rate limits see real client addresses.
-4. Run `npm run migrate` before each release, and `npm run user:create-first-admin` once.
+4. Run `npm run migrate` before each release, and `npm run user:create-first-admin` once. Further admins
+   are added under **Team** in the control panel.
+   - **Forgotten admin password:** another admin sets a new one under **Team**. If nobody can sign in,
+     run `npm run user:reset-password` on the server. Admin passwords are never sent by email or text.
 5. `UPLOAD_DIR` holds pro documents and job photos: put it on persistent, backed-up storage.
 6. Health check: `GET /health` returns 200 when the database is reachable.
 

@@ -16,6 +16,7 @@ import { AreasPage } from './pages/admin/AreasPage';
 import { CataloguePage } from './pages/admin/CataloguePage';
 import { OverviewPage } from './pages/admin/OverviewPage';
 import { SettingsPage } from './pages/admin/SettingsPage';
+import { TeamPage } from './pages/admin/TeamPage';
 import { BookingPage } from './pages/customer/BookingPage';
 import { BookingsPage } from './pages/customer/BookingsPage';
 import { BookPage } from './pages/customer/BookPage';
@@ -89,6 +90,7 @@ export function AppRoutes() {
         <Route path="catalogue" element={<CataloguePage />} />
         <Route path="areas" element={<AreasPage />} />
         <Route path="settings" element={<SettingsPage />} />
+        <Route path="team" element={<TeamPage />} />
       </Route>
       <Route path="*" element={<NotFoundPage />} />
     </Routes>
