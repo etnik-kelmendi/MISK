@@ -6,6 +6,7 @@ import { buildApp } from '../src/app.js';
 import { hashPassword } from '../src/auth/passwords.js';
 import { loadConfig } from '../src/config.js';
 import { runMigrations } from '../src/migrate.js';
+import { createSmtpSender, type EmailMessage } from '../src/notifications/email.js';
 import { startWorkers } from '../src/workers.js';
 import { startTemporaryDatabase } from './embedded-db.js';
 import { createFakeGateway } from './fake-gateway.js';
@@ -25,7 +26,14 @@ const config = loadConfig({
   MARKET_TIMEZONE: 'Europe/Berlin',
   PORT: '3100',
   UPLOAD_DIR: uploadDir,
+  // Only the mail settings are taken from the environment, so a preview can send real reset emails.
+  SMTP_HOST: process.env.SMTP_HOST,
+  SMTP_PORT: process.env.SMTP_PORT,
+  SMTP_USER: process.env.SMTP_USER ?? process.env.SMTP_USERNAME,
+  SMTP_PASSWORD: process.env.SMTP_PASSWORD,
+  MAIL_FROM: process.env.MAIL_FROM,
 });
+const smtp = config.smtp ? createSmtpSender(config.smtp) : null;
 const pool = new pg.Pool({ connectionString: config.databaseUrl });
 
 await pool.query(
@@ -56,6 +64,8 @@ await pool.query(
 await pool.query('INSERT INTO pro_trades (pro_id, category_id) VALUES ($1, $2)', [proId, categoryId]);
 
 const texts: { to: string; body: string }[] = [];
+// Emails stay in memory and are printed here, so the preview can show a reset link without a mail server.
+const emails: EmailMessage[] = [];
 const fake = createFakeGateway({ instantHolds: true });
 const app = await buildApp({
   config,
@@ -65,12 +75,28 @@ const app = await buildApp({
     texts.push({ to, body });
     return { providerId: `e2e-${texts.length}` };
   },
+  email: async (message) => {
+    emails.push(message);
+    console.log(`
+[email to ${message.to}] ${message.subject}${smtp ? ' (sending by SMTP)' : ''}
+${message.text}
+`);
+    if (smtp) {
+      await smtp(message);
+      console.log(`[email to ${message.to}] sent`);
+    }
+  },
 });
 
 app.get<{ Querystring: { phone: string } }>('/test/last-code', async (request, reply) => {
   const text = [...texts].reverse().find((t) => t.to === request.query.phone);
   const code = text?.body.match(/^(\d{6})/)?.[1];
   return code ? { code } : reply.code(404).send({ error: 'not_found' });
+});
+
+app.get<{ Querystring: { to: string } }>('/test/last-email', async (request, reply) => {
+  const email = [...emails].reverse().find((e) => e.to === request.query.to?.toLowerCase());
+  return email ?? reply.code(404).send({ error: 'not_found' });
 });
 
 const stopWorkers = startWorkers({ pool, gateway: fake.gateway, config, log: app.log }, null, app.log);

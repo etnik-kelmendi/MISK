@@ -115,7 +115,8 @@ function parseStripe(env: RawEnv, production: boolean): StripeConfig | null {
 // Host, user, password and sender together or none; the port defaults to 587 (STARTTLS).
 function parseSmtp(env: RawEnv): SmtpConfig | null {
   const host = env.SMTP_HOST?.trim();
-  const user = env.SMTP_USER?.trim();
+  // SMTP_USERNAME is accepted too, because providers such as SMTP2GO name it that way.
+  const user = (env.SMTP_USER ?? env.SMTP_USERNAME)?.trim();
   const password = env.SMTP_PASSWORD?.trim();
   const from = env.MAIL_FROM?.trim();
   if (!host && !user && !password && !from) {

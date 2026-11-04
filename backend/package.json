@@ -17,7 +17,8 @@
     "test": "vitest run",
     "user:create-first-admin": "tsx --env-file=.env src/create-admin-cli.ts",
     "user:reset-password": "tsx --env-file=.env src/reset-password-cli.ts",
-    "e2e:server": "tsx test/e2e-server.ts"
+    "e2e:server": "tsx test/e2e-server.ts",
+    "preview:server": "tsx --env-file-if-exists=.env test/e2e-server.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.5",

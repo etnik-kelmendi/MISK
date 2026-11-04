@@ -56,6 +56,8 @@ describe('loadConfig', () => {
       from: 'MISK <no-reply@misk.app>',
     });
     expect(loadConfig({ ...base, ...smtp, SMTP_PORT: '465' }).smtp?.secure).toBe(true);
+    const { SMTP_USER: user, ...withoutUser } = smtp;
+    expect(loadConfig({ ...base, ...withoutUser, SMTP_USERNAME: user }).smtp?.user).toBe('misk');
     expect(() => loadConfig({ ...base, SMTP_HOST: 'smtp.example.com' })).toThrow('must be set together');
     expect(() => loadConfig({ ...base, ...smtp, SMTP_PORT: 'abc' })).toThrow('SMTP_PORT');
     expect(() => loadConfig({ ...base, ...smtp, MAIL_FROM: 'MISK' })).toThrow('MAIL_FROM');
