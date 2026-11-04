@@ -15,6 +15,7 @@ import { AdminProPage, AdminProsPage } from './pages/admin/AdminProsPage';
 import { AreasPage } from './pages/admin/AreasPage';
 import { CataloguePage } from './pages/admin/CataloguePage';
 import { OverviewPage } from './pages/admin/OverviewPage';
+import { ResetPasswordPage } from './pages/admin/ResetPasswordPage';
 import { SettingsPage } from './pages/admin/SettingsPage';
 import { TeamPage } from './pages/admin/TeamPage';
 import { BookingPage } from './pages/customer/BookingPage';
@@ -46,6 +47,7 @@ export function AppRoutes() {
     <Routes>
       <Route path="/signin" element={<SignInPage />} />
       <Route path="/admin/login" element={<AdminLoginPage />} />
+      <Route path="/admin/reset-password" element={<ResetPasswordPage />} />
       <Route
         element={
           <RequireRole allow="customer">

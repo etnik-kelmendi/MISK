@@ -1,5 +1,6 @@
 import { resolve } from 'node:path';
 import { normalizePhone } from './notifications/phone.js';
+import type { SmtpConfig } from './notifications/email.js';
 import type { TwilioConfig } from './notifications/sms.js';
 
 export interface StripeConfig {
@@ -23,6 +24,8 @@ export interface Config {
   twilio: TwilioConfig | null;
   /** Card payments; null until all three Stripe settings are given. The server refuses to start without it. */
   stripe: StripeConfig | null;
+  /** Outgoing email for admin password recovery; null until the SMTP settings are given. */
+  smtp: SmtpConfig | null;
 }
 
 type RawEnv = Record<string, string | undefined>;
@@ -109,6 +112,28 @@ function parseStripe(env: RawEnv, production: boolean): StripeConfig | null {
   return { secretKey, publishableKey, webhookSecret };
 }
 
+// Host, user, password and sender together or none; the port defaults to 587 (STARTTLS).
+function parseSmtp(env: RawEnv): SmtpConfig | null {
+  const host = env.SMTP_HOST?.trim();
+  const user = env.SMTP_USER?.trim();
+  const password = env.SMTP_PASSWORD?.trim();
+  const from = env.MAIL_FROM?.trim();
+  if (!host && !user && !password && !from) {
+    return null;
+  }
+  if (!host || !user || !password || !from) {
+    throw new Error('SMTP_HOST, SMTP_USER, SMTP_PASSWORD, and MAIL_FROM must be set together');
+  }
+  const port = Number(env.SMTP_PORT?.trim() || '587');
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error('SMTP_PORT must be a port number');
+  }
+  if (!/^[^\s<>]+@[^\s<>]+$|^[^<>]*<[^\s<>]+@[^\s<>]+>$/.test(from)) {
+    throw new Error('MAIL_FROM must be an email address, optionally with a name: MISK <no-reply@misk.app>');
+  }
+  return { host, port, secure: port === 465, user, password, from };
+}
+
 export function loadConfig(env: RawEnv): Config {
   const production = env.NODE_ENV === 'production';
   const twilio = parseTwilio(env);
@@ -127,5 +152,6 @@ export function loadConfig(env: RawEnv): Config {
     uploadDir: resolve(env.UPLOAD_DIR?.trim() || '.uploads'),
     twilio,
     stripe: parseStripe(env, production),
+    smtp: parseSmtp(env),
   };
 }

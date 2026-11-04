@@ -1,6 +1,7 @@
 import pg from 'pg';
 import { buildApp } from './app.js';
 import { loadConfig } from './config.js';
+import { createSmtpSender } from './notifications/email.js';
 import { createTwilioSender } from './notifications/sms.js';
 import { createStripeGateway } from './payments/stripe-gateway.js';
 import { startWorkers } from './workers.js';
@@ -15,10 +16,14 @@ if (!config.stripe) {
 const pool = new pg.Pool({ connectionString: config.databaseUrl });
 const sms = config.twilio ? createTwilioSender(config.twilio) : null;
 const gateway = createStripeGateway(config.stripe);
-const app = await buildApp({ config, pool, gateway, sms, logger: { level: config.logLevel } });
+const email = config.smtp ? createSmtpSender(config.smtp) : null;
+const app = await buildApp({ config, pool, gateway, sms, email, logger: { level: config.logLevel } });
 
 if (!sms) {
   app.log.warn('SMS is not set up: sign-in codes are written to this log and other texts are kept as not sent');
+}
+if (!email) {
+  app.log.warn('Email is not set up: admin password recovery emails cannot be sent');
 }
 
 const stopWorkers = startWorkers({ pool, gateway, config, log: app.log }, sms, app.log);

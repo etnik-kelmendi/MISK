@@ -84,13 +84,17 @@ function AddAdminForm({ onAdded }: { onAdded: () => void }) {
   const api = useApi();
   const { run, busy, error } = useAction();
   const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState(empty);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    const created = await run(() => api.post('/admin/team', { username, password: password.first }));
+    const created = await run(() =>
+      api.post('/admin/team', { username, password: password.first, ...(email.trim() ? { email: email.trim() } : {}) }),
+    );
     if (created) {
       setUsername('');
+      setEmail('');
       setPassword(empty);
       onAdded();
     }
@@ -114,11 +118,50 @@ function AddAdminForm({ onAdded }: { onAdded: () => void }) {
           onChange={(e) => setUsername(e.target.value)}
         />
       </div>
+      <div className="af full">
+        <label htmlFor="new-admin-email">{t('admin.team.email')}</label>
+        <input id="new-admin-email" type="email" autoComplete="off" maxLength={254} value={email} onChange={(e) => setEmail(e.target.value)} />
+        <span className="hint">{t('admin.team.emailHint')}</span>
+      </div>
       <PasswordFields id="new-admin" value={password} onChange={setPassword} />
       <p className="small muted full">{t('admin.team.shareSafely')}</p>
       <button type="submit" className="abtn" disabled={busy || !valid(password) || username.trim().length < 3}>
         {t('admin.team.addButton')}
       </button>
+      <ErrorText error={error} />
+    </form>
+  );
+}
+
+function EmailForm({ admin, onSaved, onCancel }: { admin: AdminAccount; onSaved: (a: AdminAccount) => void; onCancel: () => void }) {
+  const { t } = useTranslation();
+  const api = useApi();
+  const { run, busy, error } = useAction();
+  const [email, setEmail] = useState(admin.email ?? '');
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    const result = await run(() => api.patch<{ admin: AdminAccount }>(`/admin/team/${admin.id}`, { email: email.trim() || null }));
+    if (result) {
+      onSaved(result.admin);
+    }
+  }
+
+  return (
+    <form className="fgrid service-form" onSubmit={submit}>
+      <div className="af full">
+        <label htmlFor={`email-${admin.id}`}>{t('admin.team.email')}</label>
+        <input id={`email-${admin.id}`} type="email" maxLength={254} value={email} onChange={(e) => setEmail(e.target.value)} />
+        <span className="hint">{t('admin.team.emailHint')}</span>
+      </div>
+      <div className="row gap8 full">
+        <button type="button" className="abtn ghost" onClick={onCancel}>
+          {t('common.cancel')}
+        </button>
+        <button type="submit" className="abtn" disabled={busy}>
+          {t('admin.team.saveEmail')}
+        </button>
+      </div>
       <ErrorText error={error} />
     </form>
   );
@@ -131,6 +174,7 @@ export function TeamPage() {
   const load = useCallback(() => api.get<{ admins: AdminAccount[] }>('/admin/team'), [api]);
   const { state, reload } = useResource(load);
   const [resetting, setResetting] = useState<string | null>(null);
+  const [editingEmail, setEditingEmail] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   return (
@@ -152,20 +196,44 @@ export function TeamPage() {
                   <div className="row between">
                     <span>
                       <span className="b">{admin.username}</span> {admin.id === me.id && <span className="badge g">{t('admin.team.you')}</span>}
+                      <span className="small muted block">{admin.email ?? t('admin.team.noEmail')}</span>
                     </span>
-                    {resetting !== admin.id && (
-                      <button
-                        type="button"
-                        className="abtn ghost"
-                        onClick={() => {
-                          setNotice(null);
-                          setResetting(admin.id);
-                        }}
-                      >
-                        {t('admin.team.setPassword')}
-                      </button>
+                    {resetting !== admin.id && editingEmail !== admin.id && (
+                      <span className="row gap8 wrap">
+                        <button
+                          type="button"
+                          className="abtn ghost"
+                          onClick={() => {
+                            setNotice(null);
+                            setEditingEmail(admin.id);
+                          }}
+                        >
+                          {t('admin.team.editEmail')}
+                        </button>
+                        <button
+                          type="button"
+                          className="abtn ghost"
+                          onClick={() => {
+                            setNotice(null);
+                            setResetting(admin.id);
+                          }}
+                        >
+                          {t('admin.team.setPassword')}
+                        </button>
+                      </span>
                     )}
                   </div>
+                  {editingEmail === admin.id && (
+                    <EmailForm
+                      admin={admin}
+                      onCancel={() => setEditingEmail(null)}
+                      onSaved={(saved) => {
+                        setEditingEmail(null);
+                        setNotice(t('admin.team.emailSaved', { name: saved.username }));
+                        reload();
+                      }}
+                    />
+                  )}
                   {resetting === admin.id && (
                     <ResetForm
                       admin={admin}

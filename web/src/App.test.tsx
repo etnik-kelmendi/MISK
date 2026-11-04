@@ -270,16 +270,47 @@ describe('admin', () => {
     expect(await screen.findByLabelText('Username')).toBeInTheDocument();
   });
 
-  it('explains how to get back in after forgetting the password', async () => {
-    fakeApi(null);
+  it('emails a reset link from the forgot-password form', async () => {
+    const api = fakeApi(null);
+    api.on('POST /auth/admin/forgot', { status: 202, body: {} });
     renderAt('/admin/login');
     const forgot = await screen.findByRole('button', { name: 'Forgot password?' });
     expect(forgot).toHaveAttribute('aria-expanded', 'false');
     await user().click(forgot);
     expect(forgot).toHaveAttribute('aria-expanded', 'true');
-    const help = screen.getByRole('region', { name: 'Getting back in' });
-    expect(help).toHaveTextContent('Ask another MISK admin');
-    expect(help).toHaveTextContent('npm run user:reset-password');
+    const panel = screen.getByRole('region', { name: 'Reset your password' });
+    expect(panel).toHaveTextContent('npm run user:reset-password');
+    await user().type(within(panel).getByLabelText('Username or email'), 'elion.thaqi@canera.ch');
+    await user().click(within(panel).getByRole('button', { name: 'Email me a reset link' }));
+    expect(await within(panel).findByRole('status')).toHaveTextContent('a link is on its way');
+    expect(api.bodies['POST /auth/admin/forgot']).toEqual({ identifier: 'elion.thaqi@canera.ch' });
+  });
+
+  it('sets a new password from the emailed link and hides the token', async () => {
+    const api = fakeApi(null);
+    api.on('POST /auth/admin/reset', { status: 204 });
+    window.history.replaceState(null, '', '/admin/reset-password#token=abcdefghijklmnopqrstuvwxyz123456');
+    renderAt('/admin/reset-password');
+    await user().type(await screen.findByLabelText('Password'), 'my fresh new password');
+    await user().type(screen.getByLabelText('Repeat password'), 'my fresh new password');
+    await user().click(screen.getByRole('button', { name: 'Save new password' }));
+    expect(await screen.findByRole('status')).toHaveTextContent('Your password is changed');
+    expect(api.bodies['POST /auth/admin/reset']).toEqual({
+      token: 'abcdefghijklmnopqrstuvwxyz123456',
+      password: 'my fresh new password',
+    });
+    expect(window.location.hash).toBe('');
+  });
+
+  it('explains an expired reset link', async () => {
+    const api = fakeApi(null);
+    api.on('POST /auth/admin/reset', { status: 400, body: { error: 'invalid_reset_link' } });
+    window.history.replaceState(null, '', '/admin/reset-password#token=abcdefghijklmnopqrstuvwxyz123456');
+    renderAt('/admin/reset-password');
+    await user().type(await screen.findByLabelText('Password'), 'my fresh new password');
+    await user().type(screen.getByLabelText('Repeat password'), 'my fresh new password');
+    await user().click(screen.getByRole('button', { name: 'Save new password' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('expired or was already used');
   });
 
   it('lets an admin set a new password for a colleague', async () => {

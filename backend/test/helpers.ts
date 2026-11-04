@@ -8,6 +8,7 @@ import { buildApp } from '../src/app.js';
 import { hashPassword } from '../src/auth/passwords.js';
 import type { BookingDeps } from '../src/bookings/events.js';
 import { loadConfig, type Config } from '../src/config.js';
+import type { EmailMessage } from '../src/notifications/email.js';
 import { createDiskStorage } from '../src/uploads/storage.js';
 import { createFakeGateway, type FakeGateway } from './fake-gateway.js';
 
@@ -30,6 +31,8 @@ export interface TestContext {
   fake: FakeGateway;
   /** Every text message the app tried to send directly (sign-in codes). */
   texts: { to: string; body: string }[];
+  /** Every email the app sent. */
+  emails: EmailMessage[];
   deps: BookingDeps;
   close: () => Promise<void>;
 }
@@ -43,6 +46,7 @@ export async function createTestContext(): Promise<TestContext> {
   const pool = new pg.Pool({ connectionString: config.databaseUrl });
   const fake = createFakeGateway();
   const texts: { to: string; body: string }[] = [];
+  const emails: EmailMessage[] = [];
   const uploadDir = mkdtempSync(join(tmpdir(), 'misk-test-uploads-'));
   const app = await buildApp({
     config,
@@ -51,6 +55,9 @@ export async function createTestContext(): Promise<TestContext> {
     sms: async (to, body) => {
       texts.push({ to, body });
       return { providerId: `SM${texts.length}` };
+    },
+    email: async (message) => {
+      emails.push(message);
     },
     storage: createDiskStorage(uploadDir),
     // TEST_LOG=1 npm test shows the API's error log while debugging a failing test.
@@ -62,6 +69,7 @@ export async function createTestContext(): Promise<TestContext> {
     config,
     fake,
     texts,
+    emails,
     deps: { pool, gateway: fake.gateway, config, log: app.log },
     close: async () => {
       await app.close();

@@ -262,6 +262,7 @@ export interface Settings {
 export interface AdminAccount {
   id: string;
   username: string;
+  email: string | null;
   createdAt: string;
   disabled: boolean;
 }

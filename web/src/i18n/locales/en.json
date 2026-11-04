@@ -74,7 +74,10 @@
     "request_failed": "That did not work. Please try again.",
     "password_too_short": "The password must have at least 12 characters.",
     "invalid_username": "Use 3 or more characters with no spaces.",
-    "username_taken": "Another admin already has this username."
+    "username_taken": "Another admin already has this username.",
+    "email_unavailable": "Email is not set up yet, so no link can be sent. Ask another admin, or whoever runs the server.",
+    "invalid_reset_link": "This link has expired or was already used. Ask for a new one from the sign-in page.",
+    "email_taken": "Another admin already uses this email."
   },
   "nav": {
     "customer": "Main menu",
@@ -451,10 +454,12 @@
       "password": "Password",
       "submit": "Sign in",
       "forgot": "Forgot password?",
-      "forgotTitle": "Getting back in",
-      "forgotAskAdmin": "Ask another MISK admin to set a new password for you under Team in the control panel.",
-      "forgotServer": "If nobody can sign in, whoever runs the MISK server can set one with",
-      "forgotWhy": "For safety, admin passwords are never sent by email or text."
+      "forgotTitle": "Reset your password",
+      "forgotIntro": "Enter your username or the email on your admin account. We email you a link to choose a new password.",
+      "forgotIdentifier": "Username or email",
+      "forgotSend": "Email me a reset link",
+      "forgotSent": "If an admin account matches and has an email address, a link is on its way. It works once, for 30 minutes. Check your spam folder too.",
+      "forgotNoEmail": "No email on your account? Ask another admin to set a new password under Team, or whoever runs the server can use"
     },
     "overview": {
       "title": "Overview",
@@ -630,7 +635,19 @@
       "passwordHint": "At least {{min}} characters. A few unrelated words work well.",
       "repeat": "Repeat password",
       "mismatch": "The passwords do not match.",
-      "shareSafely": "Share the password in person or by phone, never by email or chat."
+      "shareSafely": "Share the password in person or by phone, never by email or chat.",
+      "email": "Email for password recovery",
+      "emailHint": "Optional. Used only for \"Forgot password?\" links.",
+      "noEmail": "No recovery email",
+      "editEmail": "Change email",
+      "saveEmail": "Save email",
+      "emailSaved": "Recovery email saved for {{name}}."
+    },
+    "reset": {
+      "title": "Choose a new password",
+      "submit": "Save new password",
+      "done": "Your password is changed, and you were signed out everywhere else. Sign in with the new password.",
+      "back": "Back to sign-in"
     }
   }
 }

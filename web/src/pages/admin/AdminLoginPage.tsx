@@ -12,6 +12,55 @@ import { useAction } from '../../lib/useAction';
 /** Server command for when no admin can sign in; a command, so never translated. */
 const RESET_COMMAND = 'npm run user:reset-password';
 
+/** Emails a reset link to the admin's address. The answer never says whether the account exists. */
+function ForgotPassword({ initial }: { initial: string }) {
+  const { t } = useTranslation();
+  const api = useApi();
+  const [identifier, setIdentifier] = useState(initial);
+  const [sent, setSent] = useState(false);
+  const { run, busy, error } = useAction();
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    const ok = await run(() => api.post('/auth/admin/forgot', { identifier }).then(() => true));
+    setSent(Boolean(ok));
+  }
+
+  return (
+    <section id="forgot-help" className="panel stack forgot" aria-labelledby="forgot-title">
+      <h2 id="forgot-title">{t('admin.login.forgotTitle')}</h2>
+      {sent ? (
+        <p className="info" role="status">
+          <Icon name="check" /> {t('admin.login.forgotSent')}
+        </p>
+      ) : (
+        <form className="stack" onSubmit={submit}>
+          <p className="small muted">{t('admin.login.forgotIntro')}</p>
+          <div className="af">
+            <label htmlFor="forgot-identifier">{t('admin.login.forgotIdentifier')}</label>
+            <input
+              id="forgot-identifier"
+              autoComplete="email"
+              required
+              minLength={3}
+              maxLength={254}
+              value={identifier}
+              onChange={(e) => setIdentifier(e.target.value)}
+            />
+          </div>
+          <ErrorText error={error} />
+          <button type="submit" className="abtn" disabled={busy || identifier.trim().length < 3}>
+            {busy ? t('common.sending') : t('admin.login.forgotSend')}
+          </button>
+        </form>
+      )}
+      <p className="small muted">
+        {t('admin.login.forgotNoEmail')} <code>{RESET_COMMAND}</code>
+      </p>
+    </section>
+  );
+}
+
 export function AdminLoginPage() {
   const { t } = useTranslation();
   const api = useApi();
@@ -70,20 +119,8 @@ export function AdminLoginPage() {
         >
           {t('admin.login.forgot')}
         </button>
-        {forgotOpen && (
-          <div id="forgot-help" className="info" role="region" aria-label={t('admin.login.forgotTitle')}>
-            <Icon name="lock" />
-            <div className="stack">
-              <p className="b">{t('admin.login.forgotTitle')}</p>
-              <p>{t('admin.login.forgotAskAdmin')}</p>
-              <p>
-                {t('admin.login.forgotServer')} <code>{RESET_COMMAND}</code>
-              </p>
-              <p className="small">{t('admin.login.forgotWhy')}</p>
-            </div>
-          </div>
-        )}
       </form>
+      {forgotOpen && <ForgotPassword initial={username} />}
     </main>
   );
 }

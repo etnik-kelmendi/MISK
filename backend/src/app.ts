@@ -14,6 +14,7 @@ import { catalogueRoutes } from './catalogue/routes.js';
 import type { Config } from './config.js';
 import type { AppContext } from './context.js';
 import { ApiError } from './errors.js';
+import type { EmailSender } from './notifications/email.js';
 import { messages } from './notifications/messages.js';
 import type { SmsSender } from './notifications/sms.js';
 import type { PaymentGateway } from './payments/gateway.js';
@@ -29,11 +30,12 @@ export interface AppDependencies {
   pool: Pool;
   gateway: PaymentGateway;
   sms: SmsSender | null;
+  email?: EmailSender | null;
   storage?: FileStorage;
   logger?: FastifyServerOptions['logger'];
 }
 
-export async function buildApp({ config, pool, gateway, sms, storage, logger = false }: AppDependencies): Promise<FastifyInstance> {
+export async function buildApp({ config, pool, gateway, sms, email = null, storage, logger = false }: AppDependencies): Promise<FastifyInstance> {
   const app = Fastify({
     logger,
     trustProxy: config.trustProxy,
@@ -57,11 +59,21 @@ export async function buildApp({ config, pool, gateway, sms, storage, logger = f
     app.log.warn({ event: 'sign_in_code_not_sent', phone, code }, 'SMS is not set up; sign-in code written to the log');
   };
 
+  // Without a mail server, development writes emails to the log; production cannot send them at all.
+  const deliverEmail: AppContext['deliverEmail'] = email
+    ? email
+    : config.production
+      ? null
+      : async (message) => {
+          app.log.warn({ event: 'email_not_sent', ...message }, 'Email is not set up; email written to the log');
+        };
+
   const ctx: AppContext = {
     config,
     pool,
     gateway,
     deliverCode,
+    deliverEmail,
     guards: createGuards(pool),
     storage: storage ?? createDiskStorage(config.uploadDir),
   };

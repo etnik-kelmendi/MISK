@@ -45,6 +45,22 @@ describe('loadConfig', () => {
     expect(loadConfig({ ...base, ...live, ...twilio, NODE_ENV: 'production' }).stripe?.secretKey).toBe('sk_live_1');
   });
 
+  it('reads the mail server, all settings or none', () => {
+    const smtp = { SMTP_HOST: 'smtp.example.com', SMTP_USER: 'misk', SMTP_PASSWORD: 'secret', MAIL_FROM: 'MISK <no-reply@misk.app>' };
+    expect(loadConfig({ ...base, ...smtp }).smtp).toEqual({
+      host: 'smtp.example.com',
+      port: 587,
+      secure: false,
+      user: 'misk',
+      password: 'secret',
+      from: 'MISK <no-reply@misk.app>',
+    });
+    expect(loadConfig({ ...base, ...smtp, SMTP_PORT: '465' }).smtp?.secure).toBe(true);
+    expect(() => loadConfig({ ...base, SMTP_HOST: 'smtp.example.com' })).toThrow('must be set together');
+    expect(() => loadConfig({ ...base, ...smtp, SMTP_PORT: 'abc' })).toThrow('SMTP_PORT');
+    expect(() => loadConfig({ ...base, ...smtp, MAIL_FROM: 'MISK' })).toThrow('MAIL_FROM');
+  });
+
   it('requires Twilio in production so sign-in codes can be delivered', () => {
     expect(() => loadConfig({ ...base, NODE_ENV: 'production' })).toThrow('Twilio settings are required');
     const config = loadConfig({ ...base, ...twilio, NODE_ENV: 'production' });

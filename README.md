@@ -123,8 +123,10 @@ in production; sign-in is impossible without it.
 3. Behind a reverse proxy, set `TRUST_PROXY=true` so rate limits see real client addresses.
 4. Run `npm run migrate` before each release, and `npm run user:create-first-admin` once. Further admins
    are added under **Team** in the control panel.
-   - **Forgotten admin password:** another admin sets a new one under **Team**. If nobody can sign in,
-     run `npm run user:reset-password` on the server. Admin passwords are never sent by email or text.
+   - **Forgotten admin password:** "Forgot password?" on the admin sign-in emails a single-use link, valid
+     for 30 minutes, to the admin's recovery email (set under **Team**). This needs the SMTP settings in
+     `backend/.env`. Without an email on the account, another admin sets a new password under **Team**, or
+     run `npm run user:reset-password` on the server.
 5. `UPLOAD_DIR` holds pro documents and job photos: put it on persistent, backed-up storage.
 6. Health check: `GET /health` returns 200 when the database is reachable.
 
