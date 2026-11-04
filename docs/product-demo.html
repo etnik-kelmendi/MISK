@@ -1,0 +1,1286 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MISK Product Demo</title>
+<meta name="description" content="Interactive, guided demo of MISK: book trusted craftsmen and gardeners, or subscribe to recurring home and garden care.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --brand:#0B7A55; --brand-2:#12A473; --brand-soft:#E4F4EC; --brand-ink:#063D2B;
+  --accent:#FFB020; --accent-soft:#FFF4DC;
+  --ink:#0F1A15; --ink-2:#2A3A33; --muted:#62736B; --faint:#94A39C;
+  --bg:#EEF3F0; --card:#FFFFFF; --line:#E1E9E4; --line-2:#EEF3F0;
+  --danger:#D64545; --info:#2F6FEB; --info-soft:#E8F0FF;
+  --pro:#16211C; --pro-2:#22302A;
+  --radius:16px; --shadow:0 1px 2px rgba(15,26,21,.06),0 8px 24px rgba(15,26,21,.08);
+  --font:"Plus Jakarta Sans",system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{font-family:var(--font);color:var(--ink);background:var(--bg);-webkit-font-smoothing:antialiased;font-size:15px;line-height:1.45}
+button{font:inherit;color:inherit;cursor:pointer;border:0;background:none;padding:0}
+input,textarea,select{font:inherit;color:inherit}
+svg.i{width:1em;height:1em;flex:none;vertical-align:-.125em}
+
+/* ---------- Top bar ---------- */
+.topbar{height:60px;display:flex;align-items:center;gap:16px;padding:0 20px;background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:20}
+.logo{display:flex;align-items:center;gap:10px;font-weight:800;letter-spacing:.04em;font-size:18px}
+.logo-mark{width:32px;height:32px;border-radius:10px;background:linear-gradient(135deg,var(--brand-2),var(--brand));display:grid;place-items:center;color:#fff;font-size:17px}
+.tag{font-size:12px;font-weight:600;color:var(--brand);background:var(--brand-soft);padding:4px 10px;border-radius:99px}
+.progress{flex:1;max-width:420px;margin-left:auto;display:flex;align-items:center;gap:10px;font-size:12px;color:var(--muted);font-weight:600}
+.progress-track{flex:1;height:6px;background:var(--line-2);border-radius:9px;overflow:hidden}
+.progress-fill{height:100%;background:linear-gradient(90deg,var(--brand-2),var(--brand));border-radius:9px;transition:width .4s ease}
+
+/* ---------- Layout ---------- */
+.layout{display:grid;grid-template-columns:400px 1fr;min-height:calc(100vh - 60px)}
+.guide{background:var(--card);border-right:1px solid var(--line);padding:28px 28px 24px;display:flex;flex-direction:column;gap:18px;position:sticky;top:60px;height:calc(100vh - 60px);overflow:auto}
+.chapter{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:6px 12px;border-radius:99px;align-self:flex-start}
+.ch-customer{background:var(--brand-soft);color:var(--brand)}
+.ch-sub{background:var(--accent-soft);color:#9A6200}
+.ch-pro{background:#E9ECEB;color:var(--pro)}
+.ch-admin{background:var(--info-soft);color:var(--info)}
+.ch-intro{background:var(--line-2);color:var(--ink-2)}
+.step-count{font-size:13px;color:var(--muted);font-weight:600}
+.guide h1{font-size:26px;line-height:1.2;margin:0;letter-spacing:-.01em}
+.guide p.lead{margin:0;color:var(--ink-2);font-size:15.5px}
+.tryit{background:var(--bg);border-radius:14px;padding:14px 16px}
+.tryit h4{margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.tryit ul{margin:0;padding:0;list-style:none;display:grid;gap:6px}
+.tryit li{display:flex;gap:8px;font-size:14px}
+.tryit li svg{color:var(--brand);margin-top:3px}
+.why{border-left:3px solid var(--accent);padding:2px 0 2px 12px;font-size:14px;color:var(--ink-2)}
+.why b{display:block;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:#9A6200;margin-bottom:2px}
+.nav-btns{display:flex;gap:10px;margin-top:4px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:44px;padding:0 18px;border-radius:12px;font-weight:700;font-size:15px;transition:transform .08s ease,background .2s,box-shadow .2s}
+.btn:active{transform:scale(.98)}
+.btn-primary{background:var(--brand);color:#fff;flex:1;box-shadow:0 4px 14px rgba(11,122,85,.25)}
+.btn-primary:hover{background:#09694A}
+.btn-ghost{background:var(--bg);color:var(--ink-2)}
+.btn-ghost:hover{background:var(--line)}
+.btn[disabled]{opacity:.45;pointer-events:none}
+.kbd{font-size:12px;color:var(--faint);text-align:center}
+.steps-nav{margin-top:auto;border-top:1px solid var(--line);padding-top:14px}
+.steps-nav summary{cursor:pointer;font-size:13px;font-weight:700;color:var(--muted);list-style:none;display:flex;justify-content:space-between;align-items:center}
+.steps-nav summary::-webkit-details-marker{display:none}
+.steps-nav ol{list-style:none;margin:10px 0 0;padding:0;display:grid;gap:2px}
+.steps-nav .grp{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--faint);font-weight:700;margin:10px 0 4px 8px}
+.steps-nav button{width:100%;text-align:left;display:flex;gap:10px;align-items:center;padding:7px 8px;border-radius:9px;font-size:13.5px;color:var(--ink-2)}
+.steps-nav button:hover{background:var(--bg)}
+.steps-nav button.on{background:var(--brand-soft);color:var(--brand);font-weight:700}
+.steps-nav .dot{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:700;background:var(--line-2);color:var(--muted);flex:none}
+.steps-nav button.done .dot{background:var(--brand);color:#fff}
+.steps-nav button.on .dot{background:var(--brand);color:#fff}
+
+.stage{display:flex;align-items:center;justify-content:center;padding:32px 24px;position:relative;overflow:hidden;
+  background:radial-gradient(1200px 600px at 70% 0%,rgba(18,164,115,.10),transparent 60%),radial-gradient(800px 500px at 0% 100%,rgba(255,176,32,.10),transparent 60%),var(--bg)}
+.stage-inner{width:100%;display:flex;justify-content:center;animation:fadein .35s ease}
+@keyframes fadein{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+/* ---------- Phone ---------- */
+.phone{width:375px;height:760px;max-height:calc(100vh - 124px);min-height:600px;background:#0D1411;border-radius:48px;padding:12px;box-shadow:0 30px 80px rgba(15,26,21,.25),0 0 0 2px #2A3631 inset;position:relative;flex:none}
+.phone .screen{width:100%;height:100%;border-radius:38px;overflow:hidden;background:#F7FAF8;position:relative;display:flex;flex-direction:column}
+.phone .notch{position:absolute;top:12px;left:50%;transform:translateX(-50%);width:120px;height:30px;background:#0D1411;border-radius:0 0 18px 18px;z-index:5}
+.sbar{height:44px;flex:none;display:flex;align-items:flex-end;justify-content:space-between;padding:0 26px 6px;font-size:13px;font-weight:700}
+.sbar .sig{display:flex;gap:5px;align-items:center}
+.sbar .bat{width:22px;height:11px;border:1.5px solid currentColor;border-radius:3px;position:relative}
+.sbar .bat::after{content:"";position:absolute;inset:1.5px;right:5px;background:currentColor;border-radius:1px}
+.app{flex:1;display:flex;flex-direction:column;min-height:0;position:relative}
+.appbar{display:flex;align-items:center;gap:10px;padding:8px 16px 10px;flex:none}
+.appbar h2{font-size:18px;margin:0;flex:1;letter-spacing:-.01em}
+.iconbtn{width:36px;height:36px;border-radius:50%;background:var(--card);display:grid;place-items:center;box-shadow:0 1px 3px rgba(0,0,0,.08);font-size:18px}
+.body{flex:1;overflow-y:auto;padding:4px 16px 16px;scrollbar-width:none}
+.body::-webkit-scrollbar{display:none}
+.cta-bar{flex:none;padding:12px 16px 22px;background:linear-gradient(180deg,rgba(247,250,248,0),#F7FAF8 30%)}
+.cta{width:100%;height:52px;border-radius:14px;background:var(--brand);color:#fff;font-weight:700;font-size:16px;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 6px 16px rgba(11,122,85,.3);transition:background .2s,opacity .2s}
+.cta:hover{background:#09694A}
+.cta[disabled]{opacity:.4;pointer-events:none;box-shadow:none}
+.cta.dark{background:var(--pro);box-shadow:0 6px 16px rgba(0,0,0,.25)}
+.tabbar{flex:none;display:flex;justify-content:space-around;padding:8px 8px 20px;background:#fff;border-top:1px solid var(--line)}
+.tabbar span{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10.5px;color:var(--faint);font-weight:600}
+.tabbar span svg{font-size:21px}
+.tabbar span.on{color:var(--brand)}
+
+/* in-app components */
+.h-sm{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700;margin:18px 0 8px}
+.card{background:var(--card);border-radius:var(--radius);box-shadow:0 1px 2px rgba(15,26,21,.05),0 2px 10px rgba(15,26,21,.05);padding:14px}
+.row{display:flex;align-items:center;gap:10px}
+.between{justify-content:space-between}
+.muted{color:var(--muted)}
+.small{font-size:12.5px}
+.tiny{font-size:11.5px}
+.b{font-weight:700}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:99px;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.06);font-size:13px;font-weight:600}
+.search{display:flex;align-items:center;gap:10px;background:#fff;border-radius:14px;padding:12px 14px;color:var(--faint);box-shadow:0 1px 3px rgba(0,0,0,.05);font-size:14px;margin-top:12px}
+.promo{margin-top:14px;border-radius:18px;padding:16px;color:#fff;background:linear-gradient(135deg,#0B7A55,#12A473 60%,#4CC38A);position:relative;overflow:hidden;cursor:pointer;text-align:left;width:100%}
+.promo::after{content:"";position:absolute;right:-30px;bottom:-40px;width:150px;height:150px;border-radius:50%;background:rgba(255,255,255,.12)}
+.promo .t{font-weight:800;font-size:17px;line-height:1.25;max-width:220px}
+.promo .s{font-size:12.5px;opacity:.9;margin-top:4px;max-width:230px}
+.promo .go{margin-top:10px;display:inline-flex;gap:6px;align-items:center;background:#fff;color:var(--brand);border-radius:99px;padding:6px 12px;font-size:12.5px;font-weight:700}
+.cats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.cat{background:#fff;border-radius:16px;padding:14px 6px 12px;display:flex;flex-direction:column;align-items:center;gap:8px;font-size:12.5px;font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,.05);transition:transform .15s,box-shadow .15s}
+.cat:hover{transform:translateY(-2px);box-shadow:0 6px 16px rgba(0,0,0,.08)}
+.cat .ci{width:46px;height:46px;border-radius:14px;display:grid;place-items:center;font-size:22px}
+.cat.pulse{animation:pulse 1.8s infinite}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(18,164,115,.45)}60%{box-shadow:0 0 0 10px rgba(18,164,115,0)}}
+.hscroll{display:flex;gap:10px;overflow-x:auto;margin:0 -16px;padding:2px 16px 6px;scrollbar-width:none}
+.hscroll::-webkit-scrollbar{display:none}
+.procard{min-width:150px;background:#fff;border-radius:16px;padding:12px;box-shadow:0 1px 3px rgba(0,0,0,.05)}
+.av{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;color:#fff;font-weight:700;font-size:14px;flex:none}
+.stars{color:var(--accent);display:inline-flex;align-items:center;gap:3px;font-weight:700;font-size:12.5px}
+.verified{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;color:var(--brand);background:var(--brand-soft);padding:2px 7px;border-radius:99px}
+.seg{display:flex;background:#E7EEEA;border-radius:12px;padding:4px;gap:4px}
+.seg button{flex:1;padding:9px 6px;border-radius:9px;font-size:13px;font-weight:700;color:var(--muted);transition:background .2s,color .2s}
+.seg button.on{background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.seg.dark{background:#2B3933}
+.seg.dark button{color:#9FB0A8}
+.seg.dark button.on{background:#fff;color:var(--ink)}
+.svc{width:100%;text-align:left;background:#fff;border-radius:16px;padding:14px;display:flex;gap:12px;align-items:center;border:2px solid transparent;box-shadow:0 1px 3px rgba(0,0,0,.05);margin-bottom:10px;transition:border-color .2s}
+.svc.on{border-color:var(--brand);background:#FBFEFC}
+.svc .radio{width:20px;height:20px;border-radius:50%;border:2px solid var(--line);flex:none;display:grid;place-items:center}
+.svc.on .radio{border-color:var(--brand)}
+.svc.on .radio::after{content:"";width:10px;height:10px;border-radius:50%;background:var(--brand)}
+.price{font-weight:800;font-size:15px;white-space:nowrap}
+.field{background:#fff;border-radius:14px;padding:10px 14px;box-shadow:0 1px 3px rgba(0,0,0,.05)}
+.field label{display:block;font-size:11.5px;color:var(--muted);font-weight:600}
+.field input,.field textarea{border:0;outline:0;width:100%;background:transparent;font-size:14.5px;padding:2px 0;resize:none}
+.sizes{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.size{background:#fff;border-radius:14px;padding:10px 8px;text-align:center;border:2px solid transparent;box-shadow:0 1px 3px rgba(0,0,0,.05)}
+.size.on{border-color:var(--brand);background:#FBFEFC}
+.size .n{font-weight:700;font-size:13.5px}
+.size .d{font-size:11px;color:var(--muted)}
+.photos{display:flex;gap:8px}
+.ph{width:72px;height:72px;border-radius:12px;flex:none;overflow:hidden;position:relative}
+.ph.add{border:2px dashed #C9D6CF;display:grid;place-items:center;color:var(--muted);font-size:22px;background:#fff}
+.days{display:flex;gap:8px;overflow-x:auto;margin:0 -16px;padding:2px 16px 4px;scrollbar-width:none}
+.days::-webkit-scrollbar{display:none}
+.day{min-width:56px;background:#fff;border-radius:14px;padding:8px 4px;text-align:center;border:2px solid transparent;box-shadow:0 1px 3px rgba(0,0,0,.05)}
+.day .dn{font-size:11.5px;color:var(--muted);font-weight:600}
+.day .dd{font-size:18px;font-weight:800}
+.day.on{background:var(--brand);color:#fff}
+.day.on .dn{color:rgba(255,255,255,.8)}
+.slots{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.slot{background:#fff;border-radius:12px;padding:11px 4px;text-align:center;font-weight:700;font-size:14px;border:2px solid transparent;box-shadow:0 1px 3px rgba(0,0,0,.05)}
+.slot small{display:block;font-size:10.5px;font-weight:600;color:var(--brand)}
+.slot.off{opacity:.45;pointer-events:none;text-decoration:line-through}
+.slot.off small{color:var(--muted);text-decoration:none}
+.slot.on{border-color:var(--brand);background:var(--brand-soft)}
+.info{display:flex;gap:10px;align-items:flex-start;background:var(--brand-soft);color:var(--brand-ink);border-radius:14px;padding:12px;font-size:13px}
+.info svg{font-size:18px;color:var(--brand);margin-top:1px}
+.info.amber{background:var(--accent-soft);color:#6B4500}
+.info.amber svg{color:#B87A00}
+.line{display:flex;justify-content:space-between;padding:6px 0;font-size:14px}
+.line.total{border-top:1px dashed var(--line);margin-top:6px;padding-top:12px;font-weight:800;font-size:16px}
+.paym{width:100%;display:flex;align-items:center;gap:12px;padding:12px 14px;background:#fff;border-radius:14px;margin-bottom:8px;border:2px solid transparent;box-shadow:0 1px 3px rgba(0,0,0,.05)}
+.paym.on{border-color:var(--brand)}
+.paym .logo-b{width:38px;height:26px;border-radius:6px;display:grid;place-items:center;font-size:10px;font-weight:800;color:#fff}
+.map{height:200px;border-radius:18px;overflow:hidden;position:relative;background:#E3ECE6}
+.map svg{width:100%;height:100%;display:block}
+.tl{position:relative;padding-left:26px}
+.tl-item{position:relative;padding:0 0 16px}
+.tl-item::before{content:"";position:absolute;left:-19px;top:18px;bottom:-2px;width:2px;background:var(--line)}
+.tl-item:last-child::before{display:none}
+.tl-item .tdot{position:absolute;left:-26px;top:2px;width:16px;height:16px;border-radius:50%;background:#fff;border:2px solid var(--line)}
+.tl-item.done .tdot{background:var(--brand);border-color:var(--brand)}
+.tl-item.done::before{background:var(--brand)}
+.tl-item.now .tdot{border-color:var(--brand);box-shadow:0 0 0 5px rgba(18,164,115,.18)}
+.tl-item .tt{font-weight:700;font-size:14px}
+.tl-item:not(.done):not(.now) .tt{color:var(--faint)}
+.bigstars{display:flex;gap:8px;justify-content:center;font-size:38px;color:#D5DED9}
+.bigstars button{transition:transform .15s}
+.bigstars button:hover{transform:scale(1.12)}
+.bigstars button.on{color:var(--accent)}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{padding:8px 12px;border-radius:99px;background:#fff;font-size:13px;font-weight:600;border:1.5px solid var(--line);transition:all .15s}
+.chip.on{background:var(--brand);border-color:var(--brand);color:#fff}
+.chip.dark.on{background:var(--pro);border-color:var(--pro)}
+.plancards{display:flex;gap:10px;overflow-x:auto;margin:0 -16px;padding:4px 16px 6px;scrollbar-width:none}
+.plancards::-webkit-scrollbar{display:none}
+.plancard{min-width:150px;max-width:150px;text-align:left;background:#fff;border-radius:16px;padding:12px;border:2px solid transparent;box-shadow:0 1px 3px rgba(0,0,0,.05)}
+.plancard.on{border-color:var(--brand);background:#FBFEFC}
+.plancard .pi{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;font-size:17px;margin-bottom:8px}
+.addon{display:flex;align-items:center;gap:12px;padding:11px 12px;background:#fff;border-radius:14px;margin-bottom:8px;width:100%;text-align:left;box-shadow:0 1px 3px rgba(0,0,0,.05)}
+.cbox{width:22px;height:22px;border-radius:7px;border:2px solid var(--line);display:grid;place-items:center;color:#fff;font-size:14px;flex:none}
+.addon.on .cbox{background:var(--brand);border-color:var(--brand)}
+.wk{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+.wk button{height:40px;border-radius:12px;background:#fff;font-weight:700;font-size:12.5px;border:1.5px solid var(--line)}
+.wk button.on{background:var(--brand);color:#fff;border-color:var(--brand)}
+.wk.dark button.on{background:var(--pro);border-color:var(--pro)}
+.sumbox{background:var(--ink);color:#fff;border-radius:18px;padding:16px}
+.sumbox .big{font-size:30px;font-weight:800;letter-spacing:-.02em}
+.sumbox .sub{color:#A9BDB4;font-size:12.5px}
+.visit{display:flex;align-items:center;gap:12px;padding:12px;background:#fff;border-radius:14px;margin-bottom:8px;box-shadow:0 1px 3px rgba(0,0,0,.05);transition:opacity .2s}
+.visit .vd{width:46px;text-align:center;flex:none}
+.visit .vd .m{font-size:10.5px;font-weight:700;color:var(--brand);text-transform:uppercase}
+.visit .vd .d{font-size:19px;font-weight:800;line-height:1}
+.visit.skipped{opacity:.5}
+.visit.skipped .vt{text-decoration:line-through}
+.mini-btn{padding:6px 11px;border-radius:9px;font-size:12px;font-weight:700;background:var(--bg);color:var(--ink-2)}
+.mini-btn.green{background:var(--brand-soft);color:var(--brand)}
+.toggle{width:46px;height:28px;border-radius:99px;background:#CDD8D2;position:relative;transition:background .2s;flex:none}
+.toggle::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.2);transition:transform .2s}
+.toggle.on{background:var(--brand)}
+.toggle.on::after{transform:translateX(18px)}
+.doc{display:flex;align-items:center;gap:12px;padding:12px;background:#fff;border-radius:14px;margin-bottom:8px;box-shadow:0 1px 3px rgba(0,0,0,.05)}
+.doc .di{width:38px;height:38px;border-radius:10px;background:var(--bg);display:grid;place-items:center;font-size:18px;color:var(--muted)}
+.doc.ok .di{background:var(--brand-soft);color:var(--brand)}
+input[type=range]{width:100%;accent-color:var(--pro)}
+
+/* provider theme */
+.app.pro{background:#F3F5F4}
+.prohead{background:var(--pro);color:#fff;padding:6px 16px 16px;flex:none}
+.prohead .row h2{font-size:18px;margin:0;flex:1}
+.online{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:700}
+.online .lamp{width:8px;height:8px;border-radius:50%;background:#3BDB8F;box-shadow:0 0 0 4px rgba(59,219,143,.2)}
+.req{border-radius:20px;background:#fff;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,.12);animation:slidein .5s ease}
+@keyframes slidein{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:none}}
+.req-top{background:linear-gradient(135deg,var(--pro),#2E4A3E);color:#fff;padding:14px 16px;display:flex;align-items:center;gap:12px}
+.ring{width:54px;height:54px;flex:none;position:relative}
+.ring svg{width:100%;height:100%;transform:rotate(-90deg)}
+.ring .rt{position:absolute;inset:0;display:grid;place-items:center;font-size:11.5px;font-weight:800}
+.earn{font-size:26px;font-weight:800;color:var(--brand)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:8px 12px;font-size:13.5px}
+.kv span:nth-child(odd){color:var(--muted)}
+.btn2{flex:1;height:48px;border-radius:13px;font-weight:700;font-size:15px}
+.btn2.no{background:var(--bg);color:var(--ink-2)}
+.btn2.yes{background:var(--brand);color:#fff}
+.flow{display:flex;gap:6px}
+.flow div{flex:1;height:5px;border-radius:9px;background:var(--line)}
+.flow div.on{background:var(--brand)}
+.job{display:flex;gap:12px;padding:12px;background:#fff;border-radius:14px;margin-bottom:8px;box-shadow:0 1px 3px rgba(0,0,0,.05);border-left:4px solid var(--brand)}
+.job.rec{border-left-color:var(--accent)}
+.job .jt{width:48px;flex:none;font-weight:800;font-size:13.5px}
+.badge{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:99px;background:var(--accent-soft);color:#8A5800}
+.badge.g{background:var(--brand-soft);color:var(--brand)}
+.badge.b{background:var(--info-soft);color:var(--info)}
+.badge.r{background:#FDECEC;color:var(--danger)}
+.badge.grey{background:var(--line-2);color:var(--muted)}
+.bars{display:flex;align-items:flex-end;gap:8px;height:110px;padding-top:8px}
+.bars .bcol{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;height:100%;justify-content:flex-end}
+.bars .bar{width:100%;border-radius:7px 7px 3px 3px;background:#CFE9DC;transition:height .6s ease}
+.bars .bar.hl{background:var(--brand)}
+.bars .bl{font-size:10.5px;color:var(--muted);font-weight:600}
+
+/* chat */
+.msg{max-width:80%;background:#fff;border-radius:16px 16px 16px 4px;padding:9px 12px;font-size:14px;box-shadow:0 1px 2px rgba(0,0,0,.06);align-self:flex-start;position:relative}
+.msg.me{background:var(--brand);color:#fff;border-radius:16px 16px 4px 16px;align-self:flex-end}
+.msg .mt{display:block;font-size:10.5px;opacity:.6;margin-top:3px;text-align:right}
+.msg-ph{margin:-3px -6px 8px;border-radius:12px;overflow:hidden;height:120px}
+.msg-ph svg{display:block;width:100%;height:120px}
+.msg-sys{align-self:center;font-size:12px;font-weight:600;color:var(--brand-ink);background:var(--brand-soft);padding:6px 12px;border-radius:99px;text-align:center}
+.xcard{background:#fff;border-radius:16px;padding:14px;border:2px solid var(--accent);box-shadow:0 6px 18px rgba(255,176,32,.18);animation:slidein .5s ease}
+@media (max-width:820px){.admin-who{display:none}}
+/* toast */
+.toast{position:absolute;left:50%;bottom:96px;transform:translateX(-50%) translateY(20px);background:var(--ink);color:#fff;padding:10px 16px;border-radius:12px;font-size:13.5px;font-weight:600;opacity:0;pointer-events:none;transition:all .3s;z-index:30;white-space:nowrap;display:flex;gap:8px;align-items:center;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.toast svg{color:#5BE0A0}
+
+/* ---------- Browser (admin) ---------- */
+.browser{width:100%;max-width:1080px;height:calc(100vh - 124px);min-height:600px;max-height:780px;background:#fff;border-radius:16px;box-shadow:0 30px 80px rgba(15,26,21,.18);overflow:hidden;display:flex;flex-direction:column;position:relative}
+.bchrome{height:44px;flex:none;background:#F1F4F2;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:14px;padding:0 14px}
+.bdots{display:flex;gap:7px}
+.bdots i{width:12px;height:12px;border-radius:50%;background:#E25C5C;display:block}
+.bdots i:nth-child(2){background:#E8B33C}
+.bdots i:nth-child(3){background:#55C26B}
+.burl{flex:1;max-width:460px;margin:0 auto;height:28px;border-radius:8px;background:#fff;display:flex;align-items:center;gap:8px;padding:0 12px;font-size:12.5px;color:var(--muted);border:1px solid var(--line)}
+.admin{flex:1;display:grid;grid-template-columns:210px 1fr;min-height:0}
+.aside{background:#FAFCFB;border-right:1px solid var(--line);padding:16px 12px;display:flex;flex-direction:column;gap:2px}
+.aside .logo{font-size:15px;padding:4px 8px 16px}
+.aside .logo-mark{width:28px;height:28px;font-size:14px;border-radius:8px}
+.aside a{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:9px;font-size:13.5px;font-weight:600;color:var(--ink-2);cursor:pointer;text-decoration:none}
+.aside a:hover{background:var(--bg)}
+.aside a.on{background:var(--brand-soft);color:var(--brand)}
+.aside a svg{font-size:17px}
+.aside .cnt{margin-left:auto;font-size:11px;background:var(--danger);color:#fff;border-radius:99px;padding:1px 7px}
+.amain{overflow-y:auto;padding:22px 26px 30px}
+.amain h3{margin:0;font-size:21px;letter-spacing:-.01em}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:18px}
+.kpi{border:1px solid var(--line);border-radius:14px;padding:14px}
+.kpi .kl{font-size:12px;color:var(--muted);font-weight:600}
+.kpi .kv2{font-size:24px;font-weight:800;margin-top:4px;letter-spacing:-.02em}
+.kpi .kd{font-size:12px;font-weight:700;color:var(--brand)}
+.agrid{display:grid;grid-template-columns:1.4fr 1fr;gap:14px;margin-top:14px}
+.panel{border:1px solid var(--line);border-radius:14px;padding:16px}
+.panel h4{margin:0 0 12px;font-size:14.5px;display:flex;justify-content:space-between;align-items:center}
+table.t{width:100%;min-width:600px;border-collapse:collapse;font-size:13px}
+table.t th{text-align:left;font-size:11.5px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em;padding:6px 8px;border-bottom:1px solid var(--line)}
+table.t td{padding:10px 8px;border-bottom:1px solid var(--line-2);vertical-align:middle}
+table.t tr.hl td{background:#F5FBF8}
+.abtn{padding:7px 12px;border-radius:9px;font-size:12.5px;font-weight:700;background:var(--brand);color:#fff}
+.abtn.ghost{background:var(--bg);color:var(--ink-2)}
+.abtn.big{padding:11px 18px;font-size:14px}
+.builder{display:grid;grid-template-columns:1fr 300px;gap:18px;margin-top:16px}
+.fgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.af{display:flex;flex-direction:column;gap:6px}
+.af.full{grid-column:1/-1}
+.af label{font-size:12px;font-weight:700;color:var(--ink-2)}
+.af input[type=text],.af input[type=number],.af select{height:40px;border:1px solid var(--line);border-radius:10px;padding:0 12px;background:#fff;outline:0;font-size:14px}
+.af input:focus,.af select:focus{border-color:var(--brand);box-shadow:0 0 0 3px rgba(18,164,115,.15)}
+.af .hint{font-size:11.5px;color:var(--muted)}
+.taskchips{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.taskchip{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:9px;background:var(--brand-soft);color:var(--brand-ink);font-size:12.5px;font-weight:600}
+.taskchip button{opacity:.6;font-size:13px}
+.preview{background:var(--bg);border-radius:16px;padding:16px;position:sticky;top:0;align-self:start}
+.preview .pv-l{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:700;margin-bottom:10px}
+.split{display:flex;height:10px;border-radius:9px;overflow:hidden;margin:8px 0 6px}
+.split div:first-child{background:var(--brand)}
+.split div:last-child{background:var(--accent)}
+
+/* ---------- Welcome / finish ---------- */
+.hero{max-width:880px;width:100%;background:var(--card);border-radius:24px;box-shadow:var(--shadow);padding:44px;display:grid;gap:26px}
+.hero h2{font-size:40px;line-height:1.08;margin:0;letter-spacing:-.025em}
+.hero h2 em{font-style:normal;color:var(--brand)}
+.hero p{margin:0;font-size:17px;color:var(--ink-2);max-width:640px}
+.roles{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.role{border:1px solid var(--line);border-radius:18px;padding:18px;display:grid;gap:8px}
+.role .ri{width:44px;height:44px;border-radius:13px;display:grid;place-items:center;font-size:21px}
+.role h5{margin:0;font-size:16px}
+.role p{font-size:13.5px;color:var(--muted)}
+.role .st{font-size:12px;font-weight:700;color:var(--faint)}
+.hero .btn-primary{flex:none;height:52px;padding:0 26px;font-size:16px}
+.road{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.ph-card{border-radius:16px;padding:16px;border:1px solid var(--line);position:relative;overflow:hidden}
+.ph-card .wk2{font-size:12px;font-weight:700;color:var(--muted)}
+.ph-card h5{margin:6px 0 8px;font-size:15.5px}
+.ph-card ul{margin:0;padding-left:16px;font-size:13px;color:var(--ink-2);display:grid;gap:3px}
+.ph-card::before{content:"";position:absolute;left:0;top:0;right:0;height:4px}
+.ph1::before{background:var(--brand)} .ph2::before{background:var(--accent)} .ph3::before{background:var(--pro)} .ph4::before{background:var(--info)}
+
+/* ---------- Responsive ---------- */
+@media (max-width:1100px){
+  .layout{grid-template-columns:340px 1fr}
+  .guide{padding:22px}
+  .kpis{grid-template-columns:repeat(2,1fr)}
+  .agrid,.builder{grid-template-columns:1fr}
+  .admin{grid-template-columns:64px 1fr}
+  .aside .logo span,.aside a span,.aside .cnt{display:none}
+  .aside a{justify-content:center}
+}
+@media (max-width:820px){
+  .topbar{padding:0 16px;gap:10px}
+  .topbar .tag{display:none}
+  .layout{grid-template-columns:1fr}
+  .guide{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line);padding:18px 16px;gap:12px}
+  .guide h1{font-size:21px}
+  .guide .tryit,.guide .why,.guide .kbd{display:none}
+  .guide.expanded .tryit,.guide.expanded .why{display:block}
+  .more-btn{display:inline-flex!important}
+  .stage{padding:20px 16px 28px}
+  .phone{width:min(100%,375px);height:700px;max-height:none;border-radius:42px;padding:10px}
+  .phone .screen{border-radius:33px}
+  .browser{height:720px;max-height:none}
+  .admin{grid-template-columns:1fr}
+  .aside{display:none}
+  .amain{padding:16px}
+  .fgrid{grid-template-columns:1fr}
+  .hero{padding:24px 20px;gap:20px;border-radius:20px}
+  .hero h2{font-size:28px}
+  .hero p{font-size:15px}
+  .roles,.road{grid-template-columns:1fr}
+  .burl{display:none}
+}
+.more-btn{display:none;align-items:center;gap:6px;font-size:13px;font-weight:700;color:var(--brand)}
+@media (max-width:480px){
+  .kpis{grid-template-columns:1fr 1fr}
+  .kpi .kv2{font-size:20px}
+  .progress span.lbl{display:none}
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="logo"><div class="logo-mark" id="logoMark"></div>MISK</div>
+  <span class="tag">Interactive product demo</span>
+  <div class="progress"><span class="lbl" id="progLbl">Step 1 of 16</span><div class="progress-track"><div class="progress-fill" id="progFill"></div></div></div>
+</header>
+
+<div class="layout">
+  <aside class="guide" id="guide"></aside>
+  <main class="stage"><div class="stage-inner" id="stage"></div></main>
+</div>
+
+<script>
+/* =========================================================
+   Icons
+   ========================================================= */
+const P = {
+  leaf:"M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z M2 21c0-3 1.85-5.36 5.08-6",
+  hammer:"M15 12l-8.5 8.5a2.12 2.12 0 1 1-3-3L12 9 M17.64 15L22 10.64 M20.91 11.7l-1.25-1.25c-.6-.6-.93-1.4-.93-2.25v-.86L16.01 4.6a5.56 5.56 0 0 0-3.94-1.64H9l.92.82A6.18 6.18 0 0 1 12 8.4v1.56l2 2h2.47l2.26 1.91",
+  drop:"M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 11.1 5 13 5 15a7 7 0 0 0 7 7z",
+  bolt:"M13 2L3 14h9l-1 8 10-12h-9l1-8z",
+  sparkle:"M12 3l1.9 5.8L20 10l-6.1 1.2L12 17l-1.9-5.8L4 10l6.1-1.2z M19 16l.7 2.3L22 19l-2.3.7L19 22l-.7-2.3L16 19l2.3-.7z",
+  brush:"M18.37 2.63L14 7l-1.59-1.59a2 2 0 0 0-2.82 0L8 7l9 9 1.59-1.59a2 2 0 0 0 0-2.82L17 10l4.37-4.37a2.12 2.12 0 1 0-3-3z M9 8c-2 3-4 3.5-7 4l8 10c2-1 6-5 6-7",
+  search:"M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z M21 21l-4.3-4.3",
+  pin:"M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z M12 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6z",
+  check:"M20 6L9 17l-5-5",
+  chevL:"M15 18l-6-6 6-6", chevR:"M9 18l6-6-6-6", chevD:"M6 9l6 6 6-6",
+  shield:"M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z M9 12l2 2 4-4",
+  camera:"M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z M12 17a4 4 0 1 0 0-8 4 4 0 0 0 0 8z",
+  clock:"M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z M12 6v6l4 2",
+  calendar:"M8 2v4 M16 2v4 M3 10h18 M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z",
+  user:"M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2 M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z",
+  users:"M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z M22 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75",
+  home:"M3 9.5L12 3l9 6.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z",
+  list:"M8 6h13 M8 12h13 M8 18h13 M3 6h.01 M3 12h.01 M3 18h.01",
+  repeat:"M17 2l4 4-4 4 M3 11v-1a4 4 0 0 1 4-4h14 M7 22l-4-4 4-4 M21 13v1a4 4 0 0 1-4 4H3",
+  card:"M2 7a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2z M2 10h20",
+  phone:"M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z",
+  chat:"M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z",
+  bell:"M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9 M10.3 21a1.94 1.94 0 0 0 3.4 0",
+  upload:"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M17 8l-5-5-5 5 M12 3v12",
+  chart:"M3 3v18h18 M7 16v-5 M12 16V8 M17 16V7",
+  grid:"M3 3h7v7H3z M14 3h7v7h-7z M14 14h7v7h-7z M3 14h7v7H3z",
+  plus:"M12 5v14 M5 12h14", x:"M18 6L6 18 M6 6l12 12",
+  pause:"M6 4h4v16H6z M14 4h4v16h-4z", play:"M6 3l14 9-14 9z",
+  truck:"M10 17h4V5H2v12h3 M20 17h2v-3.34a4 4 0 0 0-1.17-2.83L19 9h-5v8h1 M7.5 19.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z M17.5 19.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z",
+  wrench:"M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z",
+  sliders:"M4 21v-7 M4 10V3 M12 21v-9 M12 8V3 M20 21v-5 M20 12V3 M1 14h6 M9 8h6 M17 16h6",
+  file:"M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6",
+  arrowR:"M5 12h14 M12 5l7 7-7 7",
+  euro:"M4 10h12 M4 14h9 M19 6a7.7 7.7 0 0 0-5.2-2A7.9 7.9 0 0 0 6 12c0 4.4 3.5 8 7.8 8 2 0 3.8-.8 5.2-2",
+  lock:"M5 11h14v10H5z M8 11V7a4 4 0 0 1 8 0v4",
+  sun:"M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10z M12 1v2 M12 21v2 M4.2 4.2l1.4 1.4 M18.4 18.4l1.4 1.4 M1 12h2 M21 12h2 M4.2 19.8l1.4-1.4 M18.4 5.6l1.4-1.4",
+  tag:"M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z M7 7h.01",
+  globe:"M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z M2 12h20 M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z",
+  rotate:"M1 4v6h6 M3.51 15a9 9 0 1 0 2.13-9.36L1 10"
+};
+const STAR = "M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z";
+function ic(n, extra=""){return `<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ${extra}><path d="${P[n]}"/></svg>`}
+function star(){return `<svg class="i" viewBox="0 0 24 24" fill="currentColor"><path d="${STAR}"/></svg>`}
+
+/* =========================================================
+   Data
+   ========================================================= */
+const CATS = [
+  {id:"garden",name:"Gardening",icon:"leaf",bg:"#E4F4EC",fg:"#0B7A55",pros:14,services:[
+    {id:"mow",name:"Lawn mowing",price:35,dur:"about 60 min",desc:"Mow, edge and clear the clippings"},
+    {id:"hedge",name:"Hedge trimming",price:45,dur:"about 90 min",desc:"Shape hedges and bushes, waste taken away"},
+    {id:"cleanup",name:"Garden clean-up",price:79,dur:"about 3 h",desc:"Weeding, leaves and flower beds tidied"},
+    {id:"plant",name:"Planting",price:55,dur:"about 2 h",desc:"Flowers, shrubs or small trees planted"}]},
+  {id:"handy",name:"Handyman",icon:"hammer",bg:"#FFF1DC",fg:"#B26B00",pros:21,services:[
+    {id:"assembly",name:"Furniture assembly",price:40,dur:"about 90 min",desc:"Wardrobes, beds, shelves and more"},
+    {id:"mount",name:"TV & shelf mounting",price:49,dur:"about 60 min",desc:"Wall mounting with cables hidden"},
+    {id:"repairs",name:"Small repairs",price:32,dur:"per hour",desc:"Doors, handles, hinges, silicone"}]},
+  {id:"plumb",name:"Plumbing",icon:"drop",bg:"#E6EFFF",fg:"#2F6FEB",pros:9,services:[
+    {id:"leak",name:"Leak repair",price:59,dur:"about 60 min",desc:"Find and fix leaking pipes and joints"},
+    {id:"tap",name:"Tap replacement",price:49,dur:"about 45 min",desc:"Kitchen or bathroom tap swapped"},
+    {id:"drain",name:"Drain unblocking",price:69,dur:"about 60 min",desc:"Sinks, showers and toilets cleared"}]},
+  {id:"elec",name:"Electrical",icon:"bolt",bg:"#FFF6CC",fg:"#9A7B00",pros:8,services:[
+    {id:"light",name:"Light fitting",price:45,dur:"about 60 min",desc:"Install or replace ceiling lights"},
+    {id:"socket",name:"Socket install",price:39,dur:"about 45 min",desc:"New or replacement sockets and switches"},
+    {id:"fault",name:"Fault finding",price:55,dur:"about 60 min",desc:"Tripping fuses and dead circuits"}]},
+  {id:"clean",name:"Cleaning",icon:"sparkle",bg:"#F2E8FF",fg:"#7A3FD1",pros:26,services:[
+    {id:"home",name:"Home cleaning",price:49,dur:"2.5 h",desc:"Kitchen, bathrooms, floors and dusting"},
+    {id:"deep",name:"Deep cleaning",price:119,dur:"5 h",desc:"Top-to-bottom, inside cupboards and appliances"},
+    {id:"windows",name:"Window cleaning",price:39,dur:"about 90 min",desc:"Inside and out, frames included"}]},
+  {id:"paint",name:"Painting",icon:"brush",bg:"#FFE8E8",fg:"#C43D3D",pros:7,services:[
+    {id:"room",name:"Room painting",price:189,dur:"1 day",desc:"Walls and ceiling of one room, paint included"},
+    {id:"touch",name:"Wall touch-up",price:69,dur:"about 2 h",desc:"Patch holes and repaint marks"}]}
+];
+const SIZES = {
+  garden:[["S","Small","under 100 m²"],["M","Medium","100–400 m²"],["L","Large","400 m²+"]],
+  other:[["S","Small","quick job"],["M","Standard","typical job"],["L","Large","bigger job"]]
+};
+const SIZE_MULT = {S:1,M:1.3,L:1.7};
+const SLOTS = ["08:00","10:00","12:00","14:00","16:00","18:00"];
+const PLANS = [
+  {id:"lawn",name:"Lawn care",icon:"leaf",bg:"#E4F4EC",fg:"#0B7A55",base:49,freq:1,tasks:["Mow","Edge","Blow paths"],season:"April – October",
+    addons:[["hedge","Hedge trimming",15],["leaves","Leaf collection in autumn",10],["weed","Weed control",12]]},
+  {id:"garden",name:"Full garden care",icon:"sun",bg:"#FFF1DC",fg:"#B26B00",base:89,freq:1,tasks:["Lawn","Beds & weeding","Hedges","Watering check"],season:"All year",
+    addons:[["pots","Pots & balcony plants",9],["prune","Seasonal pruning",19],["waste","Green waste removal",14]]},
+  {id:"homeclean",name:"Home cleaning",icon:"sparkle",bg:"#F2E8FF",fg:"#7A3FD1",base:69,freq:0.5,tasks:["Kitchen","Bathrooms","Floors","Dusting"],season:"All year",
+    addons:[["oven","Oven cleaning",12],["iron","Ironing (1 h)",18],["windows","Windows monthly",15]]},
+  {id:"handy",name:"Handyman on call",icon:"wrench",bg:"#E6EFFF",fg:"#2F6FEB",base:39,freq:0.5,tasks:["1 h per visit","Small repairs","Assembly","Odd jobs"],season:"All year",
+    addons:[["parts","Small parts included",8],["urgent","Same-day priority",20]]}
+];
+const FREQS = [[0.5,"Every 2 weeks"],[1,"1× a week"],[2,"2× a week"],[3,"3× a week"]];
+const FREQ_MULT = {0.5:0.6,1:1,2:1.8,3:2.5};
+const PSIZE_MULT = {S:0.85,M:1,L:1.35};
+const WEEK = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+const DAYN = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+const MON = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+const TODAY = new Date(); TODAY.setHours(0,0,0,0);
+const addDays = (d,n)=>{const x=new Date(d);x.setDate(x.getDate()+n);return x};
+const fmtD = d=>`${DAYN[d.getDay()]} ${d.getDate()} ${MON[d.getMonth()]}`;
+const eur = n=>"€"+(Number.isInteger(n)?n:n.toFixed(2));
+const esc = s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+/* =========================================================
+   State
+   ========================================================= */
+function fresh(){return {
+  step:0, maxStep:0,
+  cat:"garden", svc:null, size:"M", address:"12 Linden Street, Apt 3", notes:"Gate code 4411. The lawn at the back is the larger part.", photos:1,
+  auth:0, otp:"", role:"customer",
+  chat:null, extra:"pending", chatDone:false,
+  day:1, slot:null, pay:"card", booked:false,
+  track:0, rating:0, tags:[], tip:0, reviewed:false,
+  plan:"lawn", pfreq:1, psize:"M", paddons:[], pdays:["Tue"], pwin:"Morning", subscribed:false,
+  skipped:{}, paused:false,
+  pro:{trades:["garden"], docs:{id:false,cert:false,ins:false}, radius:12, days:["Mon","Tue","Wed","Thu","Fri"], submitted:false},
+  inbox:"new", countdown:899, jobstage:0,
+  approved:false,
+  b:{name:"Weekly lawn care", cat:"Gardening", price:49, freq:"1", dur:60, tasks:["Mow","Edge","Blow paths"], newTask:"", addonName:"Hedge trimming", addonPrice:15, season:true, sFrom:"Apr", sTo:"Oct", minTerm:3, skips:2, payout:70, published:false}
+}}
+let S = fresh();
+let timers = [];
+const clearTimers = ()=>{timers.forEach(t=>clearInterval(t));timers=[]};
+
+const cat = ()=>CATS.find(c=>c.id===S.cat);
+const svc = ()=>cat().services.find(s=>s.id===S.svc) || cat().services[0];
+const jobPrice = ()=>Math.round(svc().price*SIZE_MULT[S.size]);
+const FEE = 2.9;
+const extraCost = ()=>S.extra==="approved"?20:0;
+const plan = ()=>PLANS.find(p=>p.id===S.plan);
+function planPrice(){
+  const p=plan(); let v=p.base*FREQ_MULT[S.pfreq]*PSIZE_MULT[S.psize];
+  S.paddons.forEach(a=>{const x=p.addons.find(y=>y[0]===a); if(x) v+=x[2]});
+  return Math.round(v);
+}
+const visitsPerMonth = ()=>Math.round(S.pfreq*4.33*10)/10;
+const slotFree = (d,i)=>((d*7+i*3)%5)!==0 && !(d===0&&i<2);
+const bookDate = ()=>addDays(TODAY,S.day+1);
+
+/* =========================================================
+   Steps (the guided wizard)
+   ========================================================= */
+const IDX = id => STEPS.findIndex(s=>s.id===id);
+const CH = {
+  intro:["Welcome","ch-intro","sparkle"],
+  customer:["Customer app · Book a job","ch-customer","user"],
+  sub:["Customer app · Subscriptions","ch-sub","repeat"],
+  pro:["Pro app · Craftsmen & gardeners","ch-pro","wrench"],
+  admin:["MISK team · Control panel","ch-admin","grid"],
+  end:["Wrap-up","ch-intro","check"]
+};
+const STEPS = [
+  {ch:"intro",id:"welcome",nav:"Welcome",title:"Welcome to MISK",lead:"A walk through the whole platform in about five minutes.",device:"none",screen:sWelcome},
+  {ch:"intro",id:"login",nav:"Sign in & roles",title:"One app, the right view for each role",device:"phone",screen:sLogin,
+    lead:"People sign in with their phone number, Google or Apple, then say whether they need help or offer it. Customers get the customer app and pros get the pro app. The MISK team signs in to a separate web control panel.",
+    try:["Tap <b>Continue with phone</b> and watch the code fill in","Choose <b>I need help at home</b> to follow the customer"],
+    why:"One download for everyone, and each person only sees what is meant for them."},
+  {ch:"customer",id:"home",nav:"Browse trades",title:"Every trade in one app",device:"phone",screen:sHome,
+    lead:"Customers open MISK and see every kind of home and garden help in one place, the same way they would browse restaurants in a delivery app.",
+    try:["Tap <b>Gardening</b> to start a booking","Or tap the green banner to jump to monthly plans"],
+    why:"One trusted place replaces searching, calling around and waiting for quotes."},
+  {ch:"customer",id:"services",nav:"Pick a service",title:"Clear services, upfront prices",device:"phone",screen:sServices,
+    lead:"Each trade lists its services with a starting price and how long it takes. The customer picks one, or switches to a monthly plan.",
+    try:["Choose <b>Lawn mowing</b> (or any service)","Tap <b>Continue</b>"],
+    why:"Fixed, visible prices remove the biggest worry people have when hiring a tradesperson."},
+  {ch:"customer",id:"details",nav:"Describe the job",title:"Describe the job in seconds",device:"phone",screen:sDetails,
+    lead:"Address, job size and a few photos. The price updates with the size, and the pro arrives knowing exactly what to expect.",
+    try:["Change the <b>garden size</b> and watch the price","Tap <b>+</b> to attach a photo"],
+    why:"Good information up front means fewer surprises, fewer extra charges and happier pros."},
+  {ch:"customer",id:"schedule",nav:"Choose a time",title:"Only real, free time slots",device:"phone",screen:sSchedule,
+    lead:"MISK shows only the slots where a verified pro who covers this street is actually free. Full slots are crossed out.",
+    try:["Pick a day","Pick a free time slot"],
+    why:"No back-and-forth. The booking is confirmed the moment the customer chooses."},
+  {ch:"customer",id:"checkout",nav:"Pay securely",title:"Pay safely, charged after the job",device:"phone",screen:sCheckout,
+    lead:"The full price is shown before booking. Payment is held securely and only taken once the job is marked done.",
+    try:["Choose a payment method","Tap <b>Book & pay</b>"],
+    why:"Customers are protected, and pros know the money is already secured."},
+  {ch:"customer",id:"track",nav:"Track live",title:"Follow the job live",device:"phone",screen:sTracking,
+    lead:"MISK offers the job to the best-rated free pro nearby. The customer sees every step: accepted, on the way, working, done.",
+    try:["Watch the status move on its own","Or tap <b>Next status</b> to speed it up"],
+    why:"Transparency builds trust, and fewer \"where are you?\" calls for the pro."},
+  {ch:"customer",id:"chat",nav:"Chat & extras",title:"Chat, and approve extra work",device:"phone",screen:sChat,
+    lead:"Customer and pro message each other inside the booking, with photos. If the pro spots extra work, they send a priced request and the customer approves it with one tap.",
+    try:["<b>Approve</b> or <b>Decline</b> the hedge trimming request","Send a quick reply to Daniel"],
+    why:"No surprise bills. Every extra cost is agreed in writing, inside MISK, before it is charged."},
+  {ch:"customer",id:"review",nav:"Rate the pro",title:"Ratings keep quality high",device:"phone",screen:sReview,
+    lead:"After the job the customer rates the pro and can leave a tip. Ratings decide who gets offered new jobs first.",
+    try:["Give some stars and pick a few tags","Notice the invite to make it a regular service"],
+    why:"Quality is rewarded automatically, and one-off customers are turned into subscribers."},
+  {ch:"sub",id:"plans",nav:"Build a plan",title:"Monthly plans, done X times a week",device:"phone",screen:sPlans,
+    lead:"The heart of MISK: one fixed monthly price for a job done on a regular schedule. Customers tailor visits, size, extras and days, and see the price live.",
+    try:["Pick a plan, then change <b>how often</b>","Tick an extra and choose your days"],
+    why:"Predictable monthly income for MISK and the pros, and zero effort for the customer."},
+  {ch:"sub",id:"manage",nav:"Manage the plan",title:"Subscribers stay in control",device:"phone",screen:sManage,
+    lead:"Upcoming visits are planned automatically with one regular pro. Customers can skip a visit, pause for holidays or change days themselves.",
+    try:["<b>Skip</b> one of the visits","Turn on <b>Pause</b> to see holiday mode"],
+    why:"Flexibility keeps subscribers happy, so they stay longer."},
+  {ch:"pro",id:"onboard",nav:"Join as a pro",title:"Pros sign up in the app",device:"phone",screen:sOnboard,
+    lead:"Craftsmen and gardeners apply in the app, upload their documents, and set which trades they do, how far they travel and when they work.",
+    try:["Upload the three documents","Set the travel distance and working days, then submit"],
+    why:"Every pro is checked by the MISK team before they get a single job."},
+  {ch:"pro",id:"inbox",nav:"Accept a job",title:"New jobs, with earnings shown",device:"phone",screen:sInbox,
+    lead:"This is the job the customer just booked, arriving on the pro's phone with every detail and what the pro will earn. They have 15 minutes to accept.",
+    try:["Tap <b>Accept</b>","Then walk the job through: start, photos, complete"],
+    why:"If a pro doesn't answer in time, the job moves to the next pro automatically."},
+  {ch:"pro",id:"week",nav:"Schedule & earnings",title:"One weekly plan, clear earnings",device:"phone",screen:sProWeek,
+    lead:"One-off jobs and recurring subscription visits appear together in the pro's week, next to their earnings and upcoming payout.",
+    try:["Tap a day to see its jobs","Look at the recurring visits marked in amber"],
+    why:"Subscriptions give pros a steady, planned income, which is why the best ones stay."},
+  {ch:"admin",id:"admin",nav:"Run the marketplace",title:"The whole marketplace at a glance",device:"browser",screen:sAdmin,
+    lead:"The MISK team sees bookings, revenue and subscriptions in real time, approves new pros and steps in when something goes wrong.",
+    try:["<b>Approve</b> Daniel, the pro who just applied","Spot the customer's booking in the list"],
+    why:"Full control over quality, without needing to touch any code."},
+  {ch:"admin",id:"builder",nav:"Create a plan",title:"Every plan is configurable",device:"browser",screen:sBuilder,
+    lead:"Subscription plans are built here, not by a developer: price, how often, visit length, tasks, extras, season, rules and what the pro earns.",
+    try:["Change the price or frequency","Add a task, then <b>Publish</b>"],
+    why:"New services can be launched in minutes, for any trade."},
+  {ch:"end",id:"finish",nav:"Wrap-up",title:"That's MISK",device:"none",screen:sFinish,
+    lead:"Customers, pros and the MISK team, all connected in one platform."}
+];
+
+/* =========================================================
+   Screen helpers
+   ========================================================= */
+const sbar = (dark)=>`<div class="sbar" style="${dark?"background:var(--pro);color:#fff":""}"><span>9:41</span><span class="sig">${ic("globe")}<span class="bat"></span></span></div>`;
+function appbar(title,back=true,right=""){return `<div class="appbar">${back?`<button class="iconbtn" data-a="prev" aria-label="Back">${ic("chevL")}</button>`:""}<h2>${title}</h2>${right}</div>`}
+function tabbar(on){
+  const t=[["home","Home"],["list","Bookings"],["repeat","Plans"],["user","Profile"]];
+  return `<div class="tabbar">${t.map(x=>`<span class="${x[1]===on?"on":""}">${ic(x[0])}${x[1]}</span>`).join("")}</div>`;
+}
+function photoSvg(i){
+  const g=[["#9ED3B4","#3E9B6B"],["#B9E0C8","#5AAE7E"],["#C9E7D3","#79BE91"]][i%3];
+  return `<svg viewBox="0 0 72 72" width="72" height="72"><defs><linearGradient id="pg${i}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#CFEAF7"/><stop offset=".55" stop-color="#E8F5FB"/><stop offset=".55" stop-color="${g[0]}"/><stop offset="1" stop-color="${g[1]}"/></linearGradient></defs><rect width="72" height="72" fill="url(#pg${i})"/><circle cx="${52-i*10}" cy="16" r="7" fill="#FFE08A"/><path d="M0 44 Q18 34 36 42 T72 38 V72 H0Z" fill="${g[1]}" opacity=".6"/><rect x="${10+i*14}" y="26" width="5" height="16" fill="#6B4E2E"/><circle cx="${12.5+i*14}" cy="24" r="9" fill="#2F7D52"/></svg>`;
+}
+const avatar = (txt,bg,size=40)=>`<div class="av" style="background:${bg};width:${size}px;height:${size}px;font-size:${size*.36}px">${txt}</div>`;
+
+/* =========================================================
+   Screens
+   ========================================================= */
+function sWelcome(){
+  return `<div class="hero">
+    <div class="chapter ch-customer">${ic("sparkle")} Product demo</div>
+    <h2>Trusted craftsmen and gardeners, <em>booked in minutes.</em><br>Or done every week, on a plan.</h2>
+    <p>MISK works like a food delivery app, but for home and garden services. Customers book a verified pro for a one-off job, or subscribe to a monthly plan where the work is done for them on a fixed schedule.</p>
+    <div class="roles">
+      <div class="role"><div class="ri" style="background:var(--brand-soft);color:var(--brand)">${ic("user")}</div><h5>Customers</h5><p>Find a pro, see the price, book a time, pay safely and track the job. Or subscribe and forget about it.</p><span class="st">Steps 2 – 12</span></div>
+      <div class="role"><div class="ri" style="background:#E9ECEB;color:var(--pro)">${ic("wrench")}</div><h5>Craftsmen & gardeners</h5><p>Get a steady flow of nearby jobs and recurring visits, with secure, on-time payouts.</p><span class="st">Steps 13 – 15</span></div>
+      <div class="role"><div class="ri" style="background:var(--info-soft);color:var(--info)">${ic("grid")}</div><h5>The MISK team</h5><p>Approve pros, watch the marketplace and create new subscription plans without a developer.</p><span class="st">Steps 16 – 17</span></div>
+    </div>
+    <div class="row" style="gap:16px;flex-wrap:wrap"><button class="btn btn-primary" data-a="next">Start the tour ${ic("arrowR")}</button><span class="muted small">Everything is clickable. Use the guide, or the ← → keys.</span></div>
+  </div>`;
+}
+
+let otpTimer=null;
+function startOtp(){
+  clearInterval(otpTimer); S.otp="";
+  otpTimer=setInterval(()=>{ if(S.step!==IDX("login")||S.auth!==1){clearInterval(otpTimer);return;}
+    S.otp+="4821"[S.otp.length]; refresh();
+    if(S.otp.length>=4){ clearInterval(otpTimer); setTimeout(()=>{ if(S.step===IDX("login")&&S.auth===1){S.auth=2; refresh();} },700); } },450);
+}
+function sLogin(){
+  if(S.auth===0) return `${sbar()}<div class="app" style="background:linear-gradient(180deg,#E4F4EC 0%,#F7FAF8 55%)">
+    <div class="body" style="display:flex;flex-direction:column;padding-top:40px">
+      <div style="text-align:center"><div class="logo-mark" style="width:76px;height:76px;border-radius:24px;font-size:36px;margin:0 auto;box-shadow:0 12px 30px rgba(11,122,85,.3)">${ic("leaf")}</div>
+      <div style="font-size:30px;font-weight:800;letter-spacing:.04em;margin-top:16px">MISK</div>
+      <div class="muted" style="margin-top:4px">Trusted help for your home and garden</div></div>
+      <div style="margin-top:auto;display:grid;gap:10px;padding-top:30px">
+        <button class="cta" data-a="auth" data-v="1">${ic("phone")} Continue with phone</button>
+        <button class="cta" style="background:#000;box-shadow:none" data-a="auth" data-v="2"><svg class="i" viewBox="0 0 24 24" fill="currentColor"><path d="M16.4 12.6c0-2.4 2-3.6 2.1-3.7-1.1-1.7-2.9-1.9-3.5-1.9-1.5-.2-2.9.9-3.7.9-.8 0-1.9-.9-3.2-.8-1.6 0-3.1 1-4 2.4-1.7 3-.4 7.4 1.2 9.8.8 1.2 1.8 2.5 3 2.4 1.2 0 1.7-.8 3.1-.8 1.5 0 1.9.8 3.2.8 1.3 0 2.2-1.2 3-2.4.9-1.4 1.3-2.7 1.3-2.8 0 0-2.5-1-2.5-3.9zM14 5.5c.7-.8 1.1-1.9 1-3-1 0-2.1.7-2.8 1.5-.6.7-1.2 1.8-1 2.9 1 .1 2.1-.6 2.8-1.4z"/></svg> Continue with Apple</button>
+        <button class="cta" style="background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)" data-a="auth" data-v="2"><b style="font-size:17px;background:linear-gradient(90deg,#4285F4,#EA4335,#FBBC05,#34A853);-webkit-background-clip:text;background-clip:text;color:transparent">G</b> Continue with Google</button>
+        <div class="tiny muted" style="text-align:center;margin-top:6px">By continuing you agree to the Terms and Privacy Policy.</div>
+      </div>
+    </div></div>`;
+  if(S.auth===1) return `${sbar()}<div class="app">
+    ${appbar("Verify your phone",false,`<button class="iconbtn" data-a="auth" data-v="0">${ic("x")}</button>`)}
+    <div class="body">
+      <div class="field"><label>Phone number</label><input value="+•• 44 123 456" readonly></div>
+      <div class="h-sm">Enter the 4-digit code we sent you</div>
+      <div class="row" style="gap:10px;justify-content:center;margin-top:8px">${[0,1,2,3].map(i=>`<div style="width:58px;height:66px;border-radius:14px;background:#fff;display:grid;place-items:center;font-size:28px;font-weight:800;box-shadow:0 1px 3px rgba(0,0,0,.08);border:2px solid ${S.otp.length===i?"var(--brand)":"transparent"}">${S.otp[i]||""}</div>`).join("")}</div>
+      <div class="info" style="margin-top:18px">${ic("shield")}<div>No passwords to remember. The code fills in automatically on most phones.</div></div>
+    </div></div>`;
+  const roles=[["customer","I need help at home","Book jobs and monthly plans","home","var(--brand-soft)","var(--brand)"],["pro","I'm a craftsman or gardener","Get jobs and steady recurring work","wrench","#E9ECEB","var(--pro)"]];
+  return `${sbar()}<div class="app">
+    ${appbar("Welcome! 👋",false)}
+    <div class="body">
+      <div class="muted" style="margin-bottom:12px">How will you use MISK? You can add the other role later.</div>
+      ${roles.map(r=>`<button class="svc ${S.role===r[0]?"on":""}" data-a="role" data-v="${r[0]}" style="padding:16px"><div class="av" style="background:${r[4]};color:${r[5]};width:48px;height:48px;border-radius:14px;font-size:22px">${ic(r[3])}</div><span style="flex:1"><span class="b" style="display:block;font-size:15.5px">${r[1]}</span><span class="small muted">${r[2]}</span></span><span class="radio"></span></button>`).join("")}
+      <div class="field" style="margin-top:8px"><label>Your first name</label><input value="${S.role==="pro"?"Daniel":"Sara"}" readonly></div>
+      <div class="card" style="margin-top:14px;background:var(--info-soft);box-shadow:none"><div class="row small" style="align-items:flex-start;color:#1D3F80">${ic("grid")}<div><b>MISK team?</b> Admins don't use this app. They sign in on the web control panel with their work account, shown in step ${IDX("admin")+1}.</div></div></div>
+    </div>
+    <div class="cta-bar"><button class="cta ${S.role==="pro"?"dark":""}" data-a="enterapp">${S.role==="pro"?"Open the pro app":"Open the customer app"} ${ic("arrowR")}</button></div>
+  </div>`;
+}
+
+function initChat(){
+  const h=(S.slot||"10:00").slice(0,2);
+  return [
+    {from:"pro",t:"Hi Sara, I'm here and starting with the back lawn 👍",tm:h+":04"},
+    {from:"me",t:"Great, thanks! Gate code is 4411 if you need the side entrance.",tm:h+":06"},
+    {from:"pro",photo:true,t:"The front hedge is quite overgrown. Want me to trim it while I'm here?",tm:h+":31"},
+    {from:"extra",tm:h+":31"}
+  ];
+}
+function sendChat(t){
+  S.chat.push({from:"me",t}); refresh(); scrollChat();
+  setTimeout(()=>{ S.chat.push({from:"pro",t:"👍"}); if(S.step===IDX("chat")){refresh(); scrollChat();} },1100);
+}
+function scrollChat(){ const b=stageEl.querySelector(".body"); if(b) b.scrollTop=b.scrollHeight; }
+function sChat(){
+  if(!S.chat) S.chat=initChat();
+  const bubble=m=>{
+    if(m.from==="sys") return `<div class="msg-sys">${ic("check")} ${m.t}</div>`;
+    if(m.from==="extra") return `<div class="xcard"><div class="row between"><span class="badge">${ic("plus")} Extra work request</span><span class="tiny muted">${m.tm}</span></div>
+      <div class="row between" style="margin-top:10px"><div><div class="b">Trim the front hedge</div><div class="small muted">About 30 min · waste taken away</div></div><div class="price" style="font-size:20px">+€20</div></div>
+      ${S.extra==="pending"?`<div class="row" style="gap:8px;margin-top:12px"><button class="btn2 no" style="height:42px" data-a="extra" data-v="declined">Decline</button><button class="btn2 yes" style="height:42px" data-a="extra" data-v="approved">Approve +€20</button></div><div class="tiny muted" style="margin-top:8px">${ic("shield")} Nothing extra is charged unless you approve it.</div>`
+      :`<div style="margin-top:10px"><span class="badge ${S.extra==="approved"?"g":"grey"}">${S.extra==="approved"?ic("check")+" Approved by you":"Declined"}</span></div>`}</div>`;
+    return `<div class="msg ${m.from==="me"?"me":""}">${m.photo?`<div class="msg-ph">${photoSvg(1).replace('width="72" height="72"','width="180" height="120" preserveAspectRatio="xMidYMid slice"')}</div>`:""}${m.t}${m.tm?`<span class="mt">${m.tm}</span>`:""}</div>`;
+  };
+  return `${sbar()}<div class="app">
+    <div class="appbar" style="border-bottom:1px solid var(--line);padding-bottom:10px"><button class="iconbtn" data-a="prev">${ic("chevL")}</button>${avatar("DK","#0B7A55",38)}<div style="flex:1"><div class="b">Daniel K.</div><div class="tiny" style="color:var(--brand);font-weight:700">${S.chatDone?"Job complete":"● Working on your lawn"}</div></div><button class="iconbtn">${ic("phone")}</button></div>
+    <div class="body" style="padding-top:12px;display:flex;flex-direction:column;gap:8px">
+      <div class="tiny muted" style="text-align:center">${svc().name} · ${fmtD(bookDate())}</div>
+      ${S.chat.map(bubble).join("")}
+    </div>
+    ${S.chatDone?`<div class="cta-bar"><button class="cta" data-a="next">${star()} Rate Daniel</button></div>`:
+    `<div style="flex:none;padding:8px 12px 20px;background:#fff;border-top:1px solid var(--line)">
+      <div class="row" style="gap:6px;overflow-x:auto;padding-bottom:8px;scrollbar-width:none">${["Thanks!","Could you water the pots too?","I'll be home at 12"].map(q=>`<button class="chip" style="white-space:nowrap;padding:6px 10px;font-size:12px" data-a="quick" data-v="${q}">${q}</button>`).join("")}</div>
+      <div class="row" style="gap:8px"><button class="iconbtn" style="box-shadow:none;background:var(--bg)">${ic("camera")}</button><input id="chatIn" placeholder="Message Daniel…" style="flex:1;height:40px;border-radius:99px;border:1px solid var(--line);padding:0 14px;outline:0;font-size:14px"><button class="iconbtn" style="background:var(--brand);color:#fff" data-a="send">${ic("arrowR")}</button></div>
+    </div>`}
+  </div>`;
+}
+
+function sHome(){
+  const pros=[["DK","Daniel K.","Gardener",4.9,212,"#0B7A55"],["SM","Sara M.","Cleaner",4.8,340,"#7A3FD1"],["AL","Arben L.","Plumber",4.9,158,"#2F6FEB"],["MR","Marta R.","Handywoman",4.7,97,"#B26B00"]];
+  return `${sbar()}<div class="app">
+    <div class="body" style="padding-top:8px">
+      <div class="row between"><div><div class="muted small">Good morning,</div><div class="b" style="font-size:22px;letter-spacing:-.01em">Sara 👋</div></div><button class="iconbtn">${ic("bell")}</button></div>
+      <div class="pill" style="margin-top:12px">${ic("pin")} ${esc(S.address.split(",")[0])} ${ic("chevD")}</div>
+      <div class="search">${ic("search")} What do you need help with?</div>
+      <button class="promo" data-a="go" data-v="${IDX("plans")}"><div class="t">Lawn care from €49/month</div><div class="s">Your own gardener, every week. Skip or pause any time.</div><div class="go">See plans ${ic("arrowR")}</div></button>
+      <div class="h-sm">Categories</div>
+      <div class="cats">${CATS.map(c=>`<button class="cat ${c.id==="garden"?"pulse":""}" data-a="cat" data-v="${c.id}"><div class="ci" style="background:${c.bg};color:${c.fg}">${ic(c.icon)}</div>${c.name}</button>`).join("")}</div>
+      <div class="h-sm">Top rated near you</div>
+      <div class="hscroll">${pros.map(p=>`<div class="procard">${avatar(p[0],p[5])}<div class="b" style="margin-top:8px">${p[1]}</div><div class="muted small">${p[2]}</div><div class="row" style="gap:6px;margin-top:6px"><span class="stars">${star()} ${p[3]}</span><span class="muted tiny">${p[4]} jobs</span></div></div>`).join("")}</div>
+    </div>
+    ${tabbar("Home")}
+  </div>`;
+}
+
+function sServices(){
+  const c=cat();
+  return `${sbar()}<div class="app">
+    ${appbar(c.name)}
+    <div class="body">
+      <div class="card row" style="background:${c.bg};box-shadow:none"><div class="cat" style="padding:0;background:none;box-shadow:none"><div class="ci" style="background:#fff;color:${c.fg}">${ic(c.icon)}</div></div><div><div class="b">${c.pros} verified pros nearby</div><div class="small muted">Checked ID, qualifications and insurance</div></div></div>
+      <div class="seg" style="margin-top:14px"><button class="on">One-off job</button><button data-a="go" data-v="${IDX("plans")}">Monthly plan ${ic("repeat")}</button></div>
+      <div class="h-sm">Choose a service</div>
+      ${c.services.map(s=>`<button class="svc ${S.svc===s.id?"on":""}" data-a="svc" data-v="${s.id}"><span class="radio"></span><span style="flex:1"><span class="b" style="display:block">${s.name}</span><span class="small muted" style="display:block">${s.desc}</span><span class="tiny muted row" style="gap:4px;margin-top:4px">${ic("clock")} ${s.dur}</span></span><span class="price">${s.dur==="per hour"?eur(s.price)+"/h":"from "+eur(s.price)}</span></button>`).join("")}
+    </div>
+    <div class="cta-bar"><button class="cta" data-a="next" ${S.svc?"":"disabled"}>Continue${S.svc?" · from "+eur(svc().price):""}</button></div>
+  </div>`;
+}
+
+function sDetails(){
+  const sz = SIZES[S.cat==="garden"?"garden":"other"];
+  return `${sbar()}<div class="app">
+    ${appbar(svc().name)}
+    <div class="body">
+      <div class="field"><label>Address</label><input data-bind="address" value="${esc(S.address)}"></div>
+      <div class="h-sm">${S.cat==="garden"?"Garden size":"Job size"}</div>
+      <div class="sizes">${sz.map(z=>`<button class="size ${S.size===z[0]?"on":""}" data-a="size" data-v="${z[0]}"><div class="n">${z[1]}</div><div class="d">${z[2]}</div><div class="b small" style="margin-top:4px;color:var(--brand)">${eur(Math.round(svc().price*SIZE_MULT[z[0]]))}</div></button>`).join("")}</div>
+      <div class="h-sm">Photos <span style="text-transform:none;letter-spacing:0;font-weight:500">(optional)</span></div>
+      <div class="photos">${Array.from({length:S.photos},(_,i)=>`<div class="ph">${photoSvg(i)}</div>`).join("")}${S.photos<3?`<button class="ph add" data-a="photo">${ic("camera")}</button>`:""}</div>
+      <div class="h-sm">Notes for the pro</div>
+      <div class="field"><textarea rows="3" data-bind="notes">${esc(S.notes)}</textarea></div>
+      <div class="info" style="margin-top:14px">${ic("tag")}<div>Fixed price <b>${eur(jobPrice())}</b> for this size. If the pro finds extra work, you approve it in the app first.</div></div>
+    </div>
+    <div class="cta-bar"><button class="cta" data-a="next">Continue · ${eur(jobPrice())}</button></div>
+  </div>`;
+}
+
+function sSchedule(){
+  const days = Array.from({length:7},(_,i)=>addDays(TODAY,i+1));
+  const free = SLOTS.filter((_,i)=>slotFree(S.day,i)).length;
+  return `${sbar()}<div class="app">
+    ${appbar("Choose a time")}
+    <div class="body">
+      <div class="h-sm" style="margin-top:6px">${MON[days[0].getMonth()]} ${days[0].getFullYear()}</div>
+      <div class="days">${days.map((d,i)=>`<button class="day ${S.day===i?"on":""}" data-a="day" data-v="${i}"><div class="dn">${DAYN[d.getDay()]}</div><div class="dd">${d.getDate()}</div></button>`).join("")}</div>
+      <div class="h-sm">Available times</div>
+      <div class="slots">${SLOTS.map((t,i)=>{const f=slotFree(S.day,i);return `<button class="slot ${f?"":"off"} ${S.slot===t&&f?"on":""}" data-a="slot" data-v="${t}">${t}<small>${f?(i%2?"2 pros free":"3 pros free"):"Full"}</small></button>`}).join("")}</div>
+      <div class="info" style="margin-top:16px">${ic("users")}<div><b>${free} of 6 slots</b> have a verified gardener free near ${esc(S.address.split(",")[0])} on ${fmtD(bookDate())}.</div></div>
+      <div class="info amber" style="margin-top:10px">${ic("bell")}<div>We'll remind you the evening before, and when your pro is on the way.</div></div>
+    </div>
+    <div class="cta-bar"><button class="cta" data-a="next" ${S.slot?"":"disabled"}>${S.slot?`Continue · ${fmtD(bookDate())}, ${S.slot}`:"Select a time"}</button></div>
+  </div>`;
+}
+
+function sCheckout(){
+  const total = jobPrice()+FEE;
+  const pm=[["card","Visa •••• 4242","VISA","#1A1F71"],["apple","Apple Pay","Pay","#000"],["google","Google Pay","G Pay","#4285F4"]];
+  return `${sbar()}<div class="app">
+    ${appbar("Review & pay")}
+    <div class="body">
+      <div class="card">
+        <div class="row">${`<div class="cat" style="padding:0;background:none;box-shadow:none"><div class="ci" style="background:${cat().bg};color:${cat().fg};width:42px;height:42px">${ic(cat().icon)}</div></div>`}<div style="flex:1"><div class="b">${svc().name}</div><div class="small muted">${SIZES[S.cat==="garden"?"garden":"other"].find(z=>z[0]===S.size)[1]} · ${svc().dur}</div></div></div>
+        <div style="border-top:1px solid var(--line-2);margin:12px 0 4px"></div>
+        <div class="row small" style="margin-top:8px">${ic("calendar")} ${fmtD(bookDate())}, ${S.slot||"10:00"}</div>
+        <div class="row small" style="margin-top:6px">${ic("pin")} ${esc(S.address)}</div>
+        <div class="row small" style="margin-top:6px">${ic("camera")} ${S.photos} photo${S.photos>1?"s":""} attached</div>
+      </div>
+      <div class="card" style="margin-top:10px">
+        <div class="line"><span>${svc().name}</span><span>${eur(jobPrice())}</span></div>
+        <div class="line"><span class="muted">Service fee</span><span>${eur(FEE)}</span></div>
+        <div class="line total"><span>Total</span><span>${eur(total)}</span></div>
+      </div>
+      <div class="h-sm">Payment</div>
+      ${pm.map(p=>`<button class="paym ${S.pay===p[0]?"on":""}" data-a="pay" data-v="${p[0]}"><span class="logo-b" style="background:${p[3]}">${p[2]}</span><span style="flex:1;text-align:left;font-weight:600">${p[1]}</span><span class="svc ${S.pay===p[0]?"on":""}" style="all:unset"><span class="radio" style="width:20px;height:20px;border-radius:50%;border:2px solid ${S.pay===p[0]?"var(--brand)":"var(--line)"};display:grid;place-items:center">${S.pay===p[0]?'<span style="width:10px;height:10px;border-radius:50%;background:var(--brand)"></span>':""}</span></span></button>`).join("")}
+      <div class="info" style="margin-top:8px">${ic("shield")}<div><b>Protected payment.</b> We hold the money and only charge you once the job is done. Free cancellation up to 24 h before.</div></div>
+    </div>
+    <div class="cta-bar"><button class="cta" data-a="book">${ic("lock")} Book & pay ${eur(total)}</button></div>
+  </div>`;
+}
+
+const TRACK = [["Booking confirmed","Payment held securely"],["Daniel accepted","Best-rated gardener free nearby"],["On the way","Arriving in about 12 min"],["Working on it","Started at "],["Job done","Photos added · payment released"]];
+function sTracking(){
+  const t=S.track; const time=S.slot||"10:00";
+  const px=[40,40,150,250,250][t], py=[150,150,95,70,70][t];
+  return `${sbar()}<div class="app">
+    ${appbar(t>=4?"Job complete":"Your booking")}
+    <div class="body">
+      <div class="map"><svg viewBox="0 0 340 200" preserveAspectRatio="xMidYMid slice">
+        <rect width="340" height="200" fill="#E3ECE6"/>
+        <path d="M0 120 H340 M0 40 H340 M90 0 V200 M200 0 V200 M290 0 V200" stroke="#fff" stroke-width="14"/>
+        <path d="M0 120 H340 M90 0 V200 M200 0 V200" stroke="#F5F8F6" stroke-width="2" stroke-dasharray="6 6"/>
+        <rect x="105" y="52" width="80" height="55" rx="6" fill="#CFE3D6"/><rect x="215" y="135" width="62" height="50" rx="6" fill="#CFE3D6"/><rect x="10" y="135" width="66" height="50" rx="6" fill="#D8E6DC"/><circle cx="150" cy="80" r="16" fill="#BADBC6"/>
+        <path d="M40 150 L90 150 L90 120 L200 120 L200 70 L250 70" fill="none" stroke="var(--brand)" stroke-width="4" stroke-linecap="round" stroke-dasharray="${t>=2?"0":"2 8"}" opacity="${t>=1?1:.35}"/>
+        <g transform="translate(250 70)"><circle r="18" fill="rgba(11,122,85,.15)"/><circle r="9" fill="var(--brand)" stroke="#fff" stroke-width="3"/></g>
+        ${t>=1?`<g style="transition:transform 1s ease" transform="translate(${px} ${py})"><circle r="14" fill="#fff" stroke="var(--pro)" stroke-width="2"/><text y="4" text-anchor="middle" font-size="10" font-weight="800" fill="var(--pro)" font-family="sans-serif">DK</text></g>`:""}
+      </svg></div>
+      <div class="card row" style="margin-top:12px">${t>=1?avatar("DK","#0B7A55",46):`<div class="av" style="background:var(--line);width:46px;height:46px">${ic("search")}</div>`}
+        <div style="flex:1">${t>=1?`<div class="b">Daniel K. <span class="verified">${ic("shield")} Verified</span></div><div class="row" style="gap:6px"><span class="stars">${star()} 4.9</span><span class="muted small">212 jobs · Gardener</span></div>`:`<div class="b">Finding your pro…</div><div class="muted small">Offering to the best-rated gardener nearby</div>`}</div>
+        ${t>=1?`<button class="iconbtn" style="background:var(--brand-soft);color:var(--brand)" data-a="go" data-v="${IDX("chat")}">${ic("chat")}</button>`:""}
+      </div>
+      <div class="card" style="margin-top:10px"><div class="tl">${TRACK.map((x,i)=>`<div class="tl-item ${i<t||t===4?"done":i===t?"now":""}"><span class="tdot"></span><div class="tt">${x[0]}</div><div class="small muted">${i===3?x[1]+time:x[1]}</div></div>`).join("")}</div></div>
+      ${t>=4?`<div class="h-sm">Photos from Daniel</div><div class="photos">${[0,1,2].map(i=>`<div class="ph">${photoSvg(i)}</div>`).join("")}</div>`:""}
+    </div>
+    <div class="cta-bar">${t>=4?`<button class="cta" data-a="go" data-v="${IDX("review")}">${star()} Rate Daniel</button>`:t===3?`<button class="cta" data-a="next">${ic("chat")} Daniel sent you a message</button>`:`<button class="cta" style="background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.1)" data-a="track">Next status ${ic("chevR")}</button>`}</div>
+  </div>`;
+}
+
+function sReview(){
+  const tags=["On time","Tidy work","Friendly","Great value","Went the extra mile"];
+  if(S.reviewed){
+    return `${sbar()}<div class="app">${appbar("Thank you!")}
+      <div class="body">
+        <div class="card" style="text-align:center;padding:22px 16px"><div style="width:62px;height:62px;border-radius:50%;background:var(--brand-soft);color:var(--brand);display:grid;place-items:center;margin:0 auto 10px;font-size:30px">${ic("check")}</div><div class="b" style="font-size:18px">Review sent</div><div class="muted small">Daniel gets ${S.tip?eur(S.tip)+" tip and ":""}your ${S.rating||5}-star rating.</div><div class="small" style="margin-top:8px">Final payment: <b>${eur(Math.round((jobPrice()+FEE+extraCost()+S.tip)*100)/100)}</b></div></div>
+        <div class="h-sm">Make it regular</div>
+        <button class="promo" data-a="go" data-v="${IDX("plans")}"><div class="t">Keep Daniel every week from €49/month</div><div class="s">Same gardener, same day. Skip or pause whenever you like.</div><div class="go">Build my plan ${ic("arrowR")}</div></button>
+      </div>${tabbar("Bookings")}</div>`;
+  }
+  return `${sbar()}<div class="app">
+    ${appbar("Rate your pro")}
+    <div class="body">
+      <div style="text-align:center;margin-top:6px"><div style="display:flex;justify-content:center">${avatar("DK","#0B7A55",72)}</div><div class="b" style="font-size:18px;margin-top:10px">How was Daniel?</div><div class="muted small">${svc().name} · ${fmtD(bookDate())}</div></div>
+      <div class="bigstars" style="margin-top:14px">${[1,2,3,4,5].map(n=>`<button class="${S.rating>=n?"on":""}" data-a="rate" data-v="${n}">${star()}</button>`).join("")}</div>
+      <div class="h-sm">What went well?</div>
+      <div class="chips">${tags.map(t=>`<button class="chip ${S.tags.includes(t)?"on":""}" data-a="tag" data-v="${t}">${t}</button>`).join("")}</div>
+      <div class="h-sm">Add a tip <span style="text-transform:none;letter-spacing:0;font-weight:500">(100% goes to Daniel)</span></div>
+      <div class="seg">${[0,2,5,10].map(v=>`<button class="${S.tip===v?"on":""}" data-a="tip" data-v="${v}">${v?eur(v):"No tip"}</button>`).join("")}</div>
+    </div>
+    <div class="cta-bar"><button class="cta" data-a="review" ${S.rating?"":"disabled"}>Send review</button></div>
+  </div>`;
+}
+
+function sPlans(){
+  const p=plan(); const price=planPrice(); const vpm=visitsPerMonth(); const per=price/vpm;
+  const nDays = S.pfreq<1?1:S.pfreq;
+  if(S.subscribed){
+    return `${sbar()}<div class="app">${appbar("You're subscribed")}
+    <div class="body">
+      <div class="card" style="text-align:center;padding:22px 16px"><div style="width:62px;height:62px;border-radius:50%;background:var(--accent-soft);color:#B87A00;display:grid;place-items:center;margin:0 auto 10px;font-size:28px">${ic("repeat")}</div><div class="b" style="font-size:18px">${p.name} is active</div><div class="muted small">${eur(price)}/month · ${FREQS.find(f=>f[0]===S.pfreq)[1].toLowerCase()} · ${S.pdays.join(" & ")} ${S.pwin.toLowerCase()}s</div></div>
+      <div class="info" style="margin-top:12px">${ic("user")}<div><b>Daniel K.</b> will be your regular pro. Visits are planned automatically for the next 4 weeks.</div></div>
+    </div>
+    <div class="cta-bar"><button class="cta" data-a="next">See my visits ${ic("arrowR")}</button></div></div>`;
+  }
+  return `${sbar()}<div class="app">
+    ${appbar("Monthly plans")}
+    <div class="body">
+      <div class="plancards">${PLANS.map(x=>`<button class="plancard ${S.plan===x.id?"on":""}" data-a="plan" data-v="${x.id}"><div class="pi" style="background:${x.bg};color:${x.fg}">${ic(x.icon)}</div><div class="b" style="font-size:14px">${x.name}</div><div class="small muted">from ${eur(Math.round(x.base*FREQ_MULT[x.freq]*0.85))}/mo</div></button>`).join("")}</div>
+      <div class="small muted" style="margin-top:6px">Included every visit: ${p.tasks.join(" · ")}</div>
+      <div class="h-sm">How often</div>
+      <div class="seg" style="flex-wrap:wrap">${FREQS.map(f=>`<button class="${S.pfreq===f[0]?"on":""}" data-a="pfreq" data-v="${f[0]}" style="min-width:45%">${f[1]}</button>`).join("")}</div>
+      <div class="h-sm">${p.id==="homeclean"||p.id==="handy"?"Home size":"Garden size"}</div>
+      <div class="seg">${[["S","Small"],["M","Medium"],["L","Large"]].map(z=>`<button class="${S.psize===z[0]?"on":""}" data-a="psize" data-v="${z[0]}">${z[1]}</button>`).join("")}</div>
+      <div class="h-sm">Extras</div>
+      ${p.addons.map(a=>`<button class="addon ${S.paddons.includes(a[0])?"on":""}" data-a="addon" data-v="${a[0]}"><span class="cbox">${S.paddons.includes(a[0])?ic("check"):""}</span><span style="flex:1;font-weight:600;font-size:14px">${a[1]}</span><span class="b small">+${eur(a[2])}/mo</span></button>`).join("")}
+      <div class="h-sm">Preferred day${nDays>1?"s":""} <span style="text-transform:none;letter-spacing:0;font-weight:500">(pick ${nDays})</span></div>
+      <div class="wk">${WEEK.map(d=>`<button class="${S.pdays.includes(d)?"on":""}" data-a="pday" data-v="${d}">${d}</button>`).join("")}</div>
+      <div class="seg" style="margin-top:10px">${["Morning","Afternoon"].map(w=>`<button class="${S.pwin===w?"on":""}" data-a="pwin" data-v="${w}">${w}</button>`).join("")}</div>
+      <div class="sumbox" style="margin-top:16px">
+        <div class="row between"><div><div class="sub">Your monthly price</div><div class="big">${eur(price)}<span style="font-size:15px;font-weight:600;color:#A9BDB4">/month</span></div></div><div style="text-align:right"><div class="sub">about</div><div class="b">${eur(Math.round(per*100)/100)}</div><div class="sub">per visit</div></div></div>
+        <div class="sub" style="margin-top:10px;display:grid;gap:3px"><span>✓ About ${vpm} visits a month with one regular pro</span><span>✓ Season: ${p.season}</span><span>✓ Skip up to 2 visits a month · pause any time</span><span>✓ Minimum 3 months, then cancel monthly</span></div>
+      </div>
+    </div>
+    <div class="cta-bar"><button class="cta" data-a="subscribe" ${S.pdays.length===nDays?"":"disabled"}>${S.pdays.length===nDays?`Subscribe · ${eur(price)}/month`:`Pick ${nDays-S.pdays.length} more day${nDays-S.pdays.length>1?"s":""}`}</button></div>
+  </div>`;
+}
+
+function upcomingVisits(){
+  const out=[]; const step = S.pfreq<1?14:7;
+  const idx = S.pdays.map(d=>(WEEK.indexOf(d)+1)%7);
+  for(let i=1;i<=35 && out.length<8;i++){
+    const d=addDays(TODAY,i);
+    if(idx.includes(d.getDay())){
+      if(step===14){ if(out.length===0 || (d-out[out.length-1])/864e5>=14) out.push(d); }
+      else out.push(d);
+    }
+  }
+  return out;
+}
+function sManage(){
+  const p=plan(); const price=planPrice(); const v=upcomingVisits();
+  const skips=Object.values(S.skipped).filter(Boolean).length; const left=Math.max(0,2-skips);
+  const bill=addDays(TODAY,S.paused?28:1);
+  return `${sbar()}<div class="app">
+    ${appbar("My plan",true,`<span class="badge ${S.paused?"grey":"g"}">${S.paused?"Paused":"Active"}</span>`)}
+    <div class="body">
+      <div class="card" style="background:linear-gradient(135deg,#FFF6E4,#fff)">
+        <div class="row"><div class="cat" style="padding:0;background:none;box-shadow:none"><div class="ci" style="background:${p.bg};color:${p.fg};width:44px;height:44px">${ic(p.icon)}</div></div><div style="flex:1"><div class="b">${p.name}</div><div class="small muted">${FREQS.find(f=>f[0]===S.pfreq)[1]} · ${S.pdays.join(" & ")} · ${S.pwin}</div></div><div style="text-align:right"><div class="b">${eur(price)}</div><div class="tiny muted">/month</div></div></div>
+        <div class="row small muted" style="margin-top:10px">${ic("card")} Next charge ${fmtD(bill)} · Visa •••• 4242</div>
+      </div>
+      <div class="card row between" style="margin-top:10px"><div><div class="b">Holiday pause</div><div class="small muted">${S.paused?`Paused until ${fmtD(addDays(TODAY,21))}. No charge for these weeks.`:"Away? Pause visits for up to 4 weeks."}</div></div><button class="toggle ${S.paused?"on":""}" data-a="pause" aria-label="Pause"></button></div>
+      <div class="row between"><div class="h-sm">Upcoming visits</div><span class="small muted" style="margin-top:10px">Skips left this month: <b style="color:var(--ink)">${left}</b></span></div>
+      ${v.map((d,i)=>{const k=d.toDateString(); const sk=S.skipped[k]; const pz=S.paused&&i<3;
+        return `<div class="visit ${sk||pz?"skipped":""}"><div class="vd"><div class="m">${DAYN[d.getDay()]}</div><div class="d">${d.getDate()}</div><div class="tiny muted">${MON[d.getMonth()]}</div></div><div style="flex:1" class="vt"><div class="b small">${S.pwin==="Morning"?"08:00 – 12:00":"13:00 – 17:00"}</div><div class="tiny muted">Daniel K. · ${p.tasks.slice(0,3).join(", ")}</div></div>${pz?`<span class="badge grey">Paused</span>`:sk?`<button class="mini-btn" data-a="skip" data-v="${k}">Undo</button>`:`<button class="mini-btn" data-a="skip" data-v="${k}" ${left?"":"disabled style='opacity:.4'"}>Skip</button>`}</div>`}).join("")}
+      <div class="row" style="gap:8px;margin-top:6px"><button class="mini-btn" data-a="go" data-v="${IDX("plans")}">Change plan</button><button class="mini-btn">Change days</button><button class="mini-btn">Change pro</button></div>
+    </div>
+    ${tabbar("Plans")}
+  </div>`;
+}
+
+function sOnboard(){
+  const d=S.pro.docs; const done=Object.values(d).filter(Boolean).length;
+  if(S.pro.submitted){
+    return `${sbar(true)}<div class="app pro"><div class="prohead"><div class="row"><h2>Application sent</h2></div></div>
+    <div class="body" style="padding-top:16px">
+      <div class="card" style="text-align:center;padding:22px 16px"><div style="width:62px;height:62px;border-radius:50%;background:#E9ECEB;color:var(--pro);display:grid;place-items:center;margin:0 auto 10px;font-size:28px">${ic("clock")}</div><div class="b" style="font-size:18px">Under review</div><div class="muted small">The MISK team checks your documents, usually within 48 hours. You'll get a notification when you're approved.</div></div>
+      <div class="card" style="margin-top:10px"><div class="kv"><span>Trades</span><b>${S.pro.trades.map(t=>CATS.find(c=>c.id===t).name).join(", ")}</b><span>Travel</span><b>Up to ${S.pro.radius} km</b><span>Working days</span><b>${S.pro.days.join(", ")||"–"}</b><span>Documents</span><b>3 of 3 uploaded</b></div></div>
+    </div><div class="cta-bar"><button class="cta dark" data-a="next">Go to my job inbox ${ic("arrowR")}</button></div></div>`;
+  }
+  return `${sbar(true)}<div class="app pro">
+    <div class="prohead"><div class="row"><button class="iconbtn" data-a="prev" style="background:#2B3933;color:#fff">${ic("chevL")}</button><h2>Become a MISK pro</h2></div><div class="flow" style="margin-top:12px"><div class="on"></div><div class="${done===3?"on":""}"></div><div class="${S.pro.days.length?"on":""}"></div></div></div>
+    <div class="body" style="padding-top:14px">
+      <div class="h-sm" style="margin-top:0">Your trades</div>
+      <div class="chips">${CATS.map(c=>`<button class="chip dark ${S.pro.trades.includes(c.id)?"on":""}" data-a="ptrade" data-v="${c.id}">${c.name}</button>`).join("")}</div>
+      <div class="h-sm">Documents <span style="text-transform:none;letter-spacing:0;font-weight:500">(${done}/3)</span></div>
+      ${[["id","ID card or passport","user"],["cert","Trade certificate","file"],["ins","Liability insurance","shield"]].map(x=>`<div class="doc ${d[x[0]]?"ok":""}"><div class="di">${ic(d[x[0]]?"check":x[2])}</div><div style="flex:1"><div class="b small">${x[1]}</div><div class="tiny muted">${d[x[0]]?"Uploaded · waiting for check":"PDF or photo"}</div></div>${d[x[0]]?`<span class="badge g">Done</span>`:`<button class="mini-btn" data-a="doc" data-v="${x[0]}">${ic("upload")} Upload</button>`}</div>`).join("")}
+      <div class="h-sm">How far will you travel?</div>
+      <div class="card"><div class="row between"><span class="small muted">From your home address</span><b>${S.pro.radius} km</b></div><input type="range" min="3" max="30" value="${S.pro.radius}" data-a="radius" style="margin-top:8px"><div class="small muted" style="margin-top:4px">≈ ${Math.round(S.pro.radius*S.pro.radius*0.9)} customers in this area booked last month</div></div>
+      <div class="h-sm">Working days</div>
+      <div class="wk dark">${WEEK.map(x=>`<button class="${S.pro.days.includes(x)?"on":""}" data-a="pwday" data-v="${x}">${x}</button>`).join("")}</div>
+      <div class="small muted" style="margin-top:8px">${ic("clock")} 08:00 – 18:00 · you can change hours per day later</div>
+    </div>
+    <div class="cta-bar"><button class="cta dark" data-a="submitpro">Submit application</button></div>
+  </div>`;
+}
+
+function sInbox(){
+  const earn = Math.round(jobPrice()*0.82*100)/100;
+  const head = `${sbar(true)}<div class="app pro"><div class="prohead"><div class="row"><h2>Jobs</h2><span class="online"><span class="lamp"></span>Online</span></div><div class="small" style="color:#9FB0A8;margin-top:4px">Daniel K. · Gardener · ${star()} 4.9</div></div>`;
+  if(S.inbox==="declined"){
+    return head+`<div class="body" style="padding-top:16px"><div class="card" style="text-align:center;padding:24px 16px"><div class="b">Job passed on</div><div class="small muted" style="margin:4px 0 12px">It was offered to the next best gardener nearby. The customer doesn't notice a thing.</div><button class="mini-btn green" data-a="inbox" data-v="new">Undo for this demo</button></div></div></div>`;
+  }
+  if(S.inbox==="accepted"){
+    const st=["Accepted","On the way","Working","Completed"]; const j=S.jobstage;
+    const btn=[["Start driving","truck"],["I've arrived, start job","play"],["Add photos & complete","camera"],null][j];
+    return head+`<div class="body" style="padding-top:14px">
+      <div class="card"><div class="row between"><div class="b">${svc().name}</div><span class="badge ${j===3?"g":"b"}">${st[j]}</span></div><div class="small muted">${fmtD(bookDate())}, ${S.slot||"10:00"} · ${esc(S.address)}</div>
+      <div class="flow" style="margin-top:12px">${st.map((_,i)=>`<div class="${i<=j?"on":""}"></div>`).join("")}</div></div>
+      <div class="card" style="margin-top:10px"><div class="b small" style="margin-bottom:8px">Checklist</div>${["Mow the lawn","Edge the borders","Clear the clippings"].map((t,i)=>`<div class="row small" style="padding:4px 0"><span class="cbox" style="width:20px;height:20px;${j>=2&&(j===3||i<2)?"background:var(--brand);border-color:var(--brand)":""}">${j>=2&&(j===3||i<2)?ic("check"):""}</span>${t}</div>`).join("")}</div>
+      ${j===3?`<div class="card" style="margin-top:10px"><div class="row between"><div><div class="small muted">You earned</div><div class="earn">${eur(earn)}</div></div><div class="small muted" style="text-align:right">Paid out<br><b style="color:var(--ink)">this Friday</b></div></div></div><div class="photos" style="margin-top:10px">${[0,1,2].map(i=>`<div class="ph">${photoSvg(i)}</div>`).join("")}</div>`:`<button class="mini-btn" style="margin-top:10px">${ic("plus")} Add extra work for customer approval</button>`}
+    </div>
+    <div class="cta-bar">${btn?`<button class="cta dark" data-a="jobstage">${ic(btn[1])} ${btn[0]}</button>`:`<button class="cta dark" data-a="next">See my week ${ic("arrowR")}</button>`}</div></div>`;
+  }
+  const m=Math.floor(S.countdown/60), s=S.countdown%60, pct=S.countdown/900;
+  return head+`<div class="body" style="padding-top:14px">
+    <div class="req">
+      <div class="req-top"><div class="ring"><svg viewBox="0 0 54 54"><circle cx="27" cy="27" r="23" stroke="rgba(255,255,255,.18)" stroke-width="5" fill="none"/><circle cx="27" cy="27" r="23" stroke="#3BDB8F" stroke-width="5" fill="none" stroke-linecap="round" stroke-dasharray="${2*Math.PI*23}" stroke-dashoffset="${2*Math.PI*23*(1-pct)}"/></svg><div class="rt">${m}:${String(s).padStart(2,"0")}</div></div><div><div class="b">New job request</div><div class="small" style="color:#B5C6BE">Accept before the timer runs out</div></div></div>
+      <div style="padding:16px">
+        <div class="row between"><div><div class="b" style="font-size:17px">${svc().name}</div><div class="small muted">${SIZES[S.cat==="garden"?"garden":"other"].find(z=>z[0]===S.size)[1]} · ${svc().dur}</div></div><div style="text-align:right"><div class="tiny muted">You earn</div><div class="earn">${eur(earn)}</div></div></div>
+        <div class="kv" style="margin-top:14px"><span>${ic("calendar")}</span><span>${fmtD(bookDate())}, ${S.slot||"10:00"}</span><span>${ic("pin")}</span><span>${esc(S.address)} · 2.3 km</span><span>${ic("user")}</span><span>Sara · ${star()} 5.0 customer</span><span>${ic("chat")}</span><span class="small">"${esc(S.notes)}"</span></div>
+        <div class="photos" style="margin-top:12px">${Array.from({length:S.photos},(_,i)=>`<div class="ph" style="width:60px;height:60px">${photoSvg(i)}</div>`).join("")}</div>
+        <div class="info" style="margin-top:12px">${ic("shield")}<div>Payment is already secured by MISK.</div></div>
+      </div>
+    </div>
+    <div class="h-sm">Later today</div>
+    <div class="job rec"><div class="jt">14:00</div><div style="flex:1"><div class="b small">Lawn care plan</div><div class="tiny muted">Oak Avenue 8 · visit 3 of 4 this month</div></div><span class="badge">${ic("repeat")} Plan</span></div>
+  </div>
+  <div class="cta-bar" style="display:flex;gap:10px"><button class="btn2 no" data-a="inbox" data-v="declined">Decline</button><button class="btn2 yes" data-a="inbox" data-v="accepted">Accept job</button></div></div>`;
+}
+
+let proDay = 2;
+function sProWeek(){
+  const days = Array.from({length:7},(_,i)=>addDays(TODAY,i));
+  const jobs = {
+    0:[["08:00","Lawn care plan","Oak Avenue 8",true,35],["11:00","Hedge trimming","Birch Road 21",false,37]],
+    1:[["14:00","Lawn care plan","Elm Court 4",true,35],["16:00","Full garden care","Maple Lane 17",true,61]],
+    2:[["09:00","Garden clean-up","Pine Street 2",false,65],["13:00","Lawn care plan","Cedar Close 9",true,35]],
+    3:[["08:00","Lawn care plan","Oak Avenue 8",true,35],["10:00","Lawn care plan","Willow Way 30",true,35],["15:00","Planting","Ash Road 5",false,45]],
+    4:[["09:00","Full garden care","Maple Lane 17",true,61],["14:00","Hedge trimming","Linden Street 40",false,37]],
+    5:[["10:00","Lawn care plan","Elm Court 4",true,35]],6:[]
+  };
+  const bi=S.day+1; if(bi<=6){ jobs[bi]=[...jobs[bi],[S.slot||"10:00",svc().name,S.address.split(",")[0],false,Math.round(jobPrice()*0.82)]].sort((a,b)=>a[0].localeCompare(b[0])); }
+  const earn=days.map((_,i)=>(jobs[i]||[]).reduce((a,j)=>a+j[4],0));
+  const max=Math.max(...earn); const total=earn.reduce((a,b)=>a+b,0);
+  const recurring=Object.values(jobs).flat().filter(j=>j[3]).length;
+  const list=jobs[proDay]||[];
+  return `${sbar(true)}<div class="app pro">
+    <div class="prohead"><div class="row"><h2>My week</h2><span class="online"><span class="lamp"></span>Online</span></div>
+      <div class="row" style="gap:10px;margin-top:12px"><div style="flex:1;background:#22302A;border-radius:14px;padding:10px 12px"><div class="tiny" style="color:#9FB0A8">This week</div><div class="b" style="font-size:22px">${eur(total)}</div></div><div style="flex:1;background:#22302A;border-radius:14px;padding:10px 12px"><div class="tiny" style="color:#9FB0A8">Recurring visits</div><div class="b" style="font-size:22px;color:var(--accent)">${recurring}</div></div></div></div>
+    <div class="body" style="padding-top:12px">
+      <div class="card"><div class="row between"><b class="small">Earnings by day</b><span class="tiny muted">Tap a day</span></div>
+        <div class="bars">${days.map((d,i)=>`<button class="bcol" data-a="proday" data-v="${i}"><span class="tiny b" style="color:${i===proDay?"var(--brand)":"var(--muted)"}">${earn[i]?eur(earn[i]):""}</span><span class="bar ${i===proDay?"hl":""}" style="height:${max?Math.max(4,earn[i]/max*70):4}px"></span><span class="bl" style="${i===proDay?"color:var(--ink);font-weight:800":""}">${i===0?"Today":DAYN[d.getDay()]}</span></button>`).join("")}</div></div>
+      <div class="h-sm">${proDay===0?"Today":fmtD(days[proDay])} · ${list.length} job${list.length===1?"":"s"}</div>
+      ${list.length?list.map(j=>`<div class="job ${j[3]?"rec":""}"><div class="jt">${j[0]}</div><div style="flex:1"><div class="b small">${j[1]}</div><div class="tiny muted">${esc(j[2])}</div></div><div style="text-align:right"><div class="b small">${eur(j[4])}</div>${j[3]?`<span class="badge">${ic("repeat")} Plan</span>`:`<span class="badge g">One-off</span>`}</div></div>`).join(""):`<div class="card small muted" style="text-align:center">Day off ☀️</div>`}
+      <div class="card row" style="margin-top:6px">${ic("card")}<div style="flex:1"><div class="b small">Next payout: Friday</div><div class="tiny muted">${eur(total)} to bank account •••• 1183</div></div>${ic("chevR")}</div>
+    </div>
+    <div class="tabbar" style="background:#fff">${[["list","Jobs"],["calendar","Week"],["euro","Earnings"],["user","Profile"]].map((x,i)=>`<span class="${i===1?"on":""}" style="${i===1?"color:var(--pro)":""}">${ic(x[0])}${x[1]}</span>`).join("")}</div>
+  </div>`;
+}
+
+function browser(url,main,active){
+  const nav=[["chart","Overview"],["calendar","Bookings"],["users","Providers"],["repeat","Plans"],["grid","Catalogue"],["sliders","Settings"]];
+  return `<div class="browser"><div class="bchrome"><div class="bdots"><i></i><i></i><i></i></div><div class="burl">${ic("lock")} ${url}</div><span class="badge b admin-who">${ic("user")} Signed in · MISK team</span></div>
+  <div class="admin"><nav class="aside"><div class="logo"><div class="logo-mark">${ic("leaf")}</div><span>MISK Admin</span></div>${nav.map(n=>`<a class="${n[1]===active?"on":""}" ${n[1]==="Overview"?`data-a="go" data-v="${IDX("admin")}"`:n[1]==="Plans"?`data-a="go" data-v="${IDX("builder")}"`:""}>${ic(n[0])}<span>${n[1]}</span>${n[1]==="Providers"&&!S.approved?'<span class="cnt">3</span>':""}</a>`).join("")}</nav>
+  <div class="amain">${main}</div></div><div class="toast" id="toast"></div></div>`;
+}
+
+function sAdmin(){
+  const wk=[38,52,61,74,88,97,121,142]; const max=Math.max(...wk);
+  const bookings=[
+    [fmtD(bookDate()).slice(4),svc().name,"Sara M.","Daniel K.",S.inbox==="accepted"?(S.jobstage===3?"Completed":"Accepted"):"Requested",eur(Math.round((jobPrice()+FEE+extraCost())*100)/100),true],
+    ["Today","Lawn care plan","Elm Court 4","Daniel K.","Completed","Plan",false],
+    ["Today","Leak repair","Pine Street 2","Arben L.","On the way",eur(59),false],
+    ["Today","Home cleaning","Ash Road 5","Sara M.","Working","Plan",false],
+    ["Yesterday","TV mounting","Cedar Close 9","Marta R.","Disputed",eur(49),false]
+  ];
+  const stc={Requested:"b",Accepted:"b","On the way":"b",Working:"",Completed:"g",Disputed:"r"};
+  const apps=[["DK","Daniel K.","Gardening","#0B7A55",true],["FB","Faton B.","Electrical","#9A7B00",false],["IK","Ina K.","Cleaning","#7A3FD1",false]];
+  const main=`<div class="row between" style="flex-wrap:wrap;gap:10px"><div><h3>Overview</h3><div class="small muted">Pilot city · last 7 days</div></div><div class="seg" style="width:auto"><button>Today</button><button class="on">7 days</button><button>30 days</button></div></div>
+    <div class="kpis">
+      <div class="kpi"><div class="kl">Bookings</div><div class="kv2">312</div><div class="kd">▲ 18% vs last week</div></div>
+      <div class="kpi"><div class="kl">Active subscriptions</div><div class="kv2">${148+(S.subscribed?1:0)}</div><div class="kd">▲ ${S.subscribed?13:12} new</div></div>
+      <div class="kpi"><div class="kl">Revenue (gross)</div><div class="kv2">€18,420</div><div class="kd">€2,940 MISK share</div></div>
+      <div class="kpi"><div class="kl">Avg. rating</div><div class="kv2">4.8 <span class="stars" style="font-size:16px">${star()}</span></div><div class="kd">96% jobs on time</div></div>
+    </div>
+    <div class="agrid">
+      <div class="panel"><h4>Weekly bookings <span class="small muted" style="font-weight:600">one-off + plan visits</span></h4>
+        <div class="bars" style="height:150px">${wk.map((v,i)=>`<div class="bcol"><span class="tiny b muted">${v}</span><span class="bar ${i===wk.length-1?"hl":""}" style="height:${v/max*110}px"></span><span class="bl">W${i+1}</span></div>`).join("")}</div></div>
+      <div class="panel"><h4>Pro applications <span class="badge ${S.approved?"g":"r"}">${S.approved?"2 waiting":"3 waiting"}</span></h4>
+        ${apps.map(a=>`<div class="row" style="padding:8px 0;border-bottom:1px solid var(--line-2)">${avatar(a[0],a[3],36)}<div style="flex:1"><div class="b small">${a[1]}</div><div class="tiny muted">${a[2]} · 3/3 documents</div></div>${a[4]&&S.approved?`<span class="badge g">${ic("check")} Approved</span>`:`<button class="abtn ${a[4]?"":"ghost"}" ${a[4]?'data-a="approve"':""}>${a[4]?"Approve":"Review"}</button>`}</div>`).join("")}
+      </div>
+    </div>
+    <div class="panel" style="margin-top:14px;overflow-x:auto"><h4>Live bookings <span class="small muted" style="font-weight:600">Reassign · Refund · Resolve</span></h4>
+      <table class="t"><thead><tr><th>When</th><th>Service</th><th>Customer / place</th><th>Pro</th><th>Status</th><th>Value</th></tr></thead><tbody>
+      ${bookings.map(b=>`<tr class="${b[6]?"hl":""}"><td>${b[0]}</td><td><b>${b[1]}</b>${b[6]?' <span class="badge g">from this demo</span>':""}</td><td>${esc(b[2])}</td><td>${b[3]}</td><td><span class="badge ${stc[b[4]]??""}">${b[4]}</span></td><td>${b[5]}</td></tr>`).join("")}
+      </tbody></table></div>`;
+  return browser("admin.misk.app/overview",main,"Overview");
+}
+
+function sBuilder(){
+  const b=S.b; const fm={ "0.5":"every 2 weeks","1":"1× a week","2":"2× a week","3":"3× a week"}; const vpm=Math.round(parseFloat(b.freq)*4.33*10)/10;
+  const payout=Math.round(b.price*b.payout)/100; const misk=Math.round((b.price-payout)*100)/100;
+  const main=`<div class="row between" style="flex-wrap:wrap;gap:10px"><div><h3>${b.published?"Plan published":"New subscription plan"}</h3><div class="small muted">Plans → ${esc(b.name||"Untitled")}</div></div><div class="row" style="gap:8px"><button class="abtn ghost big">Save draft</button><button class="abtn big" data-a="publish">${b.published?ic("check")+" Live in the app":"Publish plan"}</button></div></div>
+    <div class="builder">
+      <div class="fgrid">
+        <div class="af"><label>Plan name</label><input type="text" data-bb="name" value="${esc(b.name)}"></div>
+        <div class="af"><label>Category</label><select data-bb="cat">${CATS.map(c=>`<option ${c.name===b.cat?"selected":""}>${c.name}</option>`).join("")}</select></div>
+        <div class="af"><label>Monthly price (€)</label><input type="number" min="5" max="999" data-bb="price" value="${b.price}"><span class="hint">Medium size. Small −15%, large +35%.</span></div>
+        <div class="af"><label>How often</label><select data-bb="freq">${Object.entries(fm).map(([k,v])=>`<option value="${k}" ${b.freq===k?"selected":""}>${v}</option>`).join("")}</select><span class="hint">≈ ${vpm} visits a month</span></div>
+        <div class="af"><label>Visit length (minutes)</label><input type="number" min="15" step="15" data-bb="dur" value="${b.dur}"><span class="hint">Reserves the pro's time in their calendar</span></div>
+        <div class="af"><label>Minimum term (months)</label><input type="number" min="0" max="12" data-bb="minTerm" value="${b.minTerm}"></div>
+        <div class="af full"><label>Included tasks (pro ticks these off each visit)</label><div class="taskchips">${b.tasks.map((t,i)=>`<span class="taskchip">${esc(t)}<button data-a="rmtask" data-v="${i}" aria-label="Remove">${ic("x")}</button></span>`).join("")}<input type="text" placeholder="Add task + Enter" data-bb="newTask" value="${esc(b.newTask)}" style="height:32px;width:150px;border:1px dashed var(--line);border-radius:9px;padding:0 10px;font-size:13px;outline:0"><button class="abtn ghost" data-a="addtask">${ic("plus")}</button></div></div>
+        <div class="af"><label>Optional extra</label><input type="text" data-bb="addonName" value="${esc(b.addonName)}"></div>
+        <div class="af"><label>Extra price (€ / month)</label><input type="number" min="0" data-bb="addonPrice" value="${b.addonPrice}"></div>
+        <div class="af"><label>Seasonal plan</label><div class="row" style="height:40px"><button class="toggle ${b.season?"on":""}" data-a="season"></button><span class="small muted">${b.season?`Runs ${b.sFrom} – ${b.sTo}, pauses automatically in winter`:"Runs all year"}</span></div></div>
+        <div class="af"><label>Skips allowed per month</label><input type="number" min="0" max="8" data-bb="skips" value="${b.skips}"></div>
+        <div class="af full"><label>Pro earns: <b style="color:var(--brand)">${b.payout}%</b> of the monthly price</label><input type="range" min="50" max="90" step="1" value="${b.payout}" data-bb="payout" style="accent-color:var(--brand)">
+          <div class="split"><div style="width:${b.payout}%"></div><div style="width:${100-b.payout}%"></div></div>
+          <div class="row between small"><span>Pro: <b>${eur(payout)}</b>/month per customer</span><span>MISK: <b>${eur(misk)}</b></span></div></div>
+      </div>
+      <div class="preview"><div class="pv-l">Live preview · customer app</div>
+        <div class="card"><div class="row"><div class="ci" style="width:40px;height:40px;border-radius:12px;display:grid;place-items:center;background:${(CATS.find(c=>c.name===b.cat)||CATS[0]).bg};color:${(CATS.find(c=>c.name===b.cat)||CATS[0]).fg};font-size:19px">${ic((CATS.find(c=>c.name===b.cat)||CATS[0]).icon)}</div><div style="flex:1"><div class="b">${esc(b.name||"Untitled plan")}</div><div class="small muted">${fm[b.freq]} · ${b.dur} min</div></div></div>
+          <div style="font-size:28px;font-weight:800;margin-top:12px;letter-spacing:-.02em">${eur(+b.price||0)}<span class="small muted" style="font-weight:600">/month</span></div>
+          <div class="small muted">≈ ${eur(Math.round((b.price/vpm)*100)/100)} per visit</div>
+          <div style="margin-top:10px;display:grid;gap:4px">${b.tasks.map(t=>`<div class="row small" style="gap:6px"><span style="color:var(--brand)">${ic("check")}</span>${esc(t)}</div>`).join("")}</div>
+          ${b.addonName?`<div class="addon" style="margin:10px 0 0;box-shadow:none;border:1px solid var(--line);padding:9px 10px"><span class="cbox" style="width:18px;height:18px"></span><span class="small" style="flex:1">${esc(b.addonName)}</span><b class="small">+${eur(+b.addonPrice||0)}</b></div>`:""}
+          <div class="tiny muted" style="margin-top:10px">${b.season?`Season ${b.sFrom} – ${b.sTo} · `:""}${b.skips} skips/month · min. ${b.minTerm} months</div>
+          <button class="cta" style="height:42px;font-size:14px;margin-top:12px">Subscribe</button>
+        </div>
+        <div class="small muted" style="margin-top:12px">${b.published?`<span class="badge g">${ic("check")} Live</span> Customers in the pilot city can subscribe now.`:"Changes appear in the apps the moment you publish."}</div>
+      </div>
+    </div>`;
+  return browser("admin.misk.app/plans/new",main,"Plans");
+}
+
+function sFinish(){
+  return `<div class="hero">
+    <div class="chapter ch-customer">${ic("check")} Tour complete</div>
+    <h2>One platform, <em>three happy sides.</em></h2>
+    <p>You've seen a customer book and pay for a job, subscribe to weekly care, a pro accept and complete the work, and the MISK team approve pros and launch a new plan, all connected.</p>
+    <div class="road">
+      <div class="ph-card ph1"><div class="wk2">Phase 1 · weeks 1–10</div><h5>Launch in one city</h5><ul><li>Website for customers & pros</li><li>One-off bookings, 3–5 trades</li><li>Secure payments & payouts</li><li>Admin panel</li></ul></div>
+      <div class="ph-card ph2"><div class="wk2">Phase 2 · weeks 11–16</div><h5>Monthly plans</h5><ul><li>Plan builder</li><li>Automatic visit planning</li><li>Skip, pause, change days</li><li>2–3 launch plans</li></ul></div>
+      <div class="ph-card ph3"><div class="wk2">Phase 3 · weeks 17–22</div><h5>iPhone & Android apps</h5><ul><li>Customer and pro apps</li><li>Push notifications</li><li>Chat with your pro</li><li>Live pro location</li></ul></div>
+      <div class="ph-card ph4"><div class="wk2">Phase 4 · week 23+</div><h5>Grow</h5><ul><li>More cities & trades</li><li>Companies with teams</li><li>Promo codes & referrals</li><li>More languages</li></ul></div>
+    </div>
+    <div class="row" style="gap:12px;flex-wrap:wrap"><button class="btn btn-primary" data-a="restart">${ic("rotate")} Restart the tour</button><button class="btn btn-ghost" data-a="go" data-v="${IDX("plans")}">Play with the plans again</button></div>
+  </div>`;
+}
+
+/* =========================================================
+   Render
+   ========================================================= */
+const guideEl=document.getElementById("guide"), stageEl=document.getElementById("stage");
+let expanded=false;
+function renderGuide(){
+  const st=STEPS[S.step], ch=CH[st.ch];
+  let groups="", last=null;
+  STEPS.forEach((s,i)=>{ if(s.ch!==last){groups+=`<li class="grp">${CH[s.ch][0]}</li>`; last=s.ch;}
+    groups+=`<li><button class="${i===S.step?"on":""} ${i<S.step||i<=S.maxStep&&i!==S.step?"done":""}" data-a="go" data-v="${i}"><span class="dot">${i<S.step?ic("check"):i+1}</span>${s.nav}</button></li>`});
+  guideEl.className="guide"+(expanded?" expanded":"");
+  guideEl.innerHTML=`
+    <span class="chapter ${ch[1]}">${ic(ch[2])} ${ch[0]}</span>
+    <div><div class="step-count">Step ${S.step+1} of ${STEPS.length}</div><h1 style="margin-top:4px">${st.title}</h1></div>
+    <p class="lead">${st.lead}</p>
+    ${st.try||st.why?`<button class="more-btn" data-a="expand">${expanded?"Hide tips":"What to try"} ${ic(expanded?"chevD":"chevR")}</button>`:""}
+    ${st.try?`<div class="tryit"><h4>Try it</h4><ul>${st.try.map(t=>`<li>${ic("arrowR")}<span>${t}</span></li>`).join("")}</ul></div>`:""}
+    ${st.why?`<div class="why"><b>Why it matters</b>${st.why}</div>`:""}
+    <div class="nav-btns"><button class="btn btn-ghost" data-a="prev" ${S.step===0?"disabled":""}>${ic("chevL")} Back</button><button class="btn btn-primary" data-a="${S.step===STEPS.length-1?"restart":"next"}">${S.step===0?"Start the tour":S.step===STEPS.length-1?"Start over":"Next step"} ${ic(S.step===STEPS.length-1?"rotate":"chevR")}</button></div>
+    <div class="kbd">Tip: use the ← and → keys</div>
+    <details class="steps-nav" ${window.innerWidth>820?"open":""}><summary>All steps ${ic("chevD")}</summary><ol>${groups}</ol></details>`;
+}
+function renderStage(keepScroll){
+  const st=STEPS[S.step];
+  const prevBody=stageEl.querySelector(".body,.amain"); const sc=keepScroll&&prevBody?prevBody.scrollTop:0;
+  const html=st.screen();
+  if(st.device==="phone") stageEl.innerHTML=`<div class="phone"><div class="notch"></div><div class="screen">${html}<div class="toast" id="toast"></div></div></div>`;
+  else stageEl.innerHTML=html;
+  if(!keepScroll){stageEl.style.animation="none";void stageEl.offsetWidth;stageEl.style.animation="";}
+  const nb=stageEl.querySelector(".body,.amain"); if(nb&&keepScroll) nb.scrollTop=sc;
+}
+function render(keepScroll=false){
+  document.getElementById("progFill").style.width=((S.step)/(STEPS.length-1)*100)+"%";
+  document.getElementById("progLbl").textContent=`Step ${S.step+1} of ${STEPS.length}`;
+  renderGuide(); renderStage(keepScroll);
+}
+const refresh=()=>renderStage(true);
+
+function toast(msg){
+  const t=document.getElementById("toast"); if(!t) return;
+  t.innerHTML=ic("check")+msg; t.classList.add("show"); clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove("show"),2200);
+}
+
+/* Fill sensible defaults when the client jumps ahead with the guide */
+function ensureDefaults(target){
+  if(target===IDX("week")) proDay=Math.min(6,S.day+1);
+  if(target>IDX("login") && S.auth<2){ S.auth=2; S.otp="4821"; }
+  if(target>=IDX("details") && !S.svc) S.svc=cat().services[0].id;
+  if(target>=IDX("checkout") && !S.slot){ const i=SLOTS.findIndex((_,k)=>slotFree(S.day,k)); S.slot=SLOTS[i<0?1:i]; }
+  if(target>IDX("track") && S.track<3) S.track=3;
+  if(target>IDX("chat") && !S.chatDone){ S.track=4; S.chatDone=true; }
+  if(target>IDX("plans") && !S.subscribed){ const n=S.pfreq<1?1:S.pfreq; while(S.pdays.length<n){const d=WEEK.find(x=>!S.pdays.includes(x)); S.pdays.push(d);} S.subscribed=true; }
+}
+function goTo(i){
+  i=Math.max(0,Math.min(STEPS.length-1,i));
+  clearTimers(); ensureDefaults(i);
+  S.step=i; S.maxStep=Math.max(S.maxStep,i);
+  render(); window.scrollTo({top:0,behavior:"smooth"});
+  onEnter(i);
+}
+function onEnter(i){
+  if(i===IDX("track") && S.track<3){ timers.push(setInterval(()=>{ if(S.step!==IDX("track")) return; S.track=Math.min(3,S.track+1); refresh(); if(S.track>=3) clearTimers(); },2600)); }
+  if(i===IDX("login") && S.auth===1) startOtp();
+  if(i===IDX("chat")) setTimeout(scrollChat,30);
+  if(i===IDX("inbox") && S.inbox==="new"){ timers.push(setInterval(()=>{ if(S.step!==IDX("inbox")||S.inbox!=="new") return; S.countdown=Math.max(0,S.countdown-1); const r=stageEl.querySelector(".ring"); if(r){ const C=2*Math.PI*23; r.querySelectorAll("circle")[1].setAttribute("stroke-dashoffset",C*(1-S.countdown/900)); r.querySelector(".rt").textContent=Math.floor(S.countdown/60)+":"+String(S.countdown%60).padStart(2,"0"); } },1000)); }
+}
+
+/* =========================================================
+   Events
+   ========================================================= */
+const ACT = {
+  next:()=>goTo(S.step+1), prev:()=>goTo(S.step-1), go:v=>goTo(+v),
+  restart:()=>{clearTimers(); S=fresh(); proDay=2; render(); },
+  expand:()=>{expanded=!expanded; renderGuide();},
+  cat:v=>{ if(S.cat!==v){S.cat=v;S.svc=null;} goTo(IDX("services")); },
+  svc:v=>{S.svc=v;refresh()},
+  size:v=>{S.size=v;refresh()},
+  photo:()=>{S.photos=Math.min(3,S.photos+1);refresh();toast("Photo added")},
+  day:v=>{S.day=+v; if(S.slot && !slotFree(S.day,SLOTS.indexOf(S.slot))) S.slot=null; refresh()},
+  slot:v=>{S.slot=v;refresh()},
+  pay:v=>{S.pay=v;refresh()},
+  book:()=>{S.booked=true; S.track=0; toast("Booked! Payment held securely"); setTimeout(()=>goTo(IDX("track")),900)},
+  track:()=>{S.track=Math.min(3,S.track+1); refresh(); if(S.track>=3) clearTimers();},
+  auth:v=>{S.auth=+v; refresh(); if(S.auth===1) startOtp();},
+  role:v=>{S.role=v; refresh();},
+  enterapp:()=>{ if(S.role==="pro") goTo(IDX("onboard")); else goTo(IDX("home")); },
+  extra:v=>{ if(S.extra!=="pending") return; S.extra=v;
+    S.chat.push({from:"me",t:v==="approved"?"Yes please, go ahead!":"No thanks, just the lawn today."});
+    if(v==="approved") S.chat.push({from:"sys",t:"You approved +€20 for hedge trimming. It's added to your final payment."});
+    refresh(); scrollChat();
+    setTimeout(()=>{ S.chat.push({from:"pro",t:v==="approved"?"Great, hedge is done too. All finished! Photos are in the app 🌿":"No problem! All finished, photos are in the app 🌿"}); S.track=4; S.chatDone=true; if(S.step===IDX("chat")){refresh(); scrollChat(); toast("Job complete");} },1600); },
+  quick:v=>sendChat(v),
+  send:()=>{ const i=document.getElementById("chatIn"); if(i&&i.value.trim()) sendChat(i.value.trim()); },
+  rate:v=>{S.rating=+v;refresh()},
+  tag:v=>{S.tags=S.tags.includes(v)?S.tags.filter(x=>x!==v):[...S.tags,v];refresh()},
+  tip:v=>{S.tip=+v;refresh()},
+  review:()=>{S.reviewed=true;refresh()},
+  plan:v=>{S.plan=v;S.paddons=[];S.pfreq=plan().freq;S.pdays=S.pdays.slice(0,S.pfreq<1?1:S.pfreq);refresh()},
+  pfreq:v=>{S.pfreq=+v; const n=S.pfreq<1?1:S.pfreq; S.pdays=S.pdays.slice(0,n); refresh()},
+  psize:v=>{S.psize=v;refresh()},
+  addon:v=>{S.paddons=S.paddons.includes(v)?S.paddons.filter(x=>x!==v):[...S.paddons,v];refresh()},
+  pday:v=>{const n=S.pfreq<1?1:S.pfreq; if(S.pdays.includes(v)) S.pdays=S.pdays.filter(x=>x!==v); else { S.pdays=[...S.pdays,v]; if(S.pdays.length>n) S.pdays.shift(); } S.pdays.sort((a,b)=>WEEK.indexOf(a)-WEEK.indexOf(b)); refresh()},
+  pwin:v=>{S.pwin=v;refresh()},
+  subscribe:()=>{S.subscribed=true;refresh();toast("Subscription started")},
+  skip:v=>{S.skipped[v]=!S.skipped[v];refresh();if(S.skipped[v])toast("Visit skipped, credited to next bill")},
+  pause:()=>{S.paused=!S.paused;refresh();if(S.paused)toast("Plan paused for 3 weeks")},
+  ptrade:v=>{const t=S.pro.trades; S.pro.trades=t.includes(v)?t.filter(x=>x!==v):[...t,v]; if(!S.pro.trades.length) S.pro.trades=[v]; refresh()},
+  doc:v=>{S.pro.docs[v]=true;refresh();toast("Document uploaded")},
+  pwday:v=>{const d=S.pro.days; S.pro.days=d.includes(v)?d.filter(x=>x!==v):[...d,v].sort((a,b)=>WEEK.indexOf(a)-WEEK.indexOf(b)); refresh()},
+  submitpro:()=>{S.pro.docs={id:true,cert:true,ins:true}; if(!S.pro.days.length) S.pro.days=["Mon","Tue","Wed","Thu","Fri"]; S.pro.submitted=true; refresh()},
+  inbox:v=>{S.inbox=v; if(v==="new"){S.countdown=899; clearTimers(); onEnter(IDX("inbox"));} refresh(); if(v==="accepted") toast("Job added to your schedule")},
+  jobstage:()=>{S.jobstage=Math.min(3,S.jobstage+1);refresh(); if(S.jobstage===3) toast("Job complete, customer notified")},
+  proday:v=>{proDay=+v;refresh()},
+  approve:()=>{S.approved=true;refresh();toast("Daniel approved and notified")},
+  publish:()=>{S.b.published=true;refresh();toast("Plan is live in the customer app")},
+  season:()=>{S.b.season=!S.b.season;refresh()},
+  rmtask:v=>{S.b.tasks.splice(+v,1);refresh()},
+  addtask:()=>{const t=S.b.newTask.trim(); if(t){S.b.tasks.push(t);S.b.newTask="";refresh()}}
+};
+document.addEventListener("click",e=>{
+  const el=e.target.closest("[data-a]"); if(!el||el.disabled) return;
+  if(el.tagName==="INPUT") return;
+  const f=ACT[el.dataset.a]; if(f){e.preventDefault(); f(el.dataset.v);}
+});
+document.addEventListener("input",e=>{
+  const el=e.target;
+  if(el.dataset.bind){S[el.dataset.bind]=el.value;}
+  if(el.dataset.a==="radius"){S.pro.radius=+el.value; const lbl=el.closest(".card"); if(lbl){lbl.querySelector("b").textContent=S.pro.radius+" km"; lbl.querySelector(".small.muted:last-child").textContent=`≈ ${Math.round(S.pro.radius*S.pro.radius*0.9)} customers in this area booked last month`;}}
+  if(el.dataset.bb){
+    const k=el.dataset.bb; let v=el.value;
+    if(["price","dur","minTerm","addonPrice","skips","payout"].includes(k)) v=v===""?0:+v;
+    S.b[k]=v; S.b.published=false;
+    if(k==="payout"){const l=el.closest(".af"); if(l){l.querySelector("label b").textContent=v+"%"; const sp=l.querySelectorAll(".split div"); sp[0].style.width=v+"%"; sp[1].style.width=(100-v)+"%";}}
+  }
+});
+document.addEventListener("change",e=>{
+  const el=e.target;
+  if(el.dataset.bb && el.dataset.bb!=="newTask") refresh();
+});
+document.addEventListener("keydown",e=>{
+  if(e.target.matches("input,textarea,select")){
+    if(e.key==="Enter" && e.target.id==="chatIn"){e.preventDefault(); ACT.send(); return;}
+    if(e.key==="Enter" && e.target.dataset.bb==="newTask"){e.preventDefault(); ACT.addtask(); setTimeout(()=>{const n=document.querySelector('[data-bb="newTask"]'); n&&n.focus()},0);}
+    else if(e.key==="Enter" && e.target.dataset.bb){e.target.blur();}
+    return;
+  }
+  if(e.key==="ArrowRight") goTo(S.step+1);
+  if(e.key==="ArrowLeft") goTo(S.step-1);
+});
+
+document.getElementById("logoMark").innerHTML=ic("leaf");
+render();
+</script>
+</body>
+</html>
