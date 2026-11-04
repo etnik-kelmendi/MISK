@@ -1,5 +1,6 @@
-import { call, createTestContext, lastCode, resetDatabase, sessionCookie, signIn, signInAdmin, type TestContext } from '../../test/helpers.js';
+import { ADMIN_PASSWORD, call, createTestContext, lastCode, resetDatabase, sessionCookie, signIn, signInAdmin, type TestContext } from '../../test/helpers.js';
 import { createFirstAdmin } from './first-admin.js';
+import { FAILED_LOGIN_DELAY_MS } from './passwords.js';
 
 let t: TestContext;
 beforeAll(async () => {
@@ -114,16 +115,18 @@ describe('roles', () => {
 });
 
 describe('admin sign-in', () => {
-  it('signs admins in with username and password, and limits guessing', async () => {
+  it('signs admins in with username and password, never locks them out, and slows down wrong passwords', async () => {
     const cookie = await signInAdmin(t);
     expect((await call(t, 'GET', '/admin/pros', { cookie })).statusCode).toBe(200);
-    for (let i = 0; i < 5; i += 1) {
+    for (let i = 0; i < 7; i += 1) {
+      const started = Date.now();
       const wrong = await call(t, 'POST', '/auth/admin/login', { body: { username: 'admin', password: 'wrong password' } });
       expect(wrong.statusCode).toBe(401);
+      expect(Date.now() - started).toBeGreaterThanOrEqual(FAILED_LOGIN_DELAY_MS - 50);
     }
-    const limited = await call(t, 'POST', '/auth/admin/login', { body: { username: 'admin', password: 'wrong password' } });
-    expect(limited.statusCode).toBe(429);
-  });
+    const right = await call(t, 'POST', '/auth/admin/login', { body: { username: 'admin', password: ADMIN_PASSWORD } });
+    expect(right.statusCode).toBe(200);
+  }, 30_000);
 
   it('creates the first admin only once', async () => {
     await createFirstAdmin(t.pool, 'Owner', 'a long enough password');

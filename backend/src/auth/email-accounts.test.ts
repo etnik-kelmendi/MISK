@@ -1,5 +1,6 @@
 import { call, createTestContext, resetDatabase, sessionCookie, type TestContext } from '../../test/helpers.js';
 import { passwordProblems } from './email-accounts.js';
+import { FAILED_LOGIN_DELAY_MS } from './passwords.js';
 
 let t: TestContext;
 beforeAll(async () => {
@@ -73,14 +74,17 @@ describe('email log-in', () => {
     expect(unknown.json()).toEqual({ error: 'invalid_login' });
   });
 
-  it('locks an account after five wrong passwords', async () => {
+  it('never locks an account, however many wrong passwords, but answers them slowly', async () => {
     await register(valid);
-    for (let i = 0; i < 5; i += 1) {
-      await call(t, 'POST', '/auth/login', { body: { email: 'sara@example.com', password: 'wrong123' } });
+    for (let i = 0; i < 7; i += 1) {
+      const started = Date.now();
+      const wrong = await call(t, 'POST', '/auth/login', { body: { email: 'sara@example.com', password: 'wrong123' } });
+      expect(wrong.json()).toEqual({ error: 'invalid_login' });
+      expect(Date.now() - started).toBeGreaterThanOrEqual(FAILED_LOGIN_DELAY_MS - 50);
     }
-    const locked = await call(t, 'POST', '/auth/login', { body: { email: 'sara@example.com', password: 'garden42' } });
-    expect(locked.statusCode).toBe(429);
-  });
+    const right = await call(t, 'POST', '/auth/login', { body: { email: 'sara@example.com', password: 'garden42' } });
+    expect(right.statusCode).toBe(200);
+  }, 30_000);
 
   it('never lets an admin in through the customer log-in', async () => {
     await t.pool.query(

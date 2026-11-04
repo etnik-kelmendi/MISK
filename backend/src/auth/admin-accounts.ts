@@ -36,8 +36,7 @@ export function resetEmail(username: string, link: string) {
 }
 
 /**
- * Sets a new password for an admin, ends all their sessions except `keepToken` (the caller's own),
- * and clears their failed sign-in attempts so a locked-out admin can sign in at once.
+ * Sets a new password for an admin and ends all their sessions except `keepToken` (the caller's own).
  * Returns false when no admin has that id.
  */
 export async function setAdminPassword(
@@ -63,7 +62,6 @@ export async function setAdminPassword(
     admin.id,
     keepToken ? hashToken(keepToken) : null,
   ]);
-  await db.query('DELETE FROM login_attempts WHERE key = ANY($1)', [[`admin:${admin.username}`, `admin:${admin.email ?? ''}`]]);
   return true;
 }
 

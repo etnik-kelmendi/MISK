@@ -6,6 +6,16 @@ const OPTIONS = { memoryCost: 19_456, timeCost: 2, parallelism: 1 };
 
 export const MIN_PASSWORD_LENGTH = 12;
 
+/**
+ * Wrong passwords never lock an account (D18). Instead each failed log-in answers about a second
+ * later: a person retrying does not notice, but automated guessing slows to a crawl.
+ */
+export const FAILED_LOGIN_DELAY_MS = 1000;
+
+export function slowDownFailedLogin(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, FAILED_LOGIN_DELAY_MS));
+}
+
 export function hashPassword(password: string): Promise<string> {
   return hash(password, OPTIONS);
 }

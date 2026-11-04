@@ -4,15 +4,13 @@ import { withTransaction } from '../db.js';
 import { badRequest } from '../errors.js';
 import { isUniqueViolation } from '../http.js';
 import { normalizeEmail } from './admin-accounts.js';
-import { hashPassword, spendVerificationTime, verifyPassword } from './passwords.js';
+import { hashPassword, slowDownFailedLogin, spendVerificationTime, verifyPassword } from './passwords.js';
 import { publicUser, startSessionCookie } from './routes.js';
-import { clearAttempts, createSession, deleteExpiredRows, recordAttempt, USER_COLUMNS, type User } from './sessions.js';
+import { createSession, deleteExpiredRows, recordAttempt, USER_COLUMNS, type User } from './sessions.js';
 
 /** Customers' and pros' passwords: at least 8 characters with a letter and a number. */
 export const MIN_USER_PASSWORD_LENGTH = 8;
 export const MAX_REGISTRATIONS_PER_IP = 10;
-export const MAX_LOGINS_PER_ACCOUNT = 5;
-export const MAX_LOGINS_PER_IP = 20;
 
 const EMAIL_FORMAT = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const nameProperty = { type: 'string', minLength: 1, maxLength: 60, pattern: '\\S' } as const;
@@ -116,14 +114,7 @@ export async function emailAccountRoutes(app: FastifyInstance, ctx: AppContext) 
       },
     },
     async (request, reply) => {
-      await deleteExpiredRows(pool);
       const email = normalizeEmail(request.body.email);
-      const accountKey = `login:${email}`;
-      const account = await recordAttempt(pool, accountKey, MAX_LOGINS_PER_ACCOUNT);
-      const address = await recordAttempt(pool, `login-ip:${request.ip}`, MAX_LOGINS_PER_IP);
-      if (account.overLimit || address.overLimit) {
-        return reply.code(429).send({ error: 'too_many_attempts' });
-      }
       // Admins sign in with their username on the control panel, never here.
       const found = await pool.query<User & { passwordHash: string; disabled: boolean }>(
         `SELECT ${USER_COLUMNS}, users.password_hash AS "passwordHash", users.disabled_at IS NOT NULL AS disabled
@@ -133,15 +124,16 @@ export async function emailAccountRoutes(app: FastifyInstance, ctx: AppContext) 
       const row = found.rows[0];
       if (!row) {
         await spendVerificationTime(request.body.password);
+        await slowDownFailedLogin();
         return reply.code(401).send({ error: 'invalid_login' });
       }
       if (!(await verifyPassword(row.passwordHash, request.body.password))) {
+        await slowDownFailedLogin();
         return reply.code(401).send({ error: 'invalid_login' });
       }
       if (row.disabled) {
         return reply.code(403).send({ error: 'account_disabled' });
       }
-      await clearAttempts(pool, [accountKey]);
       await startSessionCookie(request, reply, pool, config, await createSession(pool, row.id));
       request.log.info({ event: 'login_succeeded', userId: row.id });
       return { user: publicUser(row) };

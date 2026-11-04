@@ -155,13 +155,9 @@ describe('password recovery by email', () => {
 });
 
 describe('forgotten admin passwords', () => {
-  it('lets one admin set a new password for another, signing them out and lifting a lockout', async () => {
+  it('lets one admin set a new password for another, signing them out', async () => {
     const owner = await signInAdmin(t, 'owner');
     const forgetful = await signInAdmin(t, 'forgetful');
-    for (let i = 0; i < 6; i += 1) {
-      await login('forgetful', 'wrong guess');
-    }
-    expect((await login('forgetful', ADMIN_PASSWORD)).statusCode).toBe(429);
 
     const team = (await call(t, 'GET', '/admin/team', { cookie: owner })).json().admins as { id: string; username: string }[];
     const id = team.find((a) => a.username === 'forgetful')?.id;

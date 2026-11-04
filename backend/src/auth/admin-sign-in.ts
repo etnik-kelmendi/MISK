@@ -1,14 +1,10 @@
 import type { Pool } from 'pg';
-import { spendVerificationTime, verifyPassword } from './passwords.js';
-import { clearAttempts, createSession, deleteExpiredRows, recordAttempt, type User } from './sessions.js';
-
-export const MAX_ATTEMPTS_PER_ACCOUNT = 5;
-export const MAX_ATTEMPTS_PER_IP = 20;
+import { slowDownFailedLogin, spendVerificationTime, verifyPassword } from './passwords.js';
+import { createSession, deleteExpiredRows, type User } from './sessions.js';
 
 export type AdminLoginResult =
   | { outcome: 'success'; user: User; token: string }
-  | { outcome: 'invalid_credentials' }
-  | { outcome: 'too_many_attempts' };
+  | { outcome: 'invalid_credentials' };
 
 export function normalizeUsername(username: string): string {
   return username.trim().toLowerCase();
@@ -20,12 +16,6 @@ export async function adminLogin(
 ): Promise<AdminLoginResult> {
   await deleteExpiredRows(pool);
   const username = normalizeUsername(input.username);
-  const accountKey = `admin:${username}`;
-  const account = await recordAttempt(pool, accountKey, MAX_ATTEMPTS_PER_ACCOUNT);
-  const address = await recordAttempt(pool, `admin-ip:${input.ip}`, MAX_ATTEMPTS_PER_IP);
-  if (account.overLimit || address.overLimit) {
-    return { outcome: 'too_many_attempts' };
-  }
 
   const found = await pool.query<User & { password_hash: string }>(
     `SELECT id, role, phone, username, email, first_name AS "firstName", last_name AS "lastName", password_hash
@@ -35,12 +25,13 @@ export async function adminLogin(
   const row = found.rows[0];
   if (!row) {
     await spendVerificationTime(input.password);
+    await slowDownFailedLogin();
     return { outcome: 'invalid_credentials' };
   }
   if (!(await verifyPassword(row.password_hash, input.password))) {
+    await slowDownFailedLogin();
     return { outcome: 'invalid_credentials' };
   }
-  await clearAttempts(pool, [accountKey]);
   const user: User = {
     id: row.id,
     role: row.role,
