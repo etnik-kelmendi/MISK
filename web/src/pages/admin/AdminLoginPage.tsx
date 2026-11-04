@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Navigate } from 'react-router';
+import { Link, Navigate } from 'react-router';
 import { useApi } from '../../api/ApiContext';
 import type { User } from '../../api/types';
 import { useAuth } from '../../auth/AuthContext';
@@ -121,6 +121,12 @@ export function AdminLoginPage() {
         </button>
       </form>
       {forgotOpen && <ForgotPassword initial={username} />}
+      <p className="panel signup-note small">
+        {t('admin.login.noAccount')}{' '}
+        <Link to="/signup" className="b">
+          {t('admin.login.signUp')}
+        </Link>
+      </p>
     </main>
   );
 }

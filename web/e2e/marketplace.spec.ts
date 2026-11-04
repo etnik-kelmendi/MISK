@@ -156,8 +156,17 @@ test.describe.serial('MISK marketplace', () => {
     await expect(page.getByRole('button', { name: 'Refund' })).toBeVisible();
     await expectAccessible(page);
 
-    await nav.getByRole('link', { name: 'Pros', exact: true }).click();
+    await nav.getByRole('link', { name: 'Providers', exact: true }).click();
     await expect(page.getByRole('link', { name: 'Daniel' })).toBeVisible();
+    await nav.getByRole('link', { name: 'Plans', exact: true }).click();
+    await page.getByRole('link', { name: 'New plan' }).click();
+    await page.getByLabel('Plan name').fill('Weekly lawn care');
+    await page.getByLabel('Monthly price (€)').fill('49');
+    await page.getByRole('textbox', { name: 'Add a task' }).fill('Mow');
+    await page.getByRole('textbox', { name: 'Add a task' }).press('Enter');
+    await expectAccessible(page);
+    await page.getByRole('button', { name: 'Publish plan' }).click();
+    await expect(page.getByRole('heading', { name: 'Plan published' })).toBeVisible();
     await nav.getByRole('link', { name: 'Catalogue', exact: true }).click();
     await expect(page.getByRole('heading', { name: /Gardening/ })).toBeVisible();
     await expectAccessible(page);

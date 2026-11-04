@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { BrowserRouter, Link, Route, Routes } from 'react-router';
+import { BrowserRouter, Link, Navigate, Route, Routes } from 'react-router';
 import { ApiProvider } from './api/ApiContext';
 import { createApi } from './api/client';
 import { MarketProvider } from './api/MarketContext';
@@ -16,6 +16,8 @@ import { AreasPage } from './pages/admin/AreasPage';
 import { CataloguePage } from './pages/admin/CataloguePage';
 import { OverviewPage } from './pages/admin/OverviewPage';
 import { ResetPasswordPage } from './pages/admin/ResetPasswordPage';
+import { PlanEditorPage, PlansPage } from './pages/admin/PlansPage';
+import { SettingsLayout } from './pages/admin/SettingsLayout';
 import { SettingsPage } from './pages/admin/SettingsPage';
 import { TeamPage } from './pages/admin/TeamPage';
 import { BookingPage } from './pages/customer/BookingPage';
@@ -89,12 +91,21 @@ export function AppRoutes() {
         <Route index element={<OverviewPage />} />
         <Route path="bookings" element={<AdminBookingsPage />} />
         <Route path="bookings/:id" element={<AdminBookingPage />} />
-        <Route path="pros" element={<AdminProsPage />} />
-        <Route path="pros/:id" element={<AdminProPage />} />
+        <Route path="providers" element={<AdminProsPage />} />
+        <Route path="providers/:id" element={<AdminProPage />} />
+        <Route path="plans" element={<PlansPage />} />
+        <Route path="plans/new" element={<PlanEditorPage />} />
+        <Route path="plans/:id" element={<PlanEditorPage />} />
         <Route path="catalogue" element={<CataloguePage />} />
-        <Route path="areas" element={<AreasPage />} />
-        <Route path="settings" element={<SettingsPage />} />
-        <Route path="team" element={<TeamPage />} />
+        <Route path="settings" element={<SettingsLayout />}>
+          <Route index element={<SettingsPage />} />
+          <Route path="areas" element={<AreasPage />} />
+          <Route path="team" element={<TeamPage />} />
+        </Route>
+        {/* Earlier addresses keep working. */}
+        <Route path="pros/*" element={<Navigate to="/admin/providers" replace />} />
+        <Route path="areas" element={<Navigate to="/admin/settings/areas" replace />} />
+        <Route path="team" element={<Navigate to="/admin/settings/team" replace />} />
       </Route>
       <Route path="*" element={<NotFoundPage />} />
     </Routes>

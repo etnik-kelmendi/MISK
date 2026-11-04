@@ -179,7 +179,7 @@ export function TeamPage() {
 
   return (
     <>
-      <h1>{t('admin.team.title')}</h1>
+      <h2 className="section-title">{t('admin.team.title')}</h2>
       <p className="muted small">{t('admin.team.intro')}</p>
       {notice && (
         <p className="info" role="status">

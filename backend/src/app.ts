@@ -20,6 +20,7 @@ import { messages } from './notifications/messages.js';
 import type { SmsSender } from './notifications/sms.js';
 import type { PaymentGateway } from './payments/gateway.js';
 import { paymentRoutes, WEBHOOK_PATH } from './payments/routes.js';
+import { planRoutes } from './plans/routes.js';
 import { proRoutes } from './pros/routes.js';
 import { createDiskStorage, MAX_UPLOAD_BYTES, type FileStorage } from './uploads/storage.js';
 import { uploadRoutes } from './uploads/uploads.js';
@@ -140,6 +141,7 @@ export async function buildApp({ config, pool, gateway, sms, email = null, stora
     emailAccountRoutes,
     adminAccountRoutes,
     catalogueRoutes,
+    planRoutes,
     proRoutes,
     customerBookingRoutes,
     proJobRoutes,

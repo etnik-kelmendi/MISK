@@ -140,7 +140,7 @@ export function AdminBookingPage() {
                   <dd>
                     {booking.pro ? (
                       <>
-                        <Link to={`/admin/pros/${booking.pro.id}`}>{booking.pro.firstName}</Link> ·{' '}
+                        <Link to={`/admin/providers/${booking.pro.id}`}>{booking.pro.firstName}</Link> ·{' '}
                         <a href={`tel:${booking.pro.phone ?? ''}`}>{booking.pro.phone}</a>
                       </>
                     ) : (

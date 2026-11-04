@@ -36,7 +36,7 @@ export function AreasPage() {
 
   return (
     <>
-      <h1>{t('admin.areas.title')}</h1>
+      <h2 className="section-title">{t('admin.areas.title')}</h2>
       <p className="muted small">{t('admin.areas.intro')}</p>
       <form className="panel fgrid" onSubmit={submit} aria-labelledby="add-area">
         <h2 id="add-area" className="full">

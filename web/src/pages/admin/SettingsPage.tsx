@@ -70,7 +70,7 @@ export function SettingsPage() {
   const { state, reload, update } = useResource(load);
   return (
     <>
-      <h1>{t('admin.settings.title')}</h1>
+      <h2 className="section-title">{t('admin.settings.tabs.fees')}</h2>
       <ResourceState state={state} reload={reload}>
         {({ settings }) => <SettingsForm settings={settings} onSaved={(next) => update(() => ({ settings: next }))} />}
       </ResourceState>

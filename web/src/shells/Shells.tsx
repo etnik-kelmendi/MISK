@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router';
-import { useAuth } from '../auth/AuthContext';
+import { useAuth, useUser } from '../auth/AuthContext';
 import { Icon, type IconKey } from '../components/Icon';
 
 interface Tab {
@@ -83,15 +83,15 @@ export function AppHeader({ title, back, right }: { title: string; back?: string
 export function AdminShell() {
   const { t } = useTranslation();
   const { logout } = useAuth();
+  const user = useUser();
   const navigate = useNavigate();
   const links: Tab[] = [
     { to: '/admin', icon: 'chart', label: t('admin.nav.overview'), end: true },
     { to: '/admin/bookings', icon: 'calendar', label: t('admin.nav.bookings') },
-    { to: '/admin/pros', icon: 'users', label: t('admin.nav.pros') },
+    { to: '/admin/providers', icon: 'users', label: t('admin.nav.providers') },
+    { to: '/admin/plans', icon: 'repeat', label: t('admin.nav.plans') },
     { to: '/admin/catalogue', icon: 'grid', label: t('admin.nav.catalogue') },
-    { to: '/admin/areas', icon: 'pin', label: t('admin.nav.areas') },
     { to: '/admin/settings', icon: 'sliders', label: t('admin.nav.settings') },
-    { to: '/admin/team', icon: 'lock', label: t('admin.nav.team') },
   ];
   return (
     <div className="admin">
@@ -108,18 +108,20 @@ export function AdminShell() {
             <span>{link.label}</span>
           </NavLink>
         ))}
-        <button
-          type="button"
-          className="aside-out"
-          onClick={() => void logout().then(() => navigate('/admin/login'))}
-        >
-          <Icon name="logout" />
-          <span>{t('common.signOut')}</span>
-        </button>
       </nav>
-      <main className="amain">
-        <Outlet />
-      </main>
+      <div className="admin-content">
+        <header className="admin-top">
+          <span className="badge b">
+            <Icon name="user" /> {t('admin.signedIn', { name: user.email ?? user.username ?? '' })}
+          </span>
+          <button type="button" className="abtn ghost" onClick={() => void logout().then(() => navigate('/admin/login'))}>
+            <Icon name="logout" /> {t('common.signOut')}
+          </button>
+        </header>
+        <main className="amain">
+          <Outlet />
+        </main>
+      </div>
     </div>
   );
 }

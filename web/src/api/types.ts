@@ -268,3 +268,31 @@ export interface AdminAccount {
   createdAt: string;
   disabled: boolean;
 }
+
+export type Frequency = 'every_2_weeks' | 'weekly' | 'twice_weekly' | 'three_times_weekly';
+
+export interface PlanInput {
+  name: string;
+  categoryId: string;
+  priceCents: number;
+  frequency: Frequency;
+  visitMinutes: number;
+  tasks: string[];
+  addonName: string | null;
+  addonPriceCents: number | null;
+  seasonal: boolean;
+  seasonFrom: number | null;
+  seasonTo: number | null;
+  skipsPerMonth: number;
+  minTermMonths: number;
+  proSharePct: number;
+}
+
+export interface Plan extends PlanInput {
+  id: string;
+  categoryName: string;
+  categoryIcon: IconName;
+  status: 'draft' | 'published';
+  publishedAt: string | null;
+  updatedAt: string;
+}

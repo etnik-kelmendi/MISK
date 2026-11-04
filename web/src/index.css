@@ -261,10 +261,9 @@ code { font-family: ui-monospace, Consolas, monospace; font-size: 0.92em; backgr
 .admin { display: grid; grid-template-columns: 230px 1fr; min-height: 100vh; }
 .aside { background: var(--card); border-right: 1px solid var(--line); padding: 18px 12px; display: flex; flex-direction: column; gap: 2px; }
 .aside .logo, .admin-login .logo { display: flex; align-items: center; gap: 10px; font-weight: 800; padding: 4px 8px 16px; }
-.aside a, .aside-out { display: flex; align-items: center; gap: 10px; padding: 10px; border-radius: 10px; color: var(--ink-2); text-decoration: none; font-weight: 600; font-size: 14px; text-align: left; }
-.aside a:hover, .aside-out:hover { background: var(--bg); }
+.aside a { display: flex; align-items: center; gap: 10px; padding: 10px; border-radius: 10px; color: var(--ink-2); text-decoration: none; font-weight: 600; font-size: 14px; text-align: left; }
+.aside a:hover { background: var(--bg); }
 .aside a.on { background: var(--brand-soft); color: var(--brand); font-weight: 700; }
-.aside-out { margin-top: auto; }
 .amain { padding: 24px 28px; display: grid; gap: 16px; align-content: start; min-width: 0; }
 .amain h1 { font-size: 24px; letter-spacing: -0.01em; }
 .panel { background: var(--card); border-radius: var(--radius); padding: 18px; box-shadow: 0 1px 3px rgba(15, 26, 21, 0.06); display: grid; gap: 10px; align-content: start; }
@@ -273,6 +272,7 @@ code { font-family: ui-monospace, Consolas, monospace; font-size: 0.92em; backgr
 .admin-login { align-content: center; gap: 14px; }
 .admin-login .panel { width: 100%; max-width: 380px; }
 .forgot h2 { font-size: 16px; }
+.signup-note { width: 100%; max-width: 380px; text-align: center; display: block; }
 .admin-login h1 { font-size: 20px; }
 .af { display: grid; gap: 5px; align-content: start; }
 .af label, .af legend { font-size: 12.5px; font-weight: 700; color: var(--ink-2); }
@@ -307,13 +307,32 @@ code { font-family: ui-monospace, Consolas, monospace; font-size: 0.92em; backgr
 .icon-pick.on { background: var(--brand); color: #fff; }
 .icon-pick:focus-within { outline: 3px solid var(--info); }
 
+.admin-content { display: flex; flex-direction: column; min-width: 0; }
+.admin-top { display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 12px 28px 0; }
+.section-title { font-size: 18px; }
+.tabs { align-self: flex-start; }
+.tabs a { padding: 7px 14px; border-radius: 9px; font-weight: 700; font-size: 13px; color: var(--muted); text-decoration: none; }
+.tabs a.on { background: var(--brand); color: #fff; }
+.builder { display: grid; grid-template-columns: 1.5fr 1fr; gap: 16px; align-items: start; }
+.preview { position: sticky; top: 16px; display: grid; gap: 10px; }
+.pv-l { font-size: 12px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); font-weight: 700; }
+.pv-price { font-size: 28px; font-weight: 800; letter-spacing: -0.02em; }
+.stack.tight { gap: 4px; }
+.taskchips { display: flex; flex-wrap: wrap; gap: 6px; }
+.taskchip { display: inline-flex; align-items: center; gap: 6px; background: var(--brand-soft); color: var(--brand); font-weight: 700; font-size: 13px; padding: 5px 6px 5px 10px; border-radius: 99px; }
+.taskchip button { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; color: var(--brand); }
+.taskchip button:hover { background: #fff; }
+.addon-preview { display: flex; justify-content: space-between; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+.split { display: flex; height: 8px; border-radius: 9px; overflow: hidden; }
+.split div:first-child { background: var(--brand); }
+.split div:last-child { background: var(--accent); }
 @media (max-width: 900px) {
   .admin { grid-template-columns: 1fr; }
   .aside { flex-direction: row; flex-wrap: wrap; border-right: 0; border-bottom: 1px solid var(--line); }
   .aside .logo { width: 100%; padding-bottom: 6px; }
-  .aside-out { margin-top: 0; }
   .amain { padding: 16px; }
   .kpis { grid-template-columns: repeat(2, 1fr); }
-  .agrid, .fgrid { grid-template-columns: 1fr; }
+  .agrid, .fgrid, .builder { grid-template-columns: 1fr; }
+  .admin-top { padding: 12px 16px 0; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }

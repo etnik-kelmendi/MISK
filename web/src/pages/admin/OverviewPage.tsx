@@ -72,7 +72,7 @@ export function OverviewPage() {
                   <h2 id="attention-heading">{t('admin.overview.attention')}</h2>
                   <ul className="attention">
                     <li>
-                      <Link to="/admin/pros?status=submitted">{t('admin.overview.applications', { count: a.pendingApplications })}</Link>
+                      <Link to="/admin/providers?status=submitted">{t('admin.overview.applications', { count: a.pendingApplications })}</Link>
                     </li>
                     <li>
                       <Link to="/admin/bookings?status=unassigned" className={a.unassigned ? 'warn' : ''}>

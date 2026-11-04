@@ -412,11 +412,133 @@ describe('pro app', () => {
   });
 });
 
+describe('admin navigation', () => {
+  const DESIGN = [
+    ['Overview', '/admin'],
+    ['Bookings', '/admin/bookings'],
+    ['Providers', '/admin/providers'],
+    ['Plans', '/admin/plans'],
+    ['Catalogue', '/admin/catalogue'],
+    ['Settings', '/admin/settings'],
+  ] as const;
+
+  function stubAdminPages(api: ReturnType<typeof fakeApi>) {
+    api.on('GET /admin/overview', {
+      body: {
+        days: 7,
+        kpis: { bookings: 0, completed: 0, grossCents: 0, payoutCents: 0, miskShareCents: 0, ratingAverage: null, ratingCount: 0 },
+        weekly: [],
+        attention: { pendingApplications: 0, unassigned: 0, unreleasedHolds: 0, failedPayouts: 0 },
+      },
+    });
+    api.on('GET /admin/bookings', { body: { bookings: [] } });
+    api.on('GET /admin/pros', { body: { pros: [] } });
+    api.on('GET /admin/plans', { body: { plans: [] } });
+    api.on('GET /admin/catalogue', { body: { categories: [], services: [] } });
+    api.on('GET /admin/settings', { body: { settings: { serviceFeeCents: 290, proSharePct: 82 } } });
+  }
+
+  it('shows exactly the design labels, spelled and ordered as in the design', async () => {
+    const api = fakeApi(users.admin);
+    stubAdminPages(api);
+    renderAt('/admin');
+    const nav = await screen.findByRole('navigation', { name: 'Control panel' });
+    const links = within(nav).getAllByRole('link');
+    expect(links.map((link) => link.textContent)).toEqual(DESIGN.map(([label]) => label));
+    expect(within(nav).queryAllByRole('button')).toEqual([]);
+  });
+
+  it('links each label to its page', async () => {
+    const api = fakeApi(users.admin);
+    stubAdminPages(api);
+    renderAt('/admin');
+    const nav = await screen.findByRole('navigation', { name: 'Control panel' });
+    for (const [label, path] of DESIGN) {
+      const link = within(nav).getByRole('link', { name: label });
+      expect(link).toHaveAttribute('href', path);
+      await user().click(link);
+      expect(await screen.findByRole('heading', { level: 1, name: label })).toBeInTheDocument();
+      expect(link).toHaveAttribute('aria-current', 'page');
+    }
+  });
+
+  it('keeps fees, areas and team under Settings, and sign out at the top', async () => {
+    const api = fakeApi(users.admin);
+    stubAdminPages(api);
+    api.on('GET /admin/postcodes', { body: { postcodes: [] } });
+    renderAt('/admin/areas');
+    expect(await screen.findByRole('heading', { level: 2, name: 'Areas' })).toBeInTheDocument();
+    const tabs = screen.getByRole('navigation', { name: 'Settings sections' });
+    expect(within(tabs).getAllByRole('link').map((l) => l.textContent)).toEqual(['Fees', 'Areas', 'Team']);
+    expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
+  });
+});
+
+describe('plan builder', () => {
+  it('builds a plan with a live preview, saves it and publishes it', async () => {
+    const api = fakeApi(users.admin);
+    api.on('GET /admin/catalogue', {
+      body: { categories: [{ id: 'cat-garden', slug: 'gardening', name: 'Gardening', icon: 'leaf', sortOrder: 0, active: true }], services: [] },
+    });
+    const saved = {
+      id: 'plan-1',
+      name: 'Weekly lawn care',
+      categoryId: 'cat-garden',
+      categoryName: 'Gardening',
+      categoryIcon: 'leaf',
+      priceCents: 4900,
+      frequency: 'weekly',
+      visitMinutes: 60,
+      tasks: ['Mow', 'Edge'],
+      addonName: null,
+      addonPriceCents: null,
+      seasonal: false,
+      seasonFrom: null,
+      seasonTo: null,
+      skipsPerMonth: 2,
+      minTermMonths: 3,
+      proSharePct: 70,
+      status: 'draft',
+      publishedAt: null,
+      updatedAt: '',
+    };
+    api.on('POST /admin/plans', { status: 201, body: { plan: saved } });
+    api.on('PUT /admin/plans/plan-1', { body: { plan: saved } });
+    api.on('GET /admin/plans/plan-1', { body: { plan: saved } });
+    api.on('POST /admin/plans/plan-1/status', { body: { plan: { ...saved, status: 'published' } } });
+    renderAt('/admin/plans/new');
+
+    const publish = await screen.findByRole('button', { name: 'Publish plan' });
+    expect(publish).toBeDisabled();
+    await user().type(screen.getByLabelText('Plan name'), 'Weekly lawn care');
+    await user().type(screen.getByLabelText('Monthly price (€)'), '49');
+    for (const task of ['Mow', 'Edge']) {
+      await user().type(screen.getByRole('textbox', { name: 'Add a task' }), `${task}{Enter}`);
+    }
+    const preview = screen.getByRole('complementary', { name: 'Live preview · customer app' });
+    expect(within(preview).getByText('Weekly lawn care')).toBeInTheDocument();
+    expect(within(preview).getByText('€49')).toBeInTheDocument();
+    expect(within(preview).getByText('Mow')).toBeInTheDocument();
+    expect(screen.getByText('Pro: €34.30/month per customer')).toBeInTheDocument();
+
+    await user().click(screen.getByRole('button', { name: 'Remove Edge' }));
+    expect(within(preview).queryByText('Edge')).not.toBeInTheDocument();
+    await user().type(screen.getByRole('textbox', { name: 'Add a task' }), 'Edge{Enter}');
+
+    await user().click(publish);
+    expect(await screen.findByRole('heading', { name: 'Plan published' })).toBeInTheDocument();
+    expect(api.bodies['POST /admin/plans']).toMatchObject({ name: 'Weekly lawn care', priceCents: 4900, tasks: ['Mow', 'Edge'], frequency: 'weekly' });
+    expect(api.bodies['POST /admin/plans/plan-1/status']).toEqual({ published: true });
+  });
+});
+
 describe('admin', () => {
   it('sends signed-out visitors to the admin sign-in', async () => {
     fakeApi(null);
     renderAt('/admin');
     expect(await screen.findByLabelText('Username or email')).toBeInTheDocument();
+    await user().click(screen.getByRole('link', { name: 'Sign up' }));
+    expect(await screen.findByRole('heading', { name: 'Create your account' })).toBeInTheDocument();
   });
 
   it('emails a reset link from the forgot-password form', async () => {
@@ -473,7 +595,7 @@ describe('admin', () => {
       },
     });
     api.on('POST /admin/team/u-elion/password', { status: 204 });
-    renderAt('/admin/team');
+    renderAt('/admin/settings/team');
     const row = (await screen.findByText('elion')).closest('li') as HTMLElement;
     await user().click(within(row).getByRole('button', { name: 'Set new password' }));
     const form = within(row).getByRole('form', { name: 'New password for elion' });
@@ -508,7 +630,7 @@ describe('admin', () => {
     };
     api.on('GET /admin/pros/u-pro', { body: { pro } });
     api.on('POST /admin/pros/u-pro/review', { body: { pro: { ...pro, status: 'approved' } } });
-    renderAt('/admin/pros/u-pro');
+    renderAt('/admin/providers/u-pro');
     expect(await screen.findByText('Missing')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Ask for changes' })).toBeDisabled();
     await user().click(screen.getByRole('button', { name: 'Approve' }));

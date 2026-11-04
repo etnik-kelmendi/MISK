@@ -61,7 +61,7 @@ export function AdminProsPage() {
                   {pros.map((p) => (
                     <tr key={p.id}>
                       <td>
-                        <Link to={`/admin/pros/${p.id}`} className="b">
+                        <Link to={`/admin/providers/${p.id}`} className="b">
                           {p.firstName ?? p.phone}
                         </Link>
                         {p.submittedAt && <span className="tiny muted block">{dateTime(p.submittedAt, timezone)}</span>}
@@ -115,7 +115,7 @@ export function AdminProPage() {
   return (
     <>
       <p>
-        <Link to="/admin/pros">{t('admin.pros.back')}</Link>
+        <Link to="/admin/providers">{t('admin.pros.back')}</Link>
       </p>
       <ResourceState state={state} reload={reload}>
         {({ pro }) => (

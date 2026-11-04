@@ -81,7 +81,12 @@
     "invalid_login": "The email or password is not right.",
     "invalid_email": "Please enter a valid email address",
     "weak_password": "The password needs at least 8 characters, a letter and a number.",
-    "terms_not_accepted": "Please accept the terms and conditions."
+    "terms_not_accepted": "Please accept the terms and conditions.",
+    "duplicate_task": "Each task can only be listed once.",
+    "addon_incomplete": "Give the extra both a name and a price, or leave both empty.",
+    "season_incomplete": "Choose the months the season runs.",
+    "already_published": "This plan is already live.",
+    "not_published": "This plan is not live."
   },
   "nav": {
     "customer": "Main menu",
@@ -435,11 +440,10 @@
       "label": "Control panel",
       "overview": "Overview",
       "bookings": "Bookings",
-      "pros": "Pros",
+      "providers": "Providers",
+      "plans": "Plans",
       "catalogue": "Catalogue",
-      "areas": "Areas",
-      "settings": "Settings",
-      "team": "Team"
+      "settings": "Settings"
     },
     "login": {
       "username": "Username",
@@ -452,7 +456,9 @@
       "forgotSend": "Email me a reset link",
       "forgotSent": "If an admin account matches and has an email address, a link is on its way. It works once, for 30 minutes. Check your spam folder too.",
       "forgotNoEmail": "No email on your account? Ask another admin to set a new password under Team, or whoever runs the server can use",
-      "identifier": "Username or email"
+      "identifier": "Username or email",
+      "noAccount": "Not on the MISK team? Customers and pros:",
+      "signUp": "Sign up"
     },
     "overview": {
       "title": "Overview",
@@ -527,9 +533,9 @@
       "payouts": "Payouts"
     },
     "pros": {
-      "title": "Pros",
+      "title": "Providers",
       "filter": "Show",
-      "none": "No pros here.",
+      "none": "No providers here.",
       "name": "Name",
       "trades": "Trades",
       "area": "Area",
@@ -541,7 +547,7 @@
       "status": "Status",
       "noPayouts": "Payouts not set up",
       "payoutsReady": "Set up",
-      "back": "All pros",
+      "back": "All providers",
       "phone": "Phone",
       "days": "Working days",
       "payouts": "Payouts",
@@ -609,7 +615,13 @@
       "feeHint": "Added to every booking and kept by MISK.",
       "share": "Pros earn {{pct}}% of the job price",
       "example": "Example: on a {{price}} job the pro gets {{pro}} and MISK keeps {{misk}} plus the service fee.",
-      "onlyNew": "Changes apply to new bookings only. Existing bookings keep the fee and share they were made with."
+      "onlyNew": "Changes apply to new bookings only. Existing bookings keep the fee and share they were made with.",
+      "tabs": {
+        "label": "Settings sections",
+        "fees": "Fees",
+        "areas": "Areas",
+        "team": "Team"
+      }
     },
     "team": {
       "title": "Team",
@@ -641,6 +653,70 @@
       "submit": "Save new password",
       "done": "Your password is changed, and you were signed out everywhere else. Sign in with the new password.",
       "back": "Back to sign-in"
+    },
+    "signedIn": "Signed in · {{name}}",
+    "plans": {
+      "title": "Plans",
+      "intro": "Monthly plans customers can subscribe to. Only published plans are shown in the app.",
+      "new": "New plan",
+      "none": "No plans yet.",
+      "status": "Status",
+      "state": {
+        "draft": "Draft",
+        "published": "Live"
+      },
+      "perMonth": "{{price}}/month",
+      "perMonthSuffix": "/month",
+      "frequency": {
+        "every_2_weeks": "Every 2 weeks",
+        "weekly": "1× a week",
+        "twice_weekly": "2× a week",
+        "three_times_weekly": "3× a week"
+      },
+      "fields": {
+        "name": "Plan name",
+        "category": "Category",
+        "price": "Monthly price (€)",
+        "frequency": "How often",
+        "visitMinutes": "Visit length (minutes)",
+        "minTermMonths": "Minimum term (months)",
+        "tasks": "Included tasks (pro ticks these off each visit)",
+        "addonName": "Optional extra",
+        "addonPrice": "Extra price (€ / month)",
+        "seasonal": "Seasonal plan",
+        "seasonFrom": "From",
+        "seasonTo": "To",
+        "skipsPerMonth": "Skips allowed per month",
+        "proSharePct": "Pro earns: {{pct}}% of the monthly price"
+      },
+      "priceHint": "Medium size. Small −15%, large +35%.",
+      "priceInvalid": "Enter an amount of at least €5, such as 49 or 49.50.",
+      "visitsHint": "≈ {{visits}} visits a month",
+      "visitHint": "Reserves the pro's time in their calendar",
+      "newTask": "Add a task",
+      "addTask": "Add",
+      "removeTask": "Remove {{task}}",
+      "tasksHint": "Add at least one task.",
+      "addonHint": "Leave empty for no extra.",
+      "seasonOn": "Runs {{from}} – {{to}}, pauses automatically outside it",
+      "seasonOff": "Runs all year",
+      "seasonShort": "Season {{from}} – {{to}}",
+      "rulesShort": "{{skips}} skips/month · min. {{months}} months",
+      "proEarns": "Pro: {{amount}}/month per customer",
+      "miskKeeps": "MISK: {{amount}}",
+      "preview": "Live preview · customer app",
+      "minutes": "{{minutes}} min",
+      "perVisit": "≈ {{price}} per visit",
+      "untitled": "Untitled plan",
+      "newTitle": "New subscription plan",
+      "editTitle": "Edit plan",
+      "publishedTitle": "Plan published",
+      "saveDraft": "Save draft",
+      "publish": "Publish plan",
+      "unpublish": "Unpublish",
+      "saved": "Draft saved.",
+      "liveNote": "Customers can subscribe now.",
+      "draftNote": "Changes appear in the app once you publish."
     }
   },
   "signUp": {
@@ -677,5 +753,19 @@
       "emailTaken": "An account with this email already exists",
       "mismatch": "Passwords do not match"
     }
+  },
+  "month": {
+    "1": "Jan",
+    "2": "Feb",
+    "3": "Mar",
+    "4": "Apr",
+    "5": "May",
+    "6": "Jun",
+    "7": "Jul",
+    "8": "Aug",
+    "9": "Sep",
+    "10": "Oct",
+    "11": "Nov",
+    "12": "Dec"
   }
 }
