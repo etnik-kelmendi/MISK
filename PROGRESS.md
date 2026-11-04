@@ -36,7 +36,6 @@ pie showData
 | 2026-11-04 | M02, M04–M12 | 4 | API built. Loop 2: Postgres could not type a `CASE` parameter in session expiry; cast added. Loop 3: lint banned non-null assertions; `onlyRow` helper added. Loop 4: fake payment state leaked between tests; reset added. 63 API tests pass. |
 | 2026-11-04 | M03 | 2 | Web app built. Loop 2: typed translation keys caught two untyped status lookups; ARIA lint mistook a `role` prop; both fixed. 18 component tests pass. |
 | 2026-11-04 | M13 | 6 | Browser story: customer books and pays, pro accepts, asks for extra work, adds a photo, completes; customer approves and rates; admin sees the money. axe checks on every screen. Fixed along the way: two real accessibility faults (low-contrast weekday label, `aria-label` on a plain `span` for star ratings) and three ambiguous test locators. 4 of 4 stories pass. |
-
 | 2026-11-04 | Admin menu, plan builder | 1 | Menu now matches the design: Overview, Bookings, Providers, Plans, Catalogue, Settings. Areas and Team moved into Settings; sign-out to a top bar. Plan builder (Phase 2 first step) with live preview, drafts and publishing. |
 
 ## Next
