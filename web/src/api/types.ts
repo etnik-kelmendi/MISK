@@ -265,6 +265,10 @@ export interface AdminAccount {
   id: string;
   username: string;
   email: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  /** Asked for an account on the control panel and not yet approved. */
+  pending: boolean;
   createdAt: string;
   disabled: boolean;
 }

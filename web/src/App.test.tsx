@@ -685,6 +685,72 @@ describe('admin', () => {
     expect(await screen.findByRole('navigation', { name: 'Control panel' })).toBeInTheDocument();
   });
 
+  it('lets new team members request an admin account from the sign-in page', async () => {
+    const api = fakeApi(null);
+    api.on('POST /auth/admin/register', { status: 201, body: { status: 'pending_approval' } });
+    renderAt('/admin/login');
+    await user().click(await screen.findByRole('link', { name: 'Request an account' }));
+    expect(await screen.findByRole('heading', { name: 'Request an admin account' })).toBeInTheDocument();
+
+    const submit = screen.getByRole('button', { name: 'Request account' });
+    expect(submit).toBeDisabled();
+    await user().type(screen.getByLabelText(/^First name/), 'Lina');
+    await user().type(screen.getByLabelText(/^Last name/), 'Hoxha');
+    await user().type(screen.getByLabelText(/^Work email address/), 'lina@misk.test');
+    await user().type(screen.getByLabelText(/^Password/), 'short');
+    await user().type(screen.getByLabelText(/^Confirm password/), 'short');
+    await user().click(submit);
+    expect(screen.getByText('The password needs at least 12 characters.')).toBeInTheDocument();
+    expect(api.calls).not.toContain('POST /auth/admin/register');
+
+    await user().clear(screen.getByLabelText(/^Password/));
+    await user().type(screen.getByLabelText(/^Password/), 'a long new admin password');
+    await user().clear(screen.getByLabelText(/^Confirm password/));
+    await user().type(screen.getByLabelText(/^Confirm password/), 'a long new admin password');
+    await user().click(submit);
+    expect(await screen.findByRole('status')).toHaveTextContent('Your request is with the MISK team');
+    expect(api.bodies['POST /auth/admin/register']).toEqual({
+      firstName: 'Lina',
+      lastName: 'Hoxha',
+      email: 'lina@misk.test',
+      password: 'a long new admin password',
+    });
+  });
+
+  it('says when a requested account is still waiting for approval', async () => {
+    const api = fakeApi(null);
+    api.on('POST /auth/admin/login', { status: 403, body: { error: 'pending_approval' } });
+    renderAt('/admin/login');
+    await user().type(await screen.findByLabelText('Username or email'), 'lina@misk.test');
+    await user().type(screen.getByLabelText('Password'), 'a long new admin password');
+    await user().click(screen.getByRole('button', { name: 'Sign in' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('waiting for an admin to approve it');
+  });
+
+  it('lets an admin approve an account request on the Team page', async () => {
+    const api = fakeApi(users.admin);
+    const lina = { id: 'u-lina', username: 'lina@misk.test', email: 'lina@misk.test', firstName: 'Lina', lastName: 'Hoxha', createdAt: '', disabled: false, pending: true };
+    let approved = false;
+    api.on('GET /admin/team', () => ({
+      body: {
+        admins: [
+          { id: 'u-admin', username: 'admin', email: null, firstName: null, lastName: null, createdAt: '', disabled: false, pending: false },
+          { ...lina, pending: !approved },
+        ],
+      },
+    }));
+    api.on('POST /admin/team/u-lina/approve', () => {
+      approved = true;
+      return { body: { approved: true } };
+    });
+    renderAt('/admin/settings/team');
+    const requests = await screen.findByRole('region', { name: '1 account request' });
+    expect(within(requests).getByText('Lina Hoxha')).toBeInTheDocument();
+    await user().click(within(requests).getByRole('button', { name: 'Approve' }));
+    expect(await screen.findByText('lina@misk.test can sign in now.')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('region', { name: /account request/ })).not.toBeInTheDocument());
+  });
+
   it('emails a reset link from the forgot-password form', async () => {
     const api = fakeApi(null);
     api.on('POST /auth/admin/forgot', { status: 202, body: {} });

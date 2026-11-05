@@ -23,7 +23,7 @@ export function passwordChecks(password: string) {
   };
 }
 
-function Field({
+export function Field({
   id,
   label,
   error,
@@ -58,7 +58,7 @@ function Field({
 }
 
 /** A password input with a show/hide button. */
-function PasswordInput({
+export function PasswordInput({
   id,
   value,
   onChange,

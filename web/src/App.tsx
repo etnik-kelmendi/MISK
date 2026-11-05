@@ -11,6 +11,7 @@ import { AccountPage } from './pages/AccountPage';
 import { AdminBookingPage } from './pages/admin/AdminBookingPage';
 import { AdminBookingsPage } from './pages/admin/AdminBookingsPage';
 import { AdminLoginPage } from './pages/admin/AdminLoginPage';
+import { AdminSignUpPage } from './pages/admin/AdminSignUpPage';
 import { AdminProPage, AdminProsPage } from './pages/admin/AdminProsPage';
 import { AreasPage } from './pages/admin/AreasPage';
 import { CataloguePage } from './pages/admin/CataloguePage';
@@ -89,6 +90,7 @@ function AdminRoutes() {
     <Routes>
       <Route path="/" element={<Navigate to="/admin" replace />} />
       <Route path="/admin/login" element={<AdminLoginPage />} />
+      <Route path="/admin/signup" element={<AdminSignUpPage />} />
       <Route path="/admin/reset-password" element={<ResetPasswordPage />} />
       <Route
         path="admin"

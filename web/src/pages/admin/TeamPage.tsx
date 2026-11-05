@@ -167,6 +167,48 @@ function EmailForm({ admin, onSaved, onCancel }: { admin: AdminAccount; onSaved:
   );
 }
 
+function PendingRequests({ admins, onDone }: { admins: AdminAccount[]; onDone: (notice: string) => void }) {
+  const { t } = useTranslation();
+  const api = useApi();
+  const { run, busy, error } = useAction();
+  if (admins.length === 0) {
+    return null;
+  }
+
+  async function decide(admin: AdminAccount, decision: 'approve' | 'decline') {
+    const done = await run(() => api.post(`/admin/team/${admin.id}/${decision}`).then(() => true));
+    if (done) {
+      onDone(t(`admin.team.requests.${decision}d`, { name: admin.email ?? admin.username }));
+    }
+  }
+
+  return (
+    <section className="panel" aria-labelledby="requests-heading">
+      <h2 id="requests-heading">{t('admin.team.requests.title', { count: admins.length })}</h2>
+      <p className="small muted">{t('admin.team.requests.intro')}</p>
+      <ul className="history">
+        {admins.map((admin) => (
+          <li key={admin.id} className="row between wrap">
+            <span>
+              <span className="b">{[admin.firstName, admin.lastName].filter(Boolean).join(' ')}</span>
+              <span className="small muted block">{admin.email}</span>
+            </span>
+            <span className="row gap8">
+              <button type="button" className="abtn ghost" disabled={busy} onClick={() => void decide(admin, 'decline')}>
+                {t('admin.team.requests.decline')}
+              </button>
+              <button type="button" className="abtn" disabled={busy} onClick={() => void decide(admin, 'approve')}>
+                {t('admin.team.requests.approve')}
+              </button>
+            </span>
+          </li>
+        ))}
+      </ul>
+      <ErrorText error={error} />
+    </section>
+  );
+}
+
 export function TeamPage() {
   const { t } = useTranslation();
   const api = useApi();
@@ -187,7 +229,17 @@ export function TeamPage() {
         </p>
       )}
       <ResourceState state={state} reload={reload}>
-        {({ admins }) => (
+        {({ admins: everyone }) => {
+          const admins = everyone.filter((admin) => !admin.pending);
+          return (
+          <>
+          <PendingRequests
+            admins={everyone.filter((admin) => admin.pending)}
+            onDone={(message) => {
+              setNotice(message);
+              reload();
+            }}
+          />
           <section className="panel" aria-labelledby="admins-heading">
             <h2 id="admins-heading">{t('admin.team.admins')}</h2>
             <ul className="history">
@@ -248,7 +300,9 @@ export function TeamPage() {
               ))}
             </ul>
           </section>
-        )}
+          </>
+          );
+        }}
       </ResourceState>
       <AddAdminForm
         onAdded={() => {

@@ -139,7 +139,7 @@ export async function authRoutes(app: FastifyInstance, ctx: AppContext) {
       const result = await adminLogin(pool, { ...request.body, ip: request.ip });
       if (result.outcome !== 'success') {
         request.log.warn({ event: 'admin_login_rejected', reason: result.outcome });
-        return reply.code(401).send({ error: result.outcome });
+        return reply.code(result.outcome === 'pending_approval' ? 403 : 401).send({ error: result.outcome });
       }
       await startSession(request, reply, result.token);
       request.log.info({ event: 'admin_login_succeeded', userId: result.user.id });

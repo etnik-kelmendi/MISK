@@ -137,6 +137,27 @@ test.describe.serial('MISK marketplace', () => {
     await context.close();
   });
 
+  test('a new team member requests an admin account on the control panel', async ({ browser }) => {
+    const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, baseURL: 'http://localhost:4174' });
+    const page = await context.newPage();
+    await page.goto('/admin/login');
+    await page.getByRole('link', { name: 'Request an account' }).click();
+    await page.getByLabel(/^First name/).fill('Lina');
+    await page.getByLabel(/^Last name/).fill('Hoxha');
+    await page.getByLabel(/^Work email address/).fill('lina@misk.test');
+    await page.getByLabel(/^Password/).fill('a long new admin password');
+    await page.getByLabel(/^Confirm password/).fill('a long new admin password');
+    await expectAccessible(page);
+    await page.getByRole('button', { name: 'Request account' }).click();
+    await expect(page.getByRole('status')).toContainText('Your request is with the MISK team');
+    await page.goto('/admin/login');
+    await page.getByLabel('Username or email').fill('lina@misk.test');
+    await page.getByLabel('Password').fill('a long new admin password');
+    await page.getByRole('button', { name: 'Sign in' }).click();
+    await expect(page.getByRole('alert')).toContainText('waiting for an admin to approve it');
+    await context.close();
+  });
+
   test('the MISK team sees the job and the money on the overview', async ({ browser }) => {
     // The control panel is its own website, with its own login.
     const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, baseURL: 'http://localhost:4174' });

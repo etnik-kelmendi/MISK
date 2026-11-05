@@ -4,6 +4,7 @@ import multipart from '@fastify/multipart';
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
 import type { Pool } from 'pg';
 import { adminAccountRoutes } from './auth/admin-accounts.js';
+import { adminRequestRoutes } from './auth/admin-requests.js';
 import { emailAccountRoutes } from './auth/email-accounts.js';
 import { createGuards } from './auth/guard.js';
 import type { CodeDelivery } from './auth/phone-sign-in.js';
@@ -140,6 +141,7 @@ export async function buildApp({ config, pool, gateway, sms, email = null, stora
     authRoutes,
     emailAccountRoutes,
     adminAccountRoutes,
+    adminRequestRoutes,
     catalogueRoutes,
     planRoutes,
     proRoutes,

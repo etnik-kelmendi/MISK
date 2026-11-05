@@ -86,7 +86,9 @@
     "addon_incomplete": "Give the extra both a name and a price, or leave both empty.",
     "season_incomplete": "Choose the months the season runs.",
     "already_published": "This plan is already live.",
-    "not_published": "This plan is not live."
+    "not_published": "This plan is not live.",
+    "pending_approval": "Your account is waiting for an admin to approve it. You can sign in once it is approved.",
+    "not_pending": "This request was already answered."
   },
   "nav": {
     "customer": "Main menu",
@@ -456,7 +458,9 @@
       "forgotSend": "Email me a reset link",
       "forgotSent": "If an admin account matches and has an email address, a link is on its way. It works once, for 30 minutes. Check your spam folder too.",
       "forgotNoEmail": "No email on your account? Ask another admin to set a new password under Team, or whoever runs the server can use",
-      "identifier": "Username or email"
+      "identifier": "Username or email",
+      "newToTeam": "New to the MISK team?",
+      "requestAccount": "Request an account"
     },
     "overview": {
       "title": "Overview",
@@ -644,7 +648,16 @@
       "noEmail": "No recovery email",
       "editEmail": "Change email",
       "saveEmail": "Save email",
-      "emailSaved": "Recovery email saved for {{name}}."
+      "emailSaved": "Recovery email saved for {{name}}.",
+      "requests": {
+        "title_one": "{{count}} account request",
+        "title_other": "{{count}} account requests",
+        "intro": "These people asked for an admin account. They cannot sign in until you approve them. Only approve people you know.",
+        "approve": "Approve",
+        "decline": "Decline",
+        "approved": "{{name}} can sign in now.",
+        "declined": "Request from {{name}} declined."
+      }
     },
     "reset": {
       "title": "Choose a new password",
@@ -729,6 +742,15 @@
       },
       "addonPriceNeeded": "Enter a monthly price for the extra, or clear its name.",
       "addonPriceInvalid": "Enter an amount such as 15 or 14.50."
+    },
+    "signUp": {
+      "title": "Request an admin account",
+      "intro": "An admin of the MISK team approves every new account before it can sign in.",
+      "email": "Work email address",
+      "passwordShort": "The password needs at least {{min}} characters.",
+      "submit": "Request account",
+      "sent": "Thanks! Your request is with the MISK team. You can sign in once an admin approves it; they have been told by email.",
+      "toLogin": "Back to sign-in"
     }
   },
   "signUp": {

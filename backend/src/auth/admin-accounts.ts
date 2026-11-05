@@ -18,7 +18,8 @@ const emailProperty = { type: 'string', minLength: 3, maxLength: 254, pattern: '
 export const RESET_LINK_MINUTES = 30;
 export const MAX_RESETS_PER_ACCOUNT = 3;
 export const MAX_RESETS_PER_IP = 10;
-const TEAM_COLUMNS = `id, username, email, created_at AS "createdAt", disabled_at IS NOT NULL AS disabled`;
+const TEAM_COLUMNS = `id, username, email, first_name AS "firstName", last_name AS "lastName", created_at AS "createdAt",
+  disabled_at IS NOT NULL AS disabled, (admin_requested_at IS NOT NULL AND admin_approved_at IS NULL) AS pending`;
 
 export const normalizeEmail = (email: string) => email.trim().toLowerCase();
 
@@ -202,7 +203,8 @@ export async function adminAccountRoutes(app: FastifyInstance, ctx: AppContext) 
       }
       const found = await pool.query<{ id: string; username: string; email: string }>(
         `SELECT id, username, email FROM users
-         WHERE role = 'admin' AND disabled_at IS NULL AND email IS NOT NULL AND (username = $1 OR email = $1)`,
+         WHERE role = 'admin' AND disabled_at IS NULL AND email IS NOT NULL AND (username = $1 OR email = $1)
+           AND (admin_requested_at IS NULL OR admin_approved_at IS NOT NULL)`,
         [identifier],
       );
       const admin = found.rows[0];
