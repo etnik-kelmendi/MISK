@@ -617,6 +617,42 @@ describe('plan page', () => {
     expect(screen.getByText('Runs May – Oct, pauses automatically outside it')).toBeInTheDocument();
   });
 
+  it('says what is missing before the plan can be saved', async () => {
+    openNewPlan();
+    const save = await screen.findByRole('button', { name: 'Save draft' });
+    expect(save).toBeDisabled();
+    expect(screen.getByText('To save or publish, add: a plan name, a monthly price of at least €5, at least one task.')).toBeInTheDocument();
+    await user().type(screen.getByLabelText('Plan name'), 'Lawn care');
+    await user().type(screen.getByLabelText('Monthly price (€)'), '49');
+    expect(screen.getByText('To save or publish, add: at least one task.')).toBeInTheDocument();
+    await user().type(screen.getByRole('textbox', { name: 'Add a task' }), 'Mow{Enter}');
+    expect(screen.queryByText(/To save or publish/)).not.toBeInTheDocument();
+    expect(save).toBeEnabled();
+  });
+
+  it('keeps the extra optional, but needs a price once it has a name', async () => {
+    openNewPlan();
+    await user().type(await screen.findByLabelText('Plan name'), 'Lawn care');
+    await user().type(screen.getByLabelText('Monthly price (€)'), '49');
+    await user().type(screen.getByRole('textbox', { name: 'Add a task' }), 'Mow{Enter}');
+    const extraPrice = screen.getByLabelText('Extra price (€ / month)');
+    expect(extraPrice).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Save draft' })).toBeEnabled();
+
+    await user().type(screen.getByLabelText('Optional extra'), 'Hedge trimming');
+    expect(extraPrice).toBeEnabled();
+    expect(screen.getByText('Enter a monthly price for the extra, or clear its name.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save draft' })).toBeDisabled();
+    await user().type(extraPrice, 'abc');
+    expect(screen.getByText('Enter an amount such as 15 or 14.50.')).toBeInTheDocument();
+    await user().clear(extraPrice);
+    await user().type(extraPrice, '15');
+    expect(screen.getByRole('button', { name: 'Save draft' })).toBeEnabled();
+
+    await user().clear(screen.getByLabelText('Optional extra'));
+    expect(screen.getByRole('button', { name: 'Save draft' })).toBeEnabled();
+  });
+
   it('shows the optional extra and what the pro earns in the preview', async () => {
     openNewPlan();
     await user().type(await screen.findByLabelText('Monthly price (€)'), '49');

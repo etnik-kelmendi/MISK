@@ -720,7 +720,17 @@
       "newTaskPlaceholder": "Add task + Enter",
       "taskDuplicate": "\"{{task}}\" is already in the list.",
       "taskLimit": "A plan can include at most 12 tasks.",
-      "subscribe": "Subscribe"
+      "subscribe": "Subscribe",
+      "missing": {
+        "intro": "To save or publish, add: {{items}}.",
+        "name": "a plan name",
+        "category": "a category",
+        "price": "a monthly price of at least €5",
+        "tasks": "at least one task",
+        "addonPrice": "a price for the extra"
+      },
+      "addonPriceNeeded": "Enter a monthly price for the extra, or clear its name.",
+      "addonPriceInvalid": "Enter an amount such as 15 or 14.50."
     }
   },
   "signUp": {

@@ -156,7 +156,15 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
   const visits = VISITS_PER_MONTH[draft.frequency];
   const proCents = priceCents === null ? 0 : Math.floor((priceCents * draft.proSharePct) / 100);
   const category = categories.find((c) => c.id === draft.categoryId);
-  const valid = draft.name.trim() !== '' && priceCents !== null && priceCents >= 500 && draft.tasks.length > 0 && !addonInvalid && Boolean(category);
+  // What still stops the plan from being saved, in the order the fields appear.
+  const missing = [
+    draft.name.trim() === '' && t('admin.plans.missing.name'),
+    !category && t('admin.plans.missing.category'),
+    (priceCents === null || priceCents < 500) && t('admin.plans.missing.price'),
+    draft.tasks.length === 0 && t('admin.plans.missing.tasks'),
+    addonInvalid && t('admin.plans.missing.addonPrice'),
+  ].filter((item): item is string => Boolean(item));
+  const valid = missing.length === 0;
 
   function addTask() {
     const task = draft.newTask.trim();
@@ -276,6 +284,11 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
           {t('admin.plans.saved')}
         </p>
       )}
+      {!valid && (
+        <p className="small muted" id="plan-missing">
+          {t('admin.plans.missing.intro', { items: missing.join(', ') })}
+        </p>
+      )}
       <ErrorText error={save.error ?? publish.error} />
 
       <div className="builder">
@@ -382,7 +395,11 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
               value={draft.addonPrice}
               onChange={(e) => set('addonPrice', e.target.value)}
             />
-            {addonInvalid && draft.addonPrice !== '' && <span className="error-text">{t('admin.plans.priceInvalid')}</span>}
+            {addonInvalid && (
+              <span className="error-text">
+                {draft.addonPrice === '' ? t('admin.plans.addonPriceNeeded') : t('admin.plans.addonPriceInvalid')}
+              </span>
+            )}
           </div>
 
           <div className="af">
