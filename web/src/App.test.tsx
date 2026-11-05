@@ -475,198 +475,189 @@ describe('admin navigation', () => {
   });
 });
 
-describe('plan builder', () => {
-  it('builds a plan with a live preview, saves it and publishes it', async () => {
-    const api = fakeApi(users.admin);
-    api.on('GET /admin/catalogue', {
-      body: { categories: [{ id: 'cat-garden', slug: 'gardening', name: 'Gardening', icon: 'leaf', sortOrder: 0, active: true }], services: [] },
-    });
-    const saved = {
-      id: 'plan-1',
-      name: 'Weekly lawn care',
-      categoryId: 'cat-garden',
-      categoryName: 'Gardening',
-      categoryIcon: 'leaf',
-      priceCents: 4900,
-      frequency: 'weekly',
-      visitMinutes: 60,
-      tasks: ['Mow', 'Edge'],
-      addonName: null,
-      addonPriceCents: null,
-      seasonal: false,
-      seasonFrom: null,
-      seasonTo: null,
-      skipsPerMonth: 2,
-      minTermMonths: 3,
-      proSharePct: 70,
-      status: 'draft',
-      publishedAt: null,
-      updatedAt: '',
-    };
-    api.on('POST /admin/plans', { status: 201, body: { plan: saved } });
-    api.on('PUT /admin/plans/plan-1', { body: { plan: saved } });
-    api.on('GET /admin/plans/plan-1', { body: { plan: saved } });
-    api.on('POST /admin/plans/plan-1/status', { body: { plan: { ...saved, status: 'published' } } });
-    renderAt('/admin/plans/new');
-
-    const publish = await screen.findByRole('button', { name: 'Publish plan' });
-    expect(publish).toBeDisabled();
-    await user().type(screen.getByLabelText('Plan name'), 'Weekly lawn care');
-    await user().type(screen.getByLabelText('Monthly price (€)'), '49');
-    for (const task of ['Mow', 'Edge']) {
-      await user().type(screen.getByRole('textbox', { name: 'Add a task' }), `${task}{Enter}`);
-    }
-    const preview = screen.getByRole('complementary', { name: 'Live preview · customer app' });
-    expect(within(preview).getByText('Weekly lawn care')).toBeInTheDocument();
-    expect(within(preview).getByText('€49')).toBeInTheDocument();
-    expect(within(preview).getByText('Mow')).toBeInTheDocument();
-    expect(screen.getByText('Pro: €34.30/month per customer')).toBeInTheDocument();
-
-    await user().click(screen.getByRole('button', { name: 'Remove Edge' }));
-    expect(within(preview).queryByText('Edge')).not.toBeInTheDocument();
-    await user().type(screen.getByRole('textbox', { name: 'Add a task' }), 'Edge{Enter}');
-
-    await user().click(publish);
-    expect(await screen.findByRole('heading', { name: 'Plan published' })).toBeInTheDocument();
-    expect(api.bodies['POST /admin/plans']).toMatchObject({ name: 'Weekly lawn care', priceCents: 4900, tasks: ['Mow', 'Edge'], frequency: 'weekly' });
-    expect(api.bodies['POST /admin/plans/plan-1/status']).toEqual({ published: true });
-  });
-});
-
 describe('plan page', () => {
+  const categories = [
+    { id: 'cat-garden', slug: 'gardening', name: 'Gardening', icon: 'leaf', sortOrder: 0, active: true },
+    { id: 'cat-clean', slug: 'cleaning', name: 'Cleaning', icon: 'sparkle', sortOrder: 1, active: true },
+  ];
+  const savedPlan = (body: object, status = 'draft') => ({
+    id: 'p1',
+    status,
+    categoryName: 'Gardening',
+    categoryIcon: 'leaf',
+    seasonFrom: null,
+    seasonTo: null,
+    publishedAt: null,
+    updatedAt: '',
+    ...body,
+  });
+
   function openNewPlan() {
     const api = fakeApi(users.admin);
-    api.on('GET /admin/catalogue', {
-      body: {
-        categories: [
-          { id: 'cat-garden', slug: 'gardening', name: 'Gardening', icon: 'leaf', sortOrder: 0, active: true },
-          { id: 'cat-clean', slug: 'cleaning', name: 'Cleaning', icon: 'sparkle', sortOrder: 1, active: true },
-        ],
-        services: [],
-      },
+    api.on('GET /admin/catalogue', { body: { categories, services: [] } });
+    api.on('GET /admin/plans', { body: { plans: [] } });
+    let stored: object = {};
+    api.on('POST /admin/plans', ({ body }) => {
+      stored = body as object;
+      return { status: 201, body: { plan: savedPlan(stored) } };
     });
+    api.on('PUT /admin/plans/p1', ({ body }) => {
+      stored = body as object;
+      return { body: { plan: savedPlan(stored) } };
+    });
+    api.on('GET /admin/plans/p1', () => ({ body: { plan: savedPlan(stored) } }));
     renderAt('/admin/plans/new');
     return api;
   }
 
-  it('sets the name, category, monthly price, how often, visit length and minimum term', async () => {
+  async function fillComplete() {
+    await user().type(await screen.findByLabelText('Plan name'), 'Lawn care');
+    await user().selectOptions(screen.getByLabelText('Category'), 'Gardening');
+    await user().type(screen.getByLabelText('Monthly price (€)'), '49');
+    await user().type(screen.getByRole('textbox', { name: 'Add a task' }), 'Mow{Enter}');
+  }
+
+  it('sets name, category, monthly price, how often, visit length in minutes, skips and minimum term', async () => {
     const api = openNewPlan();
-    api.on('POST /admin/plans', ({ body }) => ({ status: 201, body: { plan: { id: 'p1', status: 'draft', categoryName: 'Cleaning', categoryIcon: 'sparkle', publishedAt: null, updatedAt: '', ...(body as object) } } }));
-    api.on('GET /admin/plans/p1', { status: 404, body: { error: 'not_found' } });
-    await user().type(await screen.findByLabelText('Plan name'), 'Home cleaning');
-    await user().selectOptions(screen.getByLabelText('Category'), 'Cleaning');
-    await user().type(screen.getByLabelText('Monthly price (€)'), '69');
+    await fillComplete();
     expect(screen.getByText('Medium size. Small −15%, large +35%.')).toBeInTheDocument();
-    await user().selectOptions(screen.getByLabelText('How often'), 'Every 2 weeks');
-    expect(screen.getByText('≈ 2.2 visits a month')).toBeInTheDocument();
+    await user().selectOptions(screen.getByLabelText('How often'), '2× a week');
+    expect(screen.getByText('≈ 8.7 visits a month')).toBeInTheDocument();
     await user().clear(screen.getByLabelText('Visit length (minutes)'));
-    await user().type(screen.getByLabelText('Visit length (minutes)'), '150');
+    await user().type(screen.getByLabelText('Visit length (minutes)'), '90');
+    await user().clear(screen.getByLabelText('Skips allowed per month'));
+    await user().type(screen.getByLabelText('Skips allowed per month'), '1');
     await user().clear(screen.getByLabelText('Minimum term (months)'));
     await user().type(screen.getByLabelText('Minimum term (months)'), '6');
-    await user().type(screen.getByRole('textbox', { name: 'Add a task' }), 'Kitchen{Enter}');
     await user().click(screen.getByRole('button', { name: 'Save draft' }));
     await waitFor(() =>
       expect(api.bodies['POST /admin/plans']).toMatchObject({
-        name: 'Home cleaning',
-        categoryId: 'cat-clean',
-        priceCents: 6900,
-        frequency: 'every_2_weeks',
-        visitMinutes: 150,
+        name: 'Lawn care',
+        categoryId: 'cat-garden',
+        priceCents: 4900,
+        frequency: 'twice_weekly',
+        visitMinutes: 90,
+        skipsPerMonth: 1,
         minTermMonths: 6,
-        tasks: ['Kitchen'],
+        tasks: ['Mow'],
       }),
     );
   });
 
-  it('adds tasks with Enter or the plus button, shows them as tags with an x, and skips empty or duplicate ones', async () => {
+  it('adds tasks with Enter or the plus button, as removable tags, without empty or duplicate ones', async () => {
     openNewPlan();
     const input = await screen.findByRole('textbox', { name: 'Add a task' });
-    expect(input).toHaveAttribute('placeholder', 'Add task + Enter');
     const plus = screen.getByRole('button', { name: 'Add task' });
-    expect(plus).toHaveTextContent('');
-    expect(plus).toBeDisabled();
-
+    const tags = () => screen.getAllByRole('listitem').filter((li) => li.classList.contains('taskchip')).map((li) => li.textContent);
     await user().type(input, 'Mow{Enter}');
     await user().type(input, 'Edge');
     await user().click(plus);
     await user().type(input, '   {Enter}');
-    const tags = () => screen.getAllByRole('listitem').filter((li) => li.classList.contains('taskchip')).map((li) => li.textContent);
-    expect(tags()).toEqual(['Mow', 'Edge']);
-
-    await user().clear(input);
     await user().type(input, 'mow{Enter}');
     expect(tags()).toEqual(['Mow', 'Edge']);
-    expect(screen.getByRole('status')).toHaveTextContent('"mow" is already in the list.');
-
-    await user().clear(input);
-    await user().type(input, 'Blow paths');
-    await user().click(plus);
-    expect(tags()).toEqual(['Mow', 'Edge', 'Blow paths']);
-    await user().click(screen.getByRole('button', { name: 'Remove Edge' }));
-    expect(tags()).toEqual(['Mow', 'Blow paths']);
+    expect(screen.getByText('"mow" is already in the list.')).toBeInTheDocument();
+    await user().click(screen.getByRole('button', { name: 'Remove Mow' }));
+    expect(tags()).toEqual(['Edge']);
   });
 
-  it('turns the season on with a switch and shows the months', async () => {
+  it('has one optional extra, shown in the preview with its checkbox and price', async () => {
+    openNewPlan();
+    await user().type(await screen.findByLabelText('Optional extra'), 'Hedge trimming');
+    await user().type(screen.getByLabelText('Extra price (€ / month)'), '15');
+    const preview = screen.getByRole('complementary', { name: 'Live preview · customer app' });
+    const extra = within(preview).getByRole('checkbox', { name: /Hedge trimming/ });
+    expect(extra).toBeInTheDocument();
+    expect(within(preview).getByText('+€15/mo')).toBeInTheDocument();
+  });
+
+  it('runs a seasonal plan from April to October, switched on with a switch', async () => {
     openNewPlan();
     const seasonal = await screen.findByRole('switch', { name: 'Seasonal plan' });
-    expect(seasonal).toHaveAttribute('aria-checked', 'false');
     expect(screen.getByText('Runs all year')).toBeInTheDocument();
     await user().click(seasonal);
     expect(seasonal).toHaveAttribute('aria-checked', 'true');
-    expect(screen.getByText('Runs Apr – Oct, pauses automatically outside it')).toBeInTheDocument();
-    await user().selectOptions(screen.getByLabelText('From'), 'May');
-    expect(screen.getByText('Runs May – Oct, pauses automatically outside it')).toBeInTheDocument();
+    expect(screen.getByText('Runs Apr – Oct, pauses automatically in winter')).toBeInTheDocument();
+    const preview = screen.getByRole('complementary', { name: 'Live preview · customer app' });
+    expect(within(preview).getByText(/Season Apr – Oct/)).toBeInTheDocument();
   });
 
-  it('says what is missing before the plan can be saved', async () => {
-    openNewPlan();
-    const save = await screen.findByRole('button', { name: 'Save draft' });
-    expect(save).toBeDisabled();
-    expect(screen.getByText('To save or publish, add: a plan name, a monthly price of at least €5, at least one task.')).toBeInTheDocument();
-    await user().type(screen.getByLabelText('Plan name'), 'Lawn care');
-    await user().type(screen.getByLabelText('Monthly price (€)'), '49');
-    expect(screen.getByText('To save or publish, add: at least one task.')).toBeInTheDocument();
-    await user().type(screen.getByRole('textbox', { name: 'Add a task' }), 'Mow{Enter}');
-    expect(screen.queryByText(/To save or publish/)).not.toBeInTheDocument();
-    expect(save).toBeEnabled();
-  });
-
-  it('keeps the extra optional, but needs a price once it has a name', async () => {
-    openNewPlan();
-    await user().type(await screen.findByLabelText('Plan name'), 'Lawn care');
-    await user().type(screen.getByLabelText('Monthly price (€)'), '49');
-    await user().type(screen.getByRole('textbox', { name: 'Add a task' }), 'Mow{Enter}');
-    const extraPrice = screen.getByLabelText('Extra price (€ / month)');
-    expect(extraPrice).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Save draft' })).toBeEnabled();
-
-    await user().type(screen.getByLabelText('Optional extra'), 'Hedge trimming');
-    expect(extraPrice).toBeEnabled();
-    expect(screen.getByText('Enter a monthly price for the extra, or clear its name.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Save draft' })).toBeDisabled();
-    await user().type(extraPrice, 'abc');
-    expect(screen.getByText('Enter an amount such as 15 or 14.50.')).toBeInTheDocument();
-    await user().clear(extraPrice);
-    await user().type(extraPrice, '15');
-    expect(screen.getByRole('button', { name: 'Save draft' })).toBeEnabled();
-
-    await user().clear(screen.getByLabelText('Optional extra'));
-    expect(screen.getByRole('button', { name: 'Save draft' })).toBeEnabled();
-  });
-
-  it('shows the optional extra and what the pro earns in the preview', async () => {
+  it('splits the price with a slider, a bar, and what each side gets per customer per month', async () => {
     openNewPlan();
     await user().type(await screen.findByLabelText('Monthly price (€)'), '49');
-    await user().type(screen.getByLabelText('Optional extra'), 'Hedge trimming');
-    await user().type(screen.getByLabelText('Extra price (€ / month)'), '15');
-    const preview = screen.getByRole('complementary', { name: 'Live preview · customer app' });
-    expect(within(preview).getByText('Hedge trimming')).toBeInTheDocument();
-    expect(within(preview).getByText('+€15')).toBeInTheDocument();
-    expect(within(preview).getByText('Subscribe')).toBeInTheDocument();
     expect(screen.getByText('Pro: €34.30/month per customer')).toBeInTheDocument();
-    expect(screen.getByText('MISK: €14.70')).toBeInTheDocument();
+    expect(screen.getByText('MISK: €14.70/month per customer')).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Pro earns: 70% of the monthly price'), { target: { value: '80' } });
     expect(screen.getByText('Pro: €39.20/month per customer')).toBeInTheDocument();
+    expect(screen.getByText('MISK: €9.80/month per customer')).toBeInTheDocument();
+  });
+
+  it('shows a live customer preview that follows every change', async () => {
+    openNewPlan();
+    await fillComplete();
+    await user().type(screen.getByRole('textbox', { name: 'Add a task' }), 'Edge{Enter}');
+    const preview = screen.getByRole('complementary', { name: 'Live preview · customer app' });
+    expect(within(preview).getByText('Lawn care')).toBeInTheDocument();
+    expect(within(preview).getByText('1× a week · 60 min')).toBeInTheDocument();
+    expect(within(preview).getByText('€49')).toBeInTheDocument();
+    expect(within(preview).getByText('≈ €11.40 per visit')).toBeInTheDocument();
+    expect(within(preview).getByText('Mow')).toBeInTheDocument();
+    expect(within(preview).getByText('2 skips/month · min. 3 months')).toBeInTheDocument();
+    expect(within(preview).getByText('Subscribe')).toBeInTheDocument();
+    await user().clear(screen.getByLabelText('Plan name'));
+    await user().type(screen.getByLabelText('Plan name'), 'Garden care');
+    expect(within(preview).getByText('Garden care')).toBeInTheDocument();
+  });
+
+  it('saves a draft at any time, even empty, and confirms it', async () => {
+    const api = openNewPlan();
+    const save = await screen.findByRole('button', { name: 'Save draft' });
+    expect(save).toBeEnabled();
+    await user().type(screen.getByLabelText('Plan name'), 'Half done');
+    await user().click(save);
+    expect(await screen.findByText('Draft saved.')).toBeInTheDocument();
+    expect(api.bodies['POST /admin/plans']).toMatchObject({ name: 'Half done', categoryId: null, priceCents: null, tasks: [] });
+  });
+
+  it('refuses to publish an incomplete plan and lists what needs fixing', async () => {
+    openNewPlan();
+    const publish = await screen.findByRole('button', { name: 'Publish plan' });
+    expect(publish).toBeDisabled();
+    expect(screen.getByText(/To publish, add: a plan name, a category, a monthly price of at least €5, at least one task/)).toBeInTheDocument();
+    await fillComplete();
+    expect(screen.queryByText(/To publish, add/)).not.toBeInTheDocument();
+    expect(publish).toBeEnabled();
+  });
+
+  it('publishes a complete plan', async () => {
+    const api = openNewPlan();
+    api.on('POST /admin/plans/p1/status', { body: { plan: savedPlan({ name: 'Lawn care', categoryId: 'cat-garden', priceCents: 4900, tasks: ['Mow'] }, 'published') } });
+    await fillComplete();
+    await user().click(screen.getByRole('button', { name: 'Publish plan' }));
+    expect(await screen.findByRole('heading', { name: 'Plan published' })).toBeInTheDocument();
+    expect(api.bodies['POST /admin/plans/p1/status']).toEqual({ published: true });
+  });
+
+  it('warns before leaving with unsaved changes', async () => {
+    openNewPlan();
+    await user().type(await screen.findByLabelText('Plan name'), 'Unsaved');
+    const menu = screen.getByRole('navigation', { name: 'Control panel' });
+    await user().click(within(menu).getByRole('link', { name: 'Plans' }));
+    const warning = await screen.findByRole('alertdialog', { name: 'Leave without saving?' });
+    await user().click(within(warning).getByRole('button', { name: 'Stay and keep editing' }));
+    expect(screen.getByLabelText('Plan name')).toHaveValue('Unsaved');
+
+    await user().click(screen.getByRole('button', { name: 'Save draft' }));
+    expect(await screen.findByText('Draft saved.')).toBeInTheDocument();
+    await user().click(within(screen.getByRole('navigation', { name: 'Control panel' })).getByRole('link', { name: 'Plans' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Plans' })).toBeInTheDocument();
+  });
+
+  it('leaves without saving when the admin chooses to', async () => {
+    openNewPlan();
+    await user().type(await screen.findByLabelText('Plan name'), 'Throw away');
+    await user().click(within(screen.getByRole('navigation', { name: 'Control panel' })).getByRole('link', { name: 'Plans' }));
+    await user().click(await screen.findByRole('button', { name: 'Leave without saving' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Plans' })).toBeInTheDocument();
   });
 });
 

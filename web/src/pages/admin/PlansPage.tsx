@@ -1,6 +1,6 @@
-import { useCallback, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link, useNavigate, useParams } from 'react-router';
+import { Link, useBlocker, useLocation, useNavigate, useParams } from 'react-router';
 import { useApi } from '../../api/ApiContext';
 import type { AdminCategory, Frequency, Plan, PlanInput } from '../../api/types';
 import { useResource } from '../../api/useResource';
@@ -18,8 +18,6 @@ export const VISITS_PER_MONTH: Record<Frequency, number> = {
   twice_weekly: 8.7,
   three_times_weekly: 13,
 };
-const MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as const;
-type Month = (typeof MONTHS)[number];
 
 export function PlansPage() {
   const { t } = useTranslation();
@@ -57,11 +55,11 @@ export function PlansPage() {
                     <tr key={plan.id}>
                       <td>
                         <Link to={`/admin/plans/${plan.id}`} className="b">
-                          {plan.name}
+                          {plan.name ?? t('admin.plans.untitled')}
                         </Link>
                       </td>
-                      <td>{plan.categoryName}</td>
-                      <td>{t('admin.plans.perMonth', { price: euro(plan.priceCents) })}</td>
+                      <td>{plan.categoryName ?? '–'}</td>
+                      <td>{plan.priceCents === null ? '–' : t('admin.plans.perMonth', { price: euro(plan.priceCents) })}</td>
                       <td>{t(`admin.plans.frequency.${plan.frequency}`)}</td>
                       <td>
                         <span className={`badge ${plan.status === 'published' ? 'g' : 'grey'}`}>{t(`admin.plans.state.${plan.status}`)}</span>
@@ -89,18 +87,16 @@ interface Draft {
   addonName: string;
   addonPrice: string;
   seasonal: boolean;
-  seasonFrom: Month;
-  seasonTo: Month;
   skipsPerMonth: number;
   minTermMonths: number;
   proSharePct: number;
 }
 
-function toDraft(plan: Plan | null, categories: AdminCategory[]): Draft {
+function toDraft(plan: Plan | null): Draft {
   if (!plan) {
     return {
       name: '',
-      categoryId: categories[0]?.id ?? '',
+      categoryId: '',
       price: '',
       frequency: 'weekly',
       visitMinutes: 60,
@@ -109,17 +105,15 @@ function toDraft(plan: Plan | null, categories: AdminCategory[]): Draft {
       addonName: '',
       addonPrice: '',
       seasonal: false,
-      seasonFrom: 4,
-      seasonTo: 10,
       skipsPerMonth: 2,
       minTermMonths: 3,
       proSharePct: 70,
     };
   }
   return {
-    name: plan.name,
-    categoryId: plan.categoryId,
-    price: (plan.priceCents / 100).toFixed(2),
+    name: plan.name ?? '',
+    categoryId: plan.categoryId ?? '',
+    price: plan.priceCents === null ? '' : (plan.priceCents / 100).toFixed(2),
     frequency: plan.frequency,
     visitMinutes: plan.visitMinutes,
     tasks: plan.tasks,
@@ -127,11 +121,27 @@ function toDraft(plan: Plan | null, categories: AdminCategory[]): Draft {
     addonName: plan.addonName ?? '',
     addonPrice: plan.addonPriceCents === null ? '' : (plan.addonPriceCents / 100).toFixed(2),
     seasonal: plan.seasonal,
-    seasonFrom: (plan.seasonFrom ?? 4) as Month,
-    seasonTo: (plan.seasonTo ?? 10) as Month,
     skipsPerMonth: plan.skipsPerMonth,
     minTermMonths: plan.minTermMonths,
     proSharePct: plan.proSharePct,
+  };
+}
+
+function inputOf(draft: Draft): PlanInput {
+  const addonName = draft.addonName.trim() || null;
+  return {
+    name: draft.name.trim() || null,
+    categoryId: draft.categoryId || null,
+    priceCents: parseEuroToCents(draft.price),
+    frequency: draft.frequency,
+    visitMinutes: draft.visitMinutes,
+    tasks: draft.tasks,
+    addonName,
+    addonPriceCents: addonName ? parseEuroToCents(draft.addonPrice) : null,
+    seasonal: draft.seasonal,
+    skipsPerMonth: draft.skipsPerMonth,
+    minTermMonths: draft.minTermMonths,
+    proSharePct: draft.proSharePct,
   };
 }
 
@@ -141,9 +151,13 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
   const navigate = useNavigate();
   const save = useAction();
   const publish = useAction();
-  const [draft, setDraft] = useState<Draft>(() => toDraft(plan, categories));
+  const [draft, setDraft] = useState<Draft>(() => toDraft(plan));
+  // What was last saved, to tell whether leaving the page would lose changes.
+  const [savedInput, setSavedInput] = useState(() => JSON.stringify(inputOf(toDraft(plan))));
   const [current, setCurrent] = useState<Plan | null>(plan);
-  const [saved, setSaved] = useState(false);
+  const location = useLocation();
+  // A brand-new plan reloads under its own address after the first save; the confirmation comes along.
+  const [saved, setSaved] = useState(() => Boolean((location.state as { saved?: boolean } | null)?.saved));
   const [taskNotice, setTaskNotice] = useState<string | null>(null);
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) => {
     setSaved(false);
@@ -156,7 +170,7 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
   const visits = VISITS_PER_MONTH[draft.frequency];
   const proCents = priceCents === null ? 0 : Math.floor((priceCents * draft.proSharePct) / 100);
   const category = categories.find((c) => c.id === draft.categoryId);
-  // What still stops the plan from being saved, in the order the fields appear.
+  // What still stops the plan from being published, in the order the fields appear. Drafts save regardless.
   const missing = [
     draft.name.trim() === '' && t('admin.plans.missing.name'),
     !category && t('admin.plans.missing.category'),
@@ -184,49 +198,47 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
     setSaved(false);
   }
 
-  function input(): PlanInput | null {
-    if (!valid || priceCents === null) {
-      return null;
+  const body = inputOf(draft);
+  const dirty = JSON.stringify(body) !== savedInput;
+  const dirtyRef = useRef(dirty);
+  useEffect(() => {
+    dirtyRef.current = dirty;
+  }, [dirty]);
+
+  // Leaving with unsaved changes asks first: inside the app, and when closing or reloading the tab.
+  const blocker = useBlocker(({ currentLocation, nextLocation }) => dirtyRef.current && currentLocation.pathname !== nextLocation.pathname);
+  useEffect(() => {
+    if (!dirty) {
+      return;
     }
-    return {
-      name: draft.name.trim(),
-      categoryId: draft.categoryId,
-      priceCents,
-      frequency: draft.frequency,
-      visitMinutes: draft.visitMinutes,
-      tasks: draft.tasks,
-      addonName: draft.addonName.trim() || null,
-      addonPriceCents,
-      seasonal: draft.seasonal,
-      seasonFrom: draft.seasonal ? draft.seasonFrom : null,
-      seasonTo: draft.seasonal ? draft.seasonTo : null,
-      skipsPerMonth: draft.skipsPerMonth,
-      minTermMonths: draft.minTermMonths,
-      proSharePct: draft.proSharePct,
-    };
-  }
+    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty]);
 
   async function saveDraft(event?: FormEvent): Promise<Plan | null> {
     event?.preventDefault();
-    const body = input();
-    if (!body) {
-      return null;
-    }
+    const sent = body;
     const result = await save.run(() =>
-      current ? api.put<{ plan: Plan }>(`/admin/plans/${current.id}`, body) : api.post<{ plan: Plan }>('/admin/plans', body),
+      current ? api.put<{ plan: Plan }>(`/admin/plans/${current.id}`, sent) : api.post<{ plan: Plan }>('/admin/plans', sent),
     );
     if (!result) {
       return null;
     }
     setCurrent(result.plan);
+    setSavedInput(JSON.stringify(sent));
+    dirtyRef.current = false;
     setSaved(true);
     if (!current) {
-      navigate(`/admin/plans/${result.plan.id}`, { replace: true });
+      navigate(`/admin/plans/${result.plan.id}`, { replace: true, state: { saved: true } });
     }
     return result.plan;
   }
 
   async function setPublished(published: boolean) {
+    if (published && !valid) {
+      return;
+    }
     const savedPlan = published ? await saveDraft() : current;
     if (!savedPlan) {
       return;
@@ -256,7 +268,8 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
   );
 
   return (
-    <form onSubmit={saveDraft} className="stack">
+    // Drafts may be incomplete, so the browser's own required-field check must not block saving.
+    <form onSubmit={saveDraft} className="stack" noValidate>
       <div className="row between wrap">
         <div>
           <h1>{live ? t('admin.plans.publishedTitle') : current ? t('admin.plans.editTitle') : t('admin.plans.newTitle')}</h1>
@@ -265,7 +278,7 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
           </p>
         </div>
         <div className="row gap8">
-          <button type="submit" className="abtn ghost big" disabled={!valid || save.busy}>
+          <button type="submit" className="abtn ghost big" disabled={save.busy}>
             {t('admin.plans.saveDraft')}
           </button>
           {live ? (
@@ -289,6 +302,24 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
           {t('admin.plans.missing.intro', { items: missing.join(', ') })}
         </p>
       )}
+      {blocker.state === 'blocked' && (
+        <div className="panel leave-warning" role="alertdialog" aria-labelledby="leave-title" aria-describedby="leave-text">
+          <p id="leave-title" className="b">
+            {t('admin.plans.leave.title')}
+          </p>
+          <p id="leave-text" className="small">
+            {t('admin.plans.leave.text')}
+          </p>
+          <div className="row gap8">
+            <button type="button" className="abtn" onClick={() => blocker.reset()}>
+              {t('admin.plans.leave.stay')}
+            </button>
+            <button type="button" className="abtn ghost" onClick={() => blocker.proceed()}>
+              {t('admin.plans.leave.leave')}
+            </button>
+          </div>
+        </div>
+      )}
       <ErrorText error={save.error ?? publish.error} />
 
       <div className="builder">
@@ -300,6 +331,7 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
           <div className="af">
             <label htmlFor="plan-category">{t('admin.plans.fields.category')}</label>
             <select id="plan-category" value={draft.categoryId} onChange={(e) => set('categoryId', e.target.value)}>
+              <option value="">{t('admin.plans.chooseCategory')}</option>
               {categories.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name}
@@ -413,27 +445,7 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
               className={`toggle ${draft.seasonal ? 'on' : ''}`}
               onClick={() => set('seasonal', !draft.seasonal)}
             />
-            <span className="hint">
-              {draft.seasonal
-                ? t('admin.plans.seasonOn', { from: t(`month.${draft.seasonFrom}`), to: t(`month.${draft.seasonTo}`) })
-                : t('admin.plans.seasonOff')}
-            </span>
-            {draft.seasonal && (
-              <div className="row gap8">
-                {(['seasonFrom', 'seasonTo'] as const).map((key) => (
-                  <span key={key} className="af grow">
-                    <label htmlFor={`plan-${key}`}>{t(`admin.plans.fields.${key}`)}</label>
-                    <select id={`plan-${key}`} value={draft[key]} onChange={(e) => set(key, Number(e.target.value) as Month)}>
-                      {MONTHS.map((m) => (
-                        <option key={m} value={m}>
-                          {t(`month.${m}`)}
-                        </option>
-                      ))}
-                    </select>
-                  </span>
-                ))}
-              </div>
-            )}
+            <span className="hint">{draft.seasonal ? t('admin.plans.seasonOn') : t('admin.plans.seasonOff')}</span>
           </div>
           {number('skipsPerMonth', 0, 8)}
 
@@ -482,16 +494,17 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
               ))}
             </ul>
             {draft.addonName.trim() && (
-              <p className="addon-preview small">
-                <span>{draft.addonName.trim()}</span>
-                <b>+{euro(addonPriceCents ?? 0)}</b>
-              </p>
+              <label className="addon-preview small">
+                <input type="checkbox" disabled />
+                <span className="grow">{draft.addonName.trim()}</span>
+                <b>{t('admin.plans.addonPreviewPrice', { price: euro(addonPriceCents ?? 0) })}</b>
+              </label>
             )}
             <span className="cta preview-cta" aria-hidden="true">
               {t('admin.plans.subscribe')}
             </span>
             <p className="tiny muted">
-              {draft.seasonal && `${t('admin.plans.seasonShort', { from: t(`month.${draft.seasonFrom}`), to: t(`month.${draft.seasonTo}`) })} · `}
+              {draft.seasonal && `${t('admin.plans.seasonShort')} · `}
               {t('admin.plans.rulesShort', { skips: draft.skipsPerMonth, months: draft.minTermMonths })}
             </p>
           </div>

@@ -276,17 +276,15 @@ export interface AdminAccount {
 export type Frequency = 'every_2_weeks' | 'weekly' | 'twice_weekly' | 'three_times_weekly';
 
 export interface PlanInput {
-  name: string;
-  categoryId: string;
-  priceCents: number;
+  name: string | null;
+  categoryId: string | null;
+  priceCents: number | null;
   frequency: Frequency;
   visitMinutes: number;
   tasks: string[];
   addonName: string | null;
   addonPriceCents: number | null;
   seasonal: boolean;
-  seasonFrom: number | null;
-  seasonTo: number | null;
   skipsPerMonth: number;
   minTermMonths: number;
   proSharePct: number;
@@ -294,8 +292,11 @@ export interface PlanInput {
 
 export interface Plan extends PlanInput {
   id: string;
-  categoryName: string;
-  categoryIcon: IconName;
+  categoryName: string | null;
+  categoryIcon: IconName | null;
+  seasonFrom: number | null;
+  seasonTo: number | null;
+  subscribers?: number;
   status: 'draft' | 'published';
   publishedAt: string | null;
   updatedAt: string;

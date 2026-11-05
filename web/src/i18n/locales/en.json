@@ -89,7 +89,8 @@
     "not_published": "This plan is not live.",
     "pending_approval": "Your account is waiting for an admin to approve it. You can sign in once it is approved.",
     "not_pending": "This request was already answered.",
-    "invalid_approval_link": "This approval link has expired or was already used. The request may already be answered; see Team."
+    "invalid_approval_link": "This approval link has expired or was already used. The request may already be answered; see Team.",
+    "plan_incomplete": "The plan is not complete yet. Fill in what is listed above, then publish."
   },
   "nav": {
     "customer": "Main menu",
@@ -696,8 +697,6 @@
         "addonName": "Optional extra",
         "addonPrice": "Extra price (€ / month)",
         "seasonal": "Seasonal plan",
-        "seasonFrom": "From",
-        "seasonTo": "To",
         "skipsPerMonth": "Skips allowed per month",
         "proSharePct": "Pro earns: {{pct}}% of the monthly price"
       },
@@ -710,12 +709,12 @@
       "removeTask": "Remove {{task}}",
       "tasksHint": "Add at least one task.",
       "addonHint": "Leave empty for no extra.",
-      "seasonOn": "Runs {{from}} – {{to}}, pauses automatically outside it",
+      "seasonOn": "Runs Apr – Oct, pauses automatically in winter",
       "seasonOff": "Runs all year",
-      "seasonShort": "Season {{from}} – {{to}}",
+      "seasonShort": "Season Apr – Oct",
       "rulesShort": "{{skips}} skips/month · min. {{months}} months",
       "proEarns": "Pro: {{amount}}/month per customer",
-      "miskKeeps": "MISK: {{amount}}",
+      "miskKeeps": "MISK: {{amount}}/month per customer",
       "preview": "Live preview · customer app",
       "minutes": "{{minutes}} min",
       "perVisit": "≈ {{price}} per visit",
@@ -734,7 +733,7 @@
       "taskLimit": "A plan can include at most 12 tasks.",
       "subscribe": "Subscribe",
       "missing": {
-        "intro": "To save or publish, add: {{items}}.",
+        "intro": "To publish, add: {{items}}. You can save a draft at any time.",
         "name": "a plan name",
         "category": "a category",
         "price": "a monthly price of at least €5",
@@ -742,7 +741,15 @@
         "addonPrice": "a price for the extra"
       },
       "addonPriceNeeded": "Enter a monthly price for the extra, or clear its name.",
-      "addonPriceInvalid": "Enter an amount such as 15 or 14.50."
+      "addonPriceInvalid": "Enter an amount such as 15 or 14.50.",
+      "chooseCategory": "Choose a category",
+      "addonPreviewPrice": "+{{price}}/mo",
+      "leave": {
+        "title": "Leave without saving?",
+        "text": "This plan has changes that are not saved. If you leave now, they are lost.",
+        "stay": "Stay and keep editing",
+        "leave": "Leave without saving"
+      }
     },
     "signUp": {
       "title": "Request an admin account",

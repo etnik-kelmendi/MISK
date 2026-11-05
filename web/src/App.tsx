@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { BrowserRouter, Link, Navigate, Route, Routes } from 'react-router';
+import { createBrowserRouter, Link, Navigate, Route, RouterProvider, Routes } from 'react-router';
 import { ApiProvider } from './api/ApiContext';
 import { createApi } from './api/client';
 import { MarketProvider } from './api/MarketContext';
@@ -133,13 +133,12 @@ export function AppRoutes({ site }: { site: Site }) {
 
 export function App({ config }: { config: AppConfig }) {
   const api = useMemo(() => createApi(config.apiBaseUrl), [config.apiBaseUrl]);
+  const router = useMemo(() => createBrowserRouter([{ path: '*', element: <AppRoutes site={config.site} /> }]), [config.site]);
   return (
     <ApiProvider api={api} config={config}>
       <AuthProvider>
         <MarketProvider>
-          <BrowserRouter>
-            <AppRoutes site={config.site} />
-          </BrowserRouter>
+          <RouterProvider router={router} />
         </MarketProvider>
       </AuthProvider>
     </ApiProvider>

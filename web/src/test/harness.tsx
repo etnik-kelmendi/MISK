@@ -1,5 +1,5 @@
 import { render } from '@testing-library/react';
-import { MemoryRouter } from 'react-router';
+import { createMemoryRouter, RouterProvider } from 'react-router';
 import { vi } from 'vitest';
 import { ApiProvider } from '../api/ApiContext';
 import { createApi } from '../api/client';
@@ -94,9 +94,7 @@ export function renderAt(path: string, site: 'app' | 'admin' = path.startsWith('
     <ApiProvider api={createApi(BASE)} config={config}>
       <AuthProvider>
         <MarketProvider>
-          <MemoryRouter initialEntries={[path]}>
-            <AppRoutes site={site} />
-          </MemoryRouter>
+          <RouterProvider router={createMemoryRouter([{ path: '*', element: <AppRoutes site={site} /> }], { initialEntries: [path] })} />
         </MarketProvider>
       </AuthProvider>
     </ApiProvider>,
