@@ -6,7 +6,7 @@ import { createApi } from './api/client';
 import { MarketProvider } from './api/MarketContext';
 import { AuthProvider } from './auth/AuthContext';
 import { RequireRole } from './auth/RequireRole';
-import type { AppConfig } from './config';
+import type { AppConfig, Site } from './config';
 import { AccountPage } from './pages/AccountPage';
 import { AdminBookingPage } from './pages/admin/AdminBookingPage';
 import { AdminBookingsPage } from './pages/admin/AdminBookingsPage';
@@ -45,13 +45,11 @@ function NotFoundPage() {
   );
 }
 
-export function AppRoutes() {
+function CustomerAndProRoutes() {
   return (
     <Routes>
       <Route path="/signin" element={<SignInPage />} />
       <Route path="/signup" element={<SignUpPage />} />
-      <Route path="/admin/login" element={<AdminLoginPage />} />
-      <Route path="/admin/reset-password" element={<ResetPasswordPage />} />
       <Route
         element={
           <RequireRole allow="customer">
@@ -80,6 +78,18 @@ export function AppRoutes() {
         <Route path="profile" element={<ProProfilePage />} />
         <Route path="account" element={<AccountPage />} />
       </Route>
+      <Route path="*" element={<NotFoundPage />} />
+    </Routes>
+  );
+}
+
+/** The control panel, served as its own website (D20). */
+function AdminRoutes() {
+  return (
+    <Routes>
+      <Route path="/" element={<Navigate to="/admin" replace />} />
+      <Route path="/admin/login" element={<AdminLoginPage />} />
+      <Route path="/admin/reset-password" element={<ResetPasswordPage />} />
       <Route
         path="admin"
         element={
@@ -112,6 +122,11 @@ export function AppRoutes() {
   );
 }
 
+/** The pages of one website: the customer and pro app, or the admin control panel. */
+export function AppRoutes({ site }: { site: Site }) {
+  return site === 'admin' ? <AdminRoutes /> : <CustomerAndProRoutes />;
+}
+
 export function App({ config }: { config: AppConfig }) {
   const api = useMemo(() => createApi(config.apiBaseUrl), [config.apiBaseUrl]);
   return (
@@ -119,7 +134,7 @@ export function App({ config }: { config: AppConfig }) {
       <AuthProvider>
         <MarketProvider>
           <BrowserRouter>
-            <AppRoutes />
+            <AppRoutes site={config.site} />
           </BrowserRouter>
         </MarketProvider>
       </AuthProvider>

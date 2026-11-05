@@ -15,6 +15,12 @@ describe('loadConfig', () => {
     expect(config.timezone).toBe('Europe/Berlin');
   });
 
+  it('serves the control panel from its own origin, or from the app origin when none is given', () => {
+    expect(loadConfig(base).adminOrigin).toBe('http://localhost:5173');
+    expect(loadConfig({ ...base, ADMIN_ORIGIN: 'https://admin.misk.app' }).adminOrigin).toBe('https://admin.misk.app');
+    expect(() => loadConfig({ ...base, ADMIN_ORIGIN: 'https://admin.misk.app/panel' })).toThrow('ADMIN_ORIGIN must be an exact');
+  });
+
   it('requires the database, origin and time zone', () => {
     expect(() => loadConfig({ ...base, DATABASE_URL: '' })).toThrow('DATABASE_URL is required');
     expect(() => loadConfig({ ...base, WEB_ORIGIN: undefined })).toThrow('WEB_ORIGIN is required');

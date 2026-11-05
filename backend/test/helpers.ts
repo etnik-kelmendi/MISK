@@ -39,11 +39,12 @@ export interface TestContext {
   close: () => Promise<void>;
 }
 
-export async function createTestContext(): Promise<TestContext> {
+export async function createTestContext(env: Record<string, string> = {}): Promise<TestContext> {
   const config = loadConfig({
     DATABASE_URL: inject('databaseUrl'),
     WEB_ORIGIN: ORIGIN,
     MARKET_TIMEZONE: TIMEZONE,
+    ...env,
   });
   const pool = new pg.Pool({ connectionString: config.databaseUrl });
   const fake = createFakeGateway();
@@ -97,12 +98,12 @@ export function call(
   t: TestContext,
   method: Method,
   url: string,
-  options: { cookie?: string; body?: unknown } = {},
+  options: { cookie?: string; body?: unknown; origin?: string } = {},
 ): Promise<LightMyRequestResponse> {
   return t.app.inject({
     method,
     url,
-    headers: { origin: ORIGIN, ...(options.cookie ? { cookie: options.cookie } : {}) },
+    headers: { origin: options.origin ?? ORIGIN, ...(options.cookie ? { cookie: options.cookie } : {}) },
     ...(options.body === undefined ? {} : { payload: options.body as object }),
   });
 }
@@ -125,12 +126,12 @@ export function upload(t: TestContext, url: string, cookie: string, content: Buf
   });
 }
 
-export function sessionCookie(response: LightMyRequestResponse): string {
-  const cookie = response.cookies.find((c) => c.name === 'misk_session');
+export function sessionCookie(response: LightMyRequestResponse, name = 'misk_session'): string {
+  const cookie = response.cookies.find((c) => c.name === name);
   if (!cookie) {
-    throw new Error(`No session cookie in response ${response.statusCode}: ${response.body}`);
+    throw new Error(`No ${name} cookie in response ${response.statusCode}: ${response.body}`);
   }
-  return `misk_session=${cookie.value}`;
+  return `${name}=${cookie.value}`;
 }
 
 /** The code inside the last sign-in text sent to `phone`. */

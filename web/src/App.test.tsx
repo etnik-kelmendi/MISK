@@ -674,8 +674,15 @@ describe('admin', () => {
     fakeApi(null);
     renderAt('/admin');
     expect(await screen.findByLabelText('Username or email')).toBeInTheDocument();
-    await user().click(screen.getByRole('link', { name: 'Sign up' }));
-    expect(await screen.findByRole('heading', { name: 'Create your account' })).toBeInTheDocument();
+  });
+
+  it('is its own website: the app has no admin pages, and the admin site opens on the control panel', async () => {
+    fakeApi(users.admin);
+    const app = renderAt('/admin', 'app');
+    expect(await screen.findByRole('heading', { name: 'This page does not exist' })).toBeInTheDocument();
+    app.unmount();
+    renderAt('/', 'admin');
+    expect(await screen.findByRole('navigation', { name: 'Control panel' })).toBeInTheDocument();
   });
 
   it('emails a reset link from the forgot-password form', async () => {

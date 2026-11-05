@@ -34,6 +34,7 @@ describe('format', () => {
 describe('loadConfig', () => {
   it('needs an absolute API address', () => {
     expect(loadConfig({ VITE_API_BASE_URL: 'https://api.misk.app/' })).toEqual({
+      site: 'app',
       apiBaseUrl: 'https://api.misk.app',
       termsUrl: null,
       privacyUrl: null,
@@ -41,6 +42,11 @@ describe('loadConfig', () => {
     expect(() => loadConfig({})).toThrow('VITE_API_BASE_URL is required');
     expect(() => loadConfig({ VITE_API_BASE_URL: '/api' })).toThrow('absolute URL');
     expect(() => loadConfig({ VITE_API_BASE_URL: 'ftp://x' })).toThrow('http or https');
+  });
+
+  it('builds the control panel in admin mode', () => {
+    expect(loadConfig({ VITE_API_BASE_URL: 'https://a.b', MODE: 'admin' }).site).toBe('admin');
+    expect(loadConfig({ VITE_API_BASE_URL: 'https://a.b', MODE: 'production' }).site).toBe('app');
   });
 
   it('checks the optional legal links', () => {

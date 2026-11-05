@@ -10,7 +10,7 @@ import { AuthProvider } from '../auth/AuthContext';
 import type { AppConfig } from '../config';
 
 export const BASE = 'http://api.test';
-export const config: AppConfig = { apiBaseUrl: BASE, termsUrl: null, privacyUrl: null };
+export const config: AppConfig = { site: 'app', apiBaseUrl: BASE, termsUrl: null, privacyUrl: null };
 
 export const catalogue: Catalogue = {
   timezone: 'Europe/Berlin',
@@ -88,13 +88,14 @@ export function fakeApi(user: User | null): FakeApi {
   return { calls, bodies, on: (route, reply) => routes.set(route, reply) };
 }
 
-export function renderAt(path: string) {
+/** Renders a page of the site it belongs to: /admin pages on the control panel, the rest in the app. */
+export function renderAt(path: string, site: 'app' | 'admin' = path.startsWith('/admin') ? 'admin' : 'app') {
   return render(
     <ApiProvider api={createApi(BASE)} config={config}>
       <AuthProvider>
         <MarketProvider>
           <MemoryRouter initialEntries={[path]}>
-            <AppRoutes />
+            <AppRoutes site={site} />
           </MemoryRouter>
         </MarketProvider>
       </AuthProvider>

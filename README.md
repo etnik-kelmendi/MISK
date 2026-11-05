@@ -7,7 +7,7 @@ a web control panel. The product reference is `docs/product-demo.html`; the work
 | Folder     | Contents                                                        |
 | ---------- | --------------------------------------------------------------- |
 | `backend/` | API: Fastify, PostgreSQL, Stripe Connect, Twilio                |
-| `web/`     | One web app with three areas: customer `/`, pro `/pro`, admin `/admin` |
+| `web/`     | Two websites from one codebase: the customer and pro app (`/`, `/pro`), and the admin control panel (`/admin`), each with its own login |
 
 Both need Node 24 or newer (`.nvmrc`).
 
@@ -15,7 +15,7 @@ Both need Node 24 or newer (`.nvmrc`).
 flowchart LR
     C["Customer app /"] --> API
     P["Pro app /pro"] --> API
-    A["Admin panel /admin"] --> API
+    A["Admin control panel<br/>its own website"] --> API
     API["MISK API"] --> DB[("PostgreSQL")]
     API --> FS[("Uploads folder")]
     API <--> ST["Stripe"]
@@ -43,14 +43,18 @@ npm run dev
 # Terminal 3: Stripe webhooks to your machine (Stripe CLI); put the printed whsec_ secret in backend/.env
 stripe listen --forward-to localhost:3000/payments/webhook
 
-# Terminal 4: web app on http://localhost:5173
+# Terminal 4: customer and pro app on http://localhost:5173
 cd web
 npm ci
 cp .env.example .env
 npm run dev
+
+# Terminal 5: admin control panel on http://localhost:5174
+cd web
+npm run dev:admin
 ```
 
-Then, as admin at `/admin/login`: add served postcodes under **Areas**, and categories and services
+Then, as admin at http://localhost:5174/admin/login: add served postcodes under **Areas**, and categories and services
 under **Catalogue**. Sign up a pro at `/signin`, approve them under **Pros**, and have them set up payouts
 (Stripe test onboarding accepts test bank details). Customers can book once a pro covers their postcode.
 Pay with Stripe's test card `4242 4242 4242 4242`.
@@ -61,7 +65,7 @@ Two ways to work with a full, realistic marketplace without typing data in:
 
 | Command (in `backend/`) | What you get |
 | ----------------------- | ------------ |
-| `npm run preview:server` | A throwaway API on port 3100 with fake payments, filled with demo data on every start. Run the web app with `VITE_API_BASE_URL=http://localhost:3100`. Everything works end to end, including completing, paying and refunding the demo jobs. |
+| `npm run preview:server` | A throwaway API on port 3100 with fake payments, filled with demo data on every start. Run the app with `VITE_API_BASE_URL=http://localhost:3100 npx vite --port 4173` and the control panel with `VITE_API_BASE_URL=http://localhost:3100 npx vite --mode admin --port 4174`. Everything works end to end, including completing, paying and refunding the demo jobs. |
 | `npm run db:seed` | Fills your own development database (`npm run db:dev`). Refuses a database that already has users; `npm run db:seed -- --reset` empties it first. Never runs with `NODE_ENV=production`. |
 
 The demo data (`backend/src/seed/demo-data.ts`) is the same every time, with dates relative to today:
@@ -75,7 +79,7 @@ The demo data (`backend/src/seed/demo-data.ts`) is the same every time, with dat
 
 | Sign in as | Where | With |
 | ---------- | ----- | ---- |
-| Admin | `/admin/login` | `admin` / `demo admin password` |
+| Admin | the control panel's `/admin/login` | `admin` / `demo admin password` |
 | Customer by email | `/signin` | `anna@example.com` (or `ben@`, `clara@`, `emil@example.com`) / `garden42` |
 | Customer by phone | `/signin?method=phone` | `+4915100000001` (Sara, has a job in progress) |
 | Pro by phone | `/signin?method=phone` | `+4915200000001` (Daniel, gardener) |
@@ -145,10 +149,13 @@ in production; sign-in is impossible without it.
 
 ## Deploying
 
-1. Build: `npm ci && npm run build` in both folders. The API runs with `npm start` (`node dist/server.js`);
-   `web/dist` is static files for any web host or CDN, with every unknown path served `index.html`.
-2. Serve the API and web app over HTTPS on the same site (for example `api.misk.app` and `misk.app`),
-   so the session cookie works. Set `WEB_ORIGIN` to the web app's exact origin and `NODE_ENV=production`.
+1. Build: `npm ci && npm run build` in both folders. The API runs with `npm start` (`node dist/server.js`).
+   `web/dist` is the customer and pro app and `web/dist-admin` the admin control panel: static files for any
+   web host or CDN, each with every unknown path served `index.html`.
+2. Serve all three over HTTPS on the same site (for example `api.misk.app`, `misk.app` and `admin.misk.app`),
+   so the session cookies work. Set `WEB_ORIGIN` to the app's exact origin, `ADMIN_ORIGIN` to the control
+   panel's, and `NODE_ENV=production`. Admins can sign in only on the control panel, everyone else only in
+   the app, and each site has its own session.
 3. Behind a reverse proxy, set `TRUST_PROXY=true` so rate limits see real client addresses.
 4. Run `npm run migrate` before each release, and `npm run user:create-first-admin` once. Further admins
    are added under **Team** in the control panel.

@@ -456,9 +456,7 @@
       "forgotSend": "Email me a reset link",
       "forgotSent": "If an admin account matches and has an email address, a link is on its way. It works once, for 30 minutes. Check your spam folder too.",
       "forgotNoEmail": "No email on your account? Ask another admin to set a new password under Team, or whoever runs the server can use",
-      "identifier": "Username or email",
-      "noAccount": "Not on the MISK team? Customers and pros:",
-      "signUp": "Sign up"
+      "identifier": "Username or email"
     },
     "overview": {
       "title": "Overview",

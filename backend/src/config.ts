@@ -13,6 +13,8 @@ export interface Config {
   databaseUrl: string;
   port: number;
   webOrigin: string;
+  /** Exact origin of the admin control panel; the same as `webOrigin` when both are one site. */
+  adminOrigin: string;
   trustProxy: boolean;
   production: boolean;
   secureCookies: boolean;
@@ -46,15 +48,15 @@ function parsePort(value: string | undefined): number {
   return port;
 }
 
-function parseOrigin(value: string): string {
+function parseOrigin(value: string, name = 'WEB_ORIGIN'): string {
   let url: URL;
   try {
     url = new URL(value);
   } catch {
-    throw new Error('WEB_ORIGIN must be an absolute URL');
+    throw new Error(`${name} must be an absolute URL`);
   }
   if ((url.protocol !== 'http:' && url.protocol !== 'https:') || url.origin !== value) {
-    throw new Error('WEB_ORIGIN must be an exact http or https origin with no path');
+    throw new Error(`${name} must be an exact http or https origin with no path`);
   }
   return value;
 }
@@ -145,6 +147,7 @@ export function loadConfig(env: RawEnv): Config {
     databaseUrl: required(env, 'DATABASE_URL'),
     port: parsePort(env.PORT),
     webOrigin: parseOrigin(required(env, 'WEB_ORIGIN')),
+    adminOrigin: parseOrigin(env.ADMIN_ORIGIN?.trim() || required(env, 'WEB_ORIGIN'), 'ADMIN_ORIGIN'),
     trustProxy: env.TRUST_PROXY === 'true',
     production,
     secureCookies: production,

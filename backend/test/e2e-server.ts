@@ -25,6 +25,8 @@ await runMigrations(database.url);
 const config = loadConfig({
   DATABASE_URL: database.url,
   WEB_ORIGIN: 'http://localhost:4173',
+  // The control panel is its own website (D20).
+  ADMIN_ORIGIN: 'http://localhost:4174',
   MARKET_TIMEZONE: 'Europe/Berlin',
   PORT: '3100',
   UPLOAD_DIR: uploadDir,

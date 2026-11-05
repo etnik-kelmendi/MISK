@@ -1,8 +1,41 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { Pool } from 'pg';
+import type { Config } from '../config.js';
 import { findSessionUser, type Role, type User } from './sessions.js';
 
 export const SESSION_COOKIE = 'misk_session';
+/** The control panel's own session, so signing in on one site never signs you in on the other. */
+export const ADMIN_SESSION_COOKIE = 'misk_admin_session';
+
+export type Site = 'app' | 'admin';
+
+/** Whether the app and the control panel are separate websites. */
+export const sitesAreSeparate = (config: Config) => config.adminOrigin !== config.webOrigin;
+
+/** Which website sent the request, judged by its Origin header; null when there is none. */
+export function siteOf(request: FastifyRequest, config: Config): Site | null {
+  const origin = request.headers.origin;
+  if (sitesAreSeparate(config) && origin === config.adminOrigin) {
+    return 'admin';
+  }
+  return origin === config.webOrigin ? 'app' : null;
+}
+
+/** The session cookie for a site. One shared cookie when both are one site. */
+export function sessionCookieFor(config: Config, site: Site | null): string {
+  return sitesAreSeparate(config) && site === 'admin' ? ADMIN_SESSION_COOKIE : SESSION_COOKIE;
+}
+
+/**
+ * The session tokens to try for a request. A request with an Origin uses only its site's cookie;
+ * one without (an image or a document opened in a tab) may use either, and the file route's own
+ * access check still decides what it may see.
+ */
+function sessionTokens(request: FastifyRequest, config: Config): string[] {
+  const site = siteOf(request, config);
+  const names = request.headers.origin ? [sessionCookieFor(config, site)] : [SESSION_COOKIE, ADMIN_SESSION_COOKIE];
+  return names.map((name) => request.cookies[name]).filter((token): token is string => Boolean(token));
+}
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -28,10 +61,15 @@ export function currentUser(request: FastifyRequest): User {
   return request.user;
 }
 
-export function createGuards(pool: Pool): Guards {
+export function createGuards(pool: Pool, config: Config): Guards {
   async function signedIn(request: FastifyRequest, reply: FastifyReply) {
-    const token = request.cookies[SESSION_COOKIE];
-    const user = token ? await findSessionUser(pool, token) : null;
+    let user: User | null = null;
+    for (const token of sessionTokens(request, config)) {
+      user = await findSessionUser(pool, token);
+      if (user) {
+        break;
+      }
+    }
     if (!user) {
       return reply.code(401).send({ error: 'unauthenticated' });
     }

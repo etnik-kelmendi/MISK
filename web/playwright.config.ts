@@ -1,6 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
 
 const PORT = 4173;
+/** The admin control panel is its own website. */
+export const ADMIN_PORT = 4174;
 export const API_PORT = 3100;
 
 export default defineConfig({
@@ -26,8 +28,15 @@ export default defineConfig({
       timeout: 180_000,
     },
     {
-      command: `npm run build && npm run preview -- --port ${PORT} --strictPort`,
+      command: `npx tsc -b && npx vite build && npm run preview -- --port ${PORT} --strictPort`,
       url: `http://localhost:${PORT}`,
+      reuseExistingServer: !process.env.CI,
+      timeout: 180_000,
+      env: { VITE_API_BASE_URL: `http://localhost:${API_PORT}` },
+    },
+    {
+      command: `npx vite build --mode admin --outDir dist-admin && npm run preview:admin -- --strictPort`,
+      url: `http://localhost:${ADMIN_PORT}`,
       reuseExistingServer: !process.env.CI,
       timeout: 180_000,
       env: { VITE_API_BASE_URL: `http://localhost:${API_PORT}` },

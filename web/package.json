@@ -8,8 +8,10 @@
   },
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "dev:admin": "vite --mode admin --port 5174",
+    "build": "tsc -b && vite build && vite build --mode admin --outDir dist-admin",
     "preview": "vite preview",
+    "preview:admin": "vite preview --mode admin --outDir dist-admin --port 4174",
     "lint": "eslint . --max-warnings 0",
     "test": "vitest run",
     "test:e2e": "playwright test"

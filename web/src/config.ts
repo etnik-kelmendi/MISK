@@ -1,4 +1,8 @@
+/** Which website this build is: the customer and pro app, or the admin control panel. */
+export type Site = 'app' | 'admin';
+
 export interface AppConfig {
+  site: Site;
   apiBaseUrl: string;
   /** Links shown at sign-in. Unset until the owner publishes them (QUESTIONS Q7). */
   termsUrl: string | null;
@@ -6,6 +10,8 @@ export interface AppConfig {
 }
 
 interface RawEnv {
+  /** Vite's build mode; `--mode admin` builds the control panel. */
+  MODE?: string;
   VITE_API_BASE_URL?: string;
   VITE_TERMS_URL?: string;
   VITE_PRIVACY_URL?: string;
@@ -35,6 +41,7 @@ export function loadConfig(env: RawEnv): AppConfig {
     throw new Error('VITE_API_BASE_URL is required');
   }
   return {
+    site: env.MODE === 'admin' ? 'admin' : 'app',
     apiBaseUrl: httpUrl('VITE_API_BASE_URL', api).replace(/\/+$/, ''),
     termsUrl: optionalUrl('VITE_TERMS_URL', env.VITE_TERMS_URL),
     privacyUrl: optionalUrl('VITE_PRIVACY_URL', env.VITE_PRIVACY_URL),

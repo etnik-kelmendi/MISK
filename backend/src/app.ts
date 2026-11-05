@@ -76,13 +76,13 @@ export async function buildApp({ config, pool, gateway, sms, email = null, stora
     gateway,
     deliverCode,
     deliverEmail,
-    guards: createGuards(pool),
+    guards: createGuards(pool, config),
     storage: storage ?? createDiskStorage(config.uploadDir),
   };
 
   await app.register(cookie);
   await app.register(cors, {
-    origin: config.webOrigin,
+    origin: [...new Set([config.webOrigin, config.adminOrigin])],
     credentials: true,
     methods: ['GET', 'HEAD', 'POST', 'PATCH', 'PUT'],
   });
@@ -97,7 +97,7 @@ export async function buildApp({ config, pool, gateway, sms, email = null, stora
     if (SAFE_METHODS.has(request.method) || request.url === WEBHOOK_PATH) {
       return;
     }
-    if (request.headers.origin !== config.webOrigin) {
+    if (request.headers.origin !== config.webOrigin && request.headers.origin !== config.adminOrigin) {
       return reply.code(403).send({ error: 'forbidden_origin' });
     }
   });

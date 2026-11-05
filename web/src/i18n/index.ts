@@ -15,6 +15,6 @@ void i18n.use(initReactI18next).init({
 });
 
 document.documentElement.lang = LANGUAGE;
-document.title = i18n.t('app.title');
+document.title = import.meta.env.MODE === 'admin' ? i18n.t('admin.title') : i18n.t('app.title');
 
 export default i18n;

@@ -6,7 +6,7 @@ import { withTransaction } from '../db.js';
 import { conflict } from '../errors.js';
 import { normalizePhone } from '../notifications/phone.js';
 import { adminLogin } from './admin-sign-in.js';
-import { currentUser, SESSION_COOKIE } from './guard.js';
+import { currentUser, sessionCookieFor, siteOf, sitesAreSeparate, type Site } from './guard.js';
 import { startPhoneSignIn, verifyPhoneSignIn } from './phone-sign-in.js';
 import { deleteSession, findUser, SESSION_MAX_AGE_SECONDS, type User } from './sessions.js';
 
@@ -21,12 +21,25 @@ const cookieOptionsFor = (config: Config) => ({ path: '/', httpOnly: true, secur
 
 /** Sets the session cookie after any successful sign-in. */
 export async function startSessionCookie(request: FastifyRequest, reply: FastifyReply, pool: Pool, config: Config, token: string) {
+  const name = sessionCookieFor(config, siteOf(request, config));
   // Replacing any earlier session means a session planted before sign-in is never upgraded.
-  const previous = request.cookies[SESSION_COOKIE];
+  const previous = request.cookies[name];
   if (previous) {
     await deleteSession(pool, previous);
   }
-  reply.setCookie(SESSION_COOKIE, token, { ...cookieOptionsFor(config), maxAge: SESSION_MAX_AGE_SECONDS });
+  reply.setCookie(name, token, { ...cookieOptionsFor(config), maxAge: SESSION_MAX_AGE_SECONDS });
+}
+
+/**
+ * When the control panel is its own site, admins sign in only there and everyone else only in the
+ * app. Returns true, after answering 403, when a sign-in came from the wrong site.
+ */
+export function refuseWrongSite(request: FastifyRequest, reply: FastifyReply, config: Config, expected: Site): boolean {
+  if (!sitesAreSeparate(config) || siteOf(request, config) === expected) {
+    return false;
+  }
+  void reply.code(403).send({ error: 'wrong_site' });
+  return true;
 }
 
 export async function authRoutes(app: FastifyInstance, ctx: AppContext) {
@@ -55,6 +68,9 @@ export async function authRoutes(app: FastifyInstance, ctx: AppContext) {
       },
     },
     async (request, reply) => {
+      if (refuseWrongSite(request, reply, config, 'app')) {
+        return reply;
+      }
       const phone = normalizePhone(request.body.phone);
       if (!phone) {
         return reply.code(400).send({ error: 'invalid_phone' });
@@ -81,6 +97,9 @@ export async function authRoutes(app: FastifyInstance, ctx: AppContext) {
       },
     },
     async (request, reply) => {
+      if (refuseWrongSite(request, reply, config, 'app')) {
+        return reply;
+      }
       const phone = normalizePhone(request.body.phone);
       if (!phone) {
         return reply.code(400).send({ error: 'invalid_phone' });
@@ -114,6 +133,9 @@ export async function authRoutes(app: FastifyInstance, ctx: AppContext) {
       },
     },
     async (request, reply) => {
+      if (refuseWrongSite(request, reply, config, 'admin')) {
+        return reply;
+      }
       const result = await adminLogin(pool, { ...request.body, ip: request.ip });
       if (result.outcome !== 'success') {
         request.log.warn({ event: 'admin_login_rejected', reason: result.outcome });
@@ -126,11 +148,12 @@ export async function authRoutes(app: FastifyInstance, ctx: AppContext) {
   );
 
   app.post('/auth/logout', async (request, reply) => {
-    const token = request.cookies[SESSION_COOKIE];
+    const name = sessionCookieFor(config, siteOf(request, config));
+    const token = request.cookies[name];
     if (token) {
       await deleteSession(pool, token);
     }
-    return reply.clearCookie(SESSION_COOKIE, cookieOptions).code(204).send();
+    return reply.clearCookie(name, cookieOptions).code(204).send();
   });
 
   app.get('/auth/me', { preHandler: guards.signedIn }, async (request) => ({

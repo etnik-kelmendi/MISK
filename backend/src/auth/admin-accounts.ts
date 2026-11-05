@@ -6,7 +6,8 @@ import { withTransaction, type Queryable } from '../db.js';
 import { ApiError, badRequest, conflict, notFound } from '../errors.js';
 import { isUniqueViolation, uuidParams } from '../http.js';
 import { normalizeUsername } from './admin-sign-in.js';
-import { currentUser, SESSION_COOKIE } from './guard.js';
+import { currentUser, sessionCookieFor, siteOf } from './guard.js';
+import { refuseWrongSite } from './routes.js';
 import { hashPassword, MIN_PASSWORD_LENGTH } from './passwords.js';
 import { hashToken, recordAttempt } from './sessions.js';
 
@@ -127,7 +128,7 @@ export async function adminAccountRoutes(app: FastifyInstance, ctx: AppContext) 
     },
     async (request, reply) => {
       const done = await withTransaction(pool, (client) =>
-        setAdminPassword(client, { id: request.params.id }, request.body.password, request.cookies[SESSION_COOKIE]),
+        setAdminPassword(client, { id: request.params.id }, request.body.password, request.cookies[sessionCookieFor(ctx.config, siteOf(request, ctx.config))]),
       );
       if (!done) {
         throw notFound();
@@ -186,6 +187,9 @@ export async function adminAccountRoutes(app: FastifyInstance, ctx: AppContext) 
       },
     },
     async (request, reply) => {
+      if (refuseWrongSite(request, reply, ctx.config, 'admin')) {
+        return reply;
+      }
       const deliver = ctx.deliverEmail;
       if (!deliver) {
         throw new ApiError(503, 'email_unavailable');
@@ -216,7 +220,7 @@ export async function adminAccountRoutes(app: FastifyInstance, ctx: AppContext) 
         );
       });
       // The token goes after #, so it never reaches server logs or other sites in a Referer header.
-      const link = `${ctx.config.webOrigin}/admin/reset-password#token=${token}`;
+      const link = `${ctx.config.adminOrigin}/admin/reset-password#token=${token}`;
       try {
         await deliver({ to: admin.email, ...resetEmail(admin.username, link) });
         request.log.info({ event: 'admin_reset_email_sent', adminId: admin.id });
@@ -241,6 +245,9 @@ export async function adminAccountRoutes(app: FastifyInstance, ctx: AppContext) 
       },
     },
     async (request, reply) => {
+      if (refuseWrongSite(request, reply, ctx.config, 'admin')) {
+        return reply;
+      }
       const adminId = await withTransaction(pool, async (client) => {
         const claimed = await client.query<{ user_id: string }>(
           `UPDATE password_resets r SET used_at = now()

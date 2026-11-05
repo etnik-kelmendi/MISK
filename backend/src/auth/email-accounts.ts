@@ -5,7 +5,7 @@ import { badRequest } from '../errors.js';
 import { isUniqueViolation } from '../http.js';
 import { normalizeEmail } from './admin-accounts.js';
 import { hashPassword, slowDownFailedLogin, spendVerificationTime, verifyPassword } from './passwords.js';
-import { publicUser, startSessionCookie } from './routes.js';
+import { publicUser, refuseWrongSite, startSessionCookie } from './routes.js';
 import { createSession, deleteExpiredRows, recordAttempt, USER_COLUMNS, type User } from './sessions.js';
 
 /** Customers' and pros' passwords: at least 8 characters with a letter and a number. */
@@ -54,6 +54,9 @@ export async function emailAccountRoutes(app: FastifyInstance, ctx: AppContext) 
       },
     },
     async (request, reply) => {
+      if (refuseWrongSite(request, reply, config, 'app')) {
+        return reply;
+      }
       const body = request.body;
       const email = normalizeEmail(body.email);
       if (!EMAIL_FORMAT.test(email)) {
@@ -114,6 +117,9 @@ export async function emailAccountRoutes(app: FastifyInstance, ctx: AppContext) 
       },
     },
     async (request, reply) => {
+      if (refuseWrongSite(request, reply, config, 'app')) {
+        return reply;
+      }
       const email = normalizeEmail(request.body.email);
       // Admins sign in with their username on the control panel, never here.
       const found = await pool.query<User & { passwordHash: string; disabled: boolean }>(

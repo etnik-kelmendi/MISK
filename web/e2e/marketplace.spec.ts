@@ -138,7 +138,8 @@ test.describe.serial('MISK marketplace', () => {
   });
 
   test('the MISK team sees the job and the money on the overview', async ({ browser }) => {
-    const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    // The control panel is its own website, with its own login.
+    const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, baseURL: 'http://localhost:4174' });
     const page = await context.newPage();
     await page.goto('/admin');
     await page.getByLabel('Username or email').fill('admin');
