@@ -413,6 +413,187 @@ describe('pro app', () => {
   });
 });
 
+describe('monthly plans in the apps', () => {
+  const lawn = {
+    id: 'plan-lawn',
+    name: 'Lawn care',
+    categoryId: 'cat-garden',
+    categoryName: 'Gardening',
+    categoryIcon: 'leaf',
+    priceCents: 4900,
+    frequency: 'twice_weekly',
+    visitMinutes: 60,
+    tasks: ['Mow', 'Edge', 'Blow paths'],
+    addonName: 'Hedge trimming',
+    addonPriceCents: 1500,
+    seasonal: false,
+    seasonFrom: null,
+    seasonTo: null,
+    skipsPerMonth: 2,
+    minTermMonths: 3,
+    proSharePct: 70,
+    status: 'published',
+    publishedAt: '',
+    updatedAt: '',
+  };
+  const future = (days: number) => new Date(Date.now() + days * 24 * 3600 * 1000).toISOString();
+  const subscription = (overrides: object = {}) => ({
+    id: 'sub-1',
+    planId: 'plan-lawn',
+    planName: 'Lawn care',
+    categoryId: 'cat-garden',
+    tasks: ['Mow', 'Edge', 'Blow paths'],
+    size: 'M',
+    frequency: 'twice_weekly',
+    days: [2, 4],
+    timeWindow: 'morning',
+    visitMinutes: 60,
+    address: '12 Linden Street',
+    postcode: '10115',
+    notes: '',
+    withAddon: true,
+    addonName: 'Hedge trimming',
+    priceCents: 6400,
+    seasonal: false,
+    seasonFrom: null,
+    seasonTo: null,
+    skipsPerMonth: 2,
+    minTermMonths: 3,
+    status: 'active',
+    billingPaused: false,
+    startedAt: new Date().toISOString(),
+    currentPeriodEnd: future(30),
+    endsAt: null,
+    createdAt: '',
+    proName: 'Daniel',
+    cancelableFrom: future(90),
+    visits: [
+      { id: 'v1', startsAt: future(2), endsAt: future(2), status: 'planned', tasksDone: [] },
+      { id: 'v2', startsAt: future(4), endsAt: future(4), status: 'planned', tasksDone: [] },
+    ],
+    skipsLeftThisMonth: 2,
+    ...overrides,
+  });
+
+  it('lets a customer pick size, days, time and the extra, with a live monthly price, and subscribe', async () => {
+    const api = fakeApi(users.customer);
+    api.on('GET /plans', { body: { plans: [lawn] } });
+    api.on('GET /subscriptions', { body: { subscriptions: [] } });
+    api.on('GET /postcodes', { body: { postcodes: [{ code: '10115', name: 'Mitte' }] } });
+    api.on('POST /subscriptions', { status: 201, body: { subscription: subscription(), payment: null } });
+    api.on('GET /subscriptions/sub-1', { body: { subscription: subscription() } });
+    renderAt('/plans');
+
+    await user().click(await screen.findByRole('link', { name: /Lawn care/ }));
+    const summary = await screen.findByRole('region', { name: 'Your monthly price' });
+    expect(within(summary).getByText('€49')).toBeInTheDocument();
+    await user().click(screen.getByRole('button', { name: /Large/ }));
+    expect(within(summary).getByText('€66.15')).toBeInTheDocument();
+    await user().click(screen.getByRole('button', { name: /Medium/ }));
+    await user().click(screen.getByRole('checkbox', { name: /Hedge trimming/ }));
+    expect(within(summary).getByText('€64')).toBeInTheDocument();
+
+    const submit = screen.getByRole('button', { name: /Pick 2 more days/ });
+    expect(submit).toBeDisabled();
+    await user().click(screen.getByRole('checkbox', { name: 'Tue' }));
+    await user().click(screen.getByRole('checkbox', { name: 'Thu' }));
+    await user().type(screen.getByLabelText('Street and house number'), '12 Linden Street');
+    await user().selectOptions(screen.getByLabelText('Postcode'), '10115');
+    await user().click(screen.getByRole('button', { name: 'Subscribe · €64/month' }));
+
+    expect(await screen.findByText('Daniel is your regular pro')).toBeInTheDocument();
+    expect(api.bodies['POST /subscriptions']).toEqual({
+      planId: 'plan-lawn',
+      size: 'M',
+      days: [2, 4],
+      timeWindow: 'morning',
+      address: '12 Linden Street',
+      postcode: '10115',
+      notes: '',
+      withAddon: true,
+    });
+  });
+
+  it('lets the customer skip a visit, and explains when the plan can be cancelled', async () => {
+    const api = fakeApi(users.customer);
+    api.on('GET /subscriptions/sub-1', { body: { subscription: subscription() } });
+    api.on('POST /subscriptions/sub-1/visits/v1/skip', {
+      body: {
+        subscription: subscription({
+          skipsLeftThisMonth: 1,
+          visits: [
+            { id: 'v1', startsAt: future(2), endsAt: future(2), status: 'skipped', tasksDone: [] },
+            { id: 'v2', startsAt: future(4), endsAt: future(4), status: 'planned', tasksDone: [] },
+          ],
+        }),
+      },
+    });
+    renderAt('/my-plans/sub-1');
+    expect(await screen.findByText('Skips left this month: 2')).toBeInTheDocument();
+    await user().click(screen.getAllByRole('button', { name: 'Skip' })[0] as HTMLElement);
+    expect(await screen.findByText('Skips left this month: 1')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Cancel this plan' })).not.toBeInTheDocument();
+    expect(screen.getByText(/You can cancel from/)).toBeInTheDocument();
+  });
+
+  it('shows the pro the plans in their trades and plan visits with a task checklist', async () => {
+    const api = fakeApi(users.pro);
+    api.on('GET /pro/profile', {
+      body: {
+        profile: {
+          status: 'approved',
+          homePostcode: '10115',
+          radiusKm: 12,
+          workingDays: [1, 2, 3, 4, 5],
+          reviewNote: null,
+          payoutsEnabled: true,
+          hasPayoutAccount: true,
+          ratingAverage: 4.9,
+          ratingCount: 10,
+          trades: ['cat-garden'],
+          documents: { id: null, certificate: null, insurance: null },
+        },
+      },
+    });
+    api.on('GET /pro/offers', { body: { offers: [] } });
+    api.on('GET /pro/jobs', { body: { jobs: [] } });
+    const visit = {
+      id: 'v1',
+      subscriptionId: 'sub-1',
+      startsAt: new Date(Date.now() + 3600 * 1000).toISOString(),
+      endsAt: new Date(Date.now() + 7200 * 1000).toISOString(),
+      status: 'planned',
+      tasksDone: [],
+      tasks: ['Mow', 'Edge'],
+      planName: 'Lawn care',
+      address: '12 Linden Street',
+      postcode: '10115',
+      notes: '',
+      customerName: 'Sara',
+      earningsCents: 798,
+    };
+    api.on('GET /pro/visits', { body: { visits: [visit] } });
+    api.on('GET /pro/plans', { body: { plans: [{ ...lawn, mySubscribers: 3, earningsPerMonthCents: 3430, visitsPerMonth: 8.7 }] } });
+    api.on('GET /pro/visits/v1', { body: { visit } });
+    api.on('POST /pro/visits/v1/complete', { body: { visit: { status: 'completed', tasksDone: ['Mow', 'Edge'] } } });
+    renderAt('/pro');
+
+    const plans = await screen.findByRole('region', { name: 'Monthly plans in your trades' });
+    expect(await within(plans).findByText('You earn €34.30/month')).toBeInTheDocument();
+    expect(within(plans).getByText('3 of your customers')).toBeInTheDocument();
+
+    await user().click(await screen.findByRole('link', { name: /Lawn care/ }));
+    const complete = await screen.findByRole('button', { name: 'Complete with 0 of 2 tasks' });
+    await user().click(screen.getByRole('checkbox', { name: 'Mow' }));
+    await user().click(screen.getByRole('checkbox', { name: 'Edge' }));
+    expect(complete).toHaveAccessibleName('Complete the visit');
+    await user().click(complete);
+    expect(await screen.findByText('Visit completed.')).toBeInTheDocument();
+    expect(api.bodies['POST /pro/visits/v1/complete']).toEqual({ tasksDone: ['Mow', 'Edge'] });
+  });
+});
+
 describe('admin navigation', () => {
   const DESIGN = [
     ['Overview', '/admin'],

@@ -28,7 +28,11 @@ async function signInByPhone(browser: Browser, phone: string) {
   const response = await page.request.get(`${API}/test/last-code?phone=${encodeURIComponent(phone)}`);
   const { code } = (await response.json()) as { code: string };
   await page.getByLabel('6-digit code').fill(code);
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  // Wait for the session before the test moves on, or a quick next navigation finds nobody signed in.
+  await Promise.all([
+    page.waitForResponse((response) => response.url().endsWith('/auth/phone/verify') && response.ok()),
+    page.getByRole('button', { name: 'Sign in' }).click(),
+  ]);
   return page;
 }
 
@@ -183,6 +187,7 @@ test.describe.serial('MISK marketplace', () => {
     await nav.getByRole('link', { name: 'Plans', exact: true }).click();
     await page.getByRole('link', { name: 'New plan' }).click();
     await page.getByLabel('Plan name').fill('Weekly lawn care');
+    await page.getByLabel('Category').selectOption({ label: 'Gardening' });
     await page.getByLabel('Monthly price (€)').fill('49');
     await page.getByRole('textbox', { name: 'Add a task' }).fill('Mow');
     await page.getByRole('textbox', { name: 'Add a task' }).press('Enter');
@@ -193,5 +198,28 @@ test.describe.serial('MISK marketplace', () => {
     await expect(page.getByRole('heading', { name: /Gardening/ })).toBeVisible();
     await expectAccessible(page);
     await context.close();
+  });
+  test('a customer subscribes to the plan the team published, and the pro sees it', async ({ browser }) => {
+    const customer = await signInByPhone(browser, CUSTOMER_PHONE);
+    await customer.goto('/plans');
+    await customer.getByRole('link', { name: /Weekly lawn care/ }).click();
+    await expect(customer.getByRole('region', { name: 'Your monthly price' })).toContainText('€49');
+    await customer.getByRole('checkbox', { name: 'Tue' }).check({ force: true });
+    await customer.getByLabel('Street and house number').fill('12 Linden Street');
+    await customer.getByLabel('Postcode').selectOption('10115');
+    await expectAccessible(customer);
+    await customer.getByRole('button', { name: 'Subscribe · €49/month' }).click();
+    await expect(customer.getByText('Daniel is your regular pro')).toBeVisible();
+    await expect(customer.getByRole('button', { name: 'Skip' }).first()).toBeVisible();
+    await expectAccessible(customer);
+    await customer.context().close();
+
+    const pro = await signInByPhone(browser, PRO_PHONE);
+    const plans = pro.getByRole('region', { name: 'Monthly plans in your trades' });
+    await expect(plans.getByText('Weekly lawn care')).toBeVisible();
+    await expect(plans.getByText('1 of your customers')).toBeVisible();
+    await pro.goto('/pro/week');
+    await expectAccessible(pro);
+    await pro.context().close();
   });
 });

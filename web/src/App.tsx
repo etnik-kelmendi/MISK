@@ -26,10 +26,14 @@ import { BookingPage } from './pages/customer/BookingPage';
 import { BookingsPage } from './pages/customer/BookingsPage';
 import { BookPage } from './pages/customer/BookPage';
 import { CategoryPage } from './pages/customer/CategoryPage';
+import { CustomerPlansPage } from './pages/customer/CustomerPlansPage';
+import { MyPlanPage } from './pages/customer/MyPlanPage';
+import { SubscribePage } from './pages/customer/SubscribePage';
 import { HomePage } from './pages/customer/HomePage';
 import { ProHomePage } from './pages/pro/ProHomePage';
 import { ProJobPage } from './pages/pro/ProJobPage';
 import { ProProfilePage } from './pages/pro/ProProfilePage';
+import { ProVisitPage } from './pages/pro/ProVisitPage';
 import { ProWeekPage } from './pages/pro/ProWeekPage';
 import { SignInPage } from './pages/SignInPage';
 import { SignUpPage } from './pages/SignUpPage';
@@ -64,6 +68,9 @@ function CustomerAndProRoutes() {
         <Route path="book/:serviceId" element={<BookPage />} />
         <Route path="bookings" element={<BookingsPage />} />
         <Route path="bookings/:id" element={<BookingPage />} />
+        <Route path="plans" element={<CustomerPlansPage />} />
+        <Route path="plans/:id" element={<SubscribePage />} />
+        <Route path="my-plans/:id" element={<MyPlanPage />} />
         <Route path="account" element={<AccountPage />} />
       </Route>
       <Route
@@ -76,6 +83,7 @@ function CustomerAndProRoutes() {
       >
         <Route index element={<ProHomePage />} />
         <Route path="jobs/:id" element={<ProJobPage />} />
+        <Route path="visits/:id" element={<ProVisitPage />} />
         <Route path="week" element={<ProWeekPage />} />
         <Route path="profile" element={<ProProfilePage />} />
         <Route path="account" element={<AccountPage />} />

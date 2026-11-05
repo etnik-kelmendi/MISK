@@ -462,6 +462,27 @@ export async function subscriptionRoutes(app: FastifyInstance, ctx: AppContext) 
     },
   );
 
+  app.get<{ Params: { id: string } }>(
+    '/pro/visits/:id',
+    { preHandler: guards.pro, schema: { params: idParams } },
+    async (request) => {
+      const found = await pool.query<{ priceCents: number; proSharePct: number; frequency: Frequency }>(
+        `SELECT v.id, v.subscription_id AS "subscriptionId", v.starts_at AS "startsAt", v.ends_at AS "endsAt", v.status,
+           v.tasks_done AS "tasksDone", s.tasks, s.plan_name AS "planName", s.address, s.postcode, s.notes, s.size,
+           cu.first_name AS "customerName", s.price_cents AS "priceCents", s.pro_share_pct AS "proSharePct", s.frequency
+         FROM subscription_visits v JOIN subscriptions s ON s.id = v.subscription_id JOIN users cu ON cu.id = s.customer_id
+         WHERE v.id = $1 AND v.pro_id = $2`,
+        [request.params.id, currentUser(request).id],
+      );
+      const row = found.rows[0];
+      if (!row) {
+        throw notFound();
+      }
+      const { priceCents, proSharePct, frequency, ...visit } = row;
+      return { visit: { ...visit, earningsCents: Math.round(proShareCents(priceCents, proSharePct) / VISITS_PER_MONTH[frequency]) } };
+    },
+  );
+
   app.post<{ Params: { id: string }; Body: { tasksDone: string[] } }>(
     '/pro/visits/:id/complete',
     {

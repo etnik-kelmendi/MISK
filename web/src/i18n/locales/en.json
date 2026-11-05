@@ -90,7 +90,19 @@
     "pending_approval": "Your account is waiting for an admin to approve it. You can sign in once it is approved.",
     "not_pending": "This request was already answered.",
     "invalid_approval_link": "This approval link has expired or was already used. The request may already be answered; see Team.",
-    "plan_incomplete": "The plan is not complete yet. Fill in what is listed above, then publish."
+    "plan_incomplete": "The plan is not complete yet. Fill in what is listed above, then publish.",
+    "plan_not_found": "This plan is no longer offered.",
+    "wrong_number_of_days": "Please choose the number of days the plan asks for.",
+    "plan_has_no_extra": "This plan has no extra.",
+    "no_pro_available": "No pro is free on those days near you. Try other days or the other time of day.",
+    "off_season": "This plan runs April to October. You can subscribe again from April.",
+    "visit_not_skippable": "This visit can no longer be skipped.",
+    "no_skips_left": "You have used all skips for that month.",
+    "pro_no_longer_free": "Your pro is no longer free then, so this visit cannot come back.",
+    "already_cancelled": "This plan is already cancelled.",
+    "in_minimum_term": "You can cancel once the minimum term is over.",
+    "visit_not_started": "You can complete a visit on its day.",
+    "unknown_task": "That task is not part of this plan."
   },
   "nav": {
     "customer": "Main menu",
@@ -100,7 +112,8 @@
     "account": "Account",
     "jobs": "Jobs",
     "week": "Week",
-    "profile": "Profile"
+    "profile": "Profile",
+    "plans": "Plans"
   },
   "signIn": {
     "tagline": "Trusted help for your home and garden",
@@ -399,7 +412,6 @@
     "last30": "Earned, last 30 days",
     "pending": "Waiting to be paid",
     "byDay": "Earnings by day",
-    "dayTotal": "{{day}}: {{amount}}",
     "today": "Today",
     "jobsOn_one": "{{count}} job",
     "jobsOn_other": "{{count}} jobs",
@@ -815,5 +827,81 @@
     "10": "Oct",
     "11": "Nov",
     "12": "Dec"
+  },
+  "plans": {
+    "title": "Monthly plans",
+    "intro": "One fixed monthly price, done for you on a regular schedule by the same pro. Skip a visit or cancel monthly after the minimum term.",
+    "none": "No monthly plans are offered yet.",
+    "mine": "Your plans",
+    "perMonth": "{{price}}/month",
+    "from": "from {{price}}/mo"
+  },
+  "subscribe": {
+    "included": "Included every visit: {{tasks}}",
+    "size": "Size of your home or garden",
+    "days_one": "Your day",
+    "days_other": "Your {{count}} days",
+    "window": "Time of day",
+    "windows": {
+      "morning": "Morning (from 08:00)",
+      "afternoon": "Afternoon (from 13:00)"
+    },
+    "extras": "Extra",
+    "summary": "Your monthly price",
+    "monthly": "Your monthly price",
+    "regularPro": "About {{visits}} visits a month with one regular pro",
+    "allYear": "All year",
+    "skips_one": "Skip up to {{count}} visit a month",
+    "skips_other": "Skip up to {{count}} visits a month",
+    "term": "Minimum {{months}} months, then cancel monthly",
+    "offSeason": "This plan runs April to October. You can subscribe again from April.",
+    "pickDays_one": "Pick {{count}} more day",
+    "pickDays_other": "Pick {{count}} more days",
+    "submit": "Subscribe · {{price}}/month"
+  },
+  "subscription": {
+    "title": "My plan",
+    "status": {
+      "awaiting_payment": "Waiting for payment",
+      "active": "Active",
+      "past_due": "Payment failed",
+      "cancelled": "Ended",
+      "ending": "Ending"
+    },
+    "regularPro": "{{name}} is your regular pro",
+    "withExtra": "With: {{extra}}",
+    "nextCharge": "Next charge {{date}}",
+    "seasonPaused": "Paused for winter: no charge until the season starts again.",
+    "endsOn": "Ends {{date}}. No more charges after that.",
+    "pastDue": "Your last monthly payment did not go through. Please update your card; Stripe will try again.",
+    "upcoming": "Upcoming visits",
+    "skipsLeft_one": "Skips left this month: {{count}}",
+    "skipsLeft_other": "Skips left this month: {{count}}",
+    "noVisits": "Visits are being planned.",
+    "noVisitsWinter": "No visits in winter. They start again in spring.",
+    "skipped": "Skipped",
+    "skip": "Skip",
+    "undo": "Undo",
+    "cancel": "Cancel this plan",
+    "cancelQuestion": "Cancel this plan? It ends when the month you paid for ends, with no further charges.",
+    "cancelConfirm": "Yes, cancel the plan",
+    "cancelFrom": "You can cancel from {{date}}, when the minimum term ends."
+  },
+  "visit": {
+    "title": "Plan visit",
+    "plan": "Plan",
+    "earns": "About {{amount}} per visit",
+    "checklist": "Tick off each task",
+    "complete": "Complete the visit",
+    "completePartly": "Complete with {{done}} of {{total}} tasks",
+    "completed": "Visit completed."
+  },
+  "proPlans": {
+    "title": "Monthly plans in your trades",
+    "none": "No monthly plans in your trades yet.",
+    "earns": "You earn {{amount}}/month",
+    "mine_one": "{{count}} of your customers",
+    "mine_other": "{{count}} of your customers",
+    "seeWeek": "See your plan visits in My week"
   }
 }

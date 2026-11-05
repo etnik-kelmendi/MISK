@@ -335,6 +335,19 @@ code { font-family: ui-monospace, Consolas, monospace; font-size: 0.92em; backgr
 .toggle.on { background: var(--brand); }
 .toggle.on::after { transform: translateX(20px); }
 .preview-cta { min-height: 42px; font-size: 14px; pointer-events: none; }
+.job.rec { box-shadow: inset 3px 0 0 var(--accent), 0 1px 3px rgba(15, 26, 21, 0.06); }
+.addon { display: flex; align-items: center; gap: 10px; background: var(--card); border-radius: 12px; padding: 12px; box-shadow: inset 0 0 0 1.5px var(--line); cursor: pointer; }
+.addon.on { box-shadow: inset 0 0 0 2px var(--brand); }
+.addon input, .check-row input { width: 20px; height: 20px; accent-color: var(--brand); }
+.check-row { padding: 4px 0; }
+.sumbox { background: var(--pro); color: #fff; border-radius: 16px; padding: 16px; display: grid; gap: 10px; }
+.sumbox .sub { color: #c9d6d0; }
+.big-price { font-size: 30px; font-weight: 800; letter-spacing: -0.02em; }
+.big-price .small { color: #c9d6d0; font-weight: 600; }
+.visit { display: flex; align-items: center; gap: 12px; background: var(--card); border-radius: 14px; padding: 10px 12px; box-shadow: 0 1px 3px rgba(15, 26, 21, 0.06); }
+.visit.skipped { opacity: 0.6; }
+.visit .vd { min-width: 44px; text-align: center; }
+.plan-card { background: linear-gradient(135deg, #fff6e4, #fff); display: grid; gap: 4px; }
 @media (max-width: 900px) {
   .admin { grid-template-columns: 1fr; }
   .aside { flex-direction: row; flex-wrap: wrap; border-right: 0; border-bottom: 1px solid var(--line); }

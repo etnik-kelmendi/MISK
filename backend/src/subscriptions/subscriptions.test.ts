@@ -85,6 +85,10 @@ describe('subscribing to a plan', () => {
     const to = new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString();
     const visits = (await call(t, 'GET', `/pro/visits?to=${encodeURIComponent(to)}`, { cookie: pro.cookie })).json().visits;
     expect(visits[0]).toMatchObject({ planName: 'Lawn care', customerName: 'Sara', tasks: ['Mow', 'Edge', 'Blow paths'], status: 'planned' });
+    const one = await call(t, 'GET', `/pro/visits/${visits[0].id}`, { cookie: pro.cookie });
+    expect(one.json().visit).toMatchObject({ id: visits[0].id, planName: 'Lawn care', earningsCents: Math.round(3430 / 4.3) });
+    const stranger = await approvedPro(t, '+4915100000109', { trades: [market.plumbing] });
+    expect((await call(t, 'GET', `/pro/visits/${visits[0].id}`, { cookie: stranger.cookie })).statusCode).toBe(404);
 
     const early = await call(t, 'POST', `/pro/visits/${visits[0].id}/complete`, { cookie: pro.cookie, body: { tasksDone: ['Mow'] } });
     expect(early.json()).toEqual({ error: 'visit_not_started' });

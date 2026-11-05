@@ -4,6 +4,7 @@ import { jobPriceCents, proShareCents, type JobSize } from '../catalogue/pricing
 import { withTransaction } from '../db.js';
 import type { FileStorage } from '../uploads/storage.js';
 import { makeDocument, makePhoto } from './images.js';
+import { planVisits } from '../subscriptions/service.js';
 
 /**
  * Demo data for development and the preview: a served city, the demo's catalogue and plans, pros in
@@ -519,6 +520,58 @@ async function fill(
      VALUES ($1, $2, 'declined', now() - interval '1 hour', now() - interval '70 minutes')`,
     [lonely.id, proIds.get('marta')],
   );
+
+  // Monthly plans in use: customers with a regular pro and visits planned four weeks ahead.
+  const planIds = await db.query<{ id: string; name: string }>("SELECT id, name FROM plans WHERE status = 'published'");
+  const planId = (name: string) => planIds.rows.find((row) => row.name === name)?.id;
+  for (const [index, sub] of (
+    [
+      { who: 'sara', plan: 'Lawn care', pro: 'daniel', category: 'gardening', days: [2, 5], window: 'morning', tasks: ['Mow', 'Edge', 'Blow paths'], minutes: 60, price: 6400, addon: 'Hedge trimming', seasonal: true, frequency: 'twice_weekly' },
+      { who: 'anna', plan: 'Home cleaning', pro: 'ina', category: 'cleaning', days: [3], window: 'afternoon', tasks: ['Kitchen', 'Bathrooms', 'Floors', 'Dusting'], minutes: 150, price: 6900, addon: null, seasonal: false, frequency: 'every_2_weeks' },
+    ] as const
+  ).entries()) {
+    const created = await db.query<{ id: string }>(
+      `INSERT INTO subscriptions (customer_id, plan_id, category_id, plan_name, tasks, size, frequency, days, time_window,
+         visit_minutes, address, postcode, with_addon, addon_name, price_cents, pro_share_pct, seasonal, season_from, season_to,
+         skips_per_month, min_term_months, pro_id, status, stripe_subscription_id, started_at, current_period_end, created_at)
+       VALUES ($1, $2, $3, $4, $5, 'M', $6, $7, $8, $9, $10, $11, $12, $13, $14, 70, $15, $16, $17, 2, 3, $18, 'active', $19,
+         now() - interval '40 days', now() + interval '20 days', now() - interval '40 days')
+       RETURNING id`,
+      [
+        customerIds.get(sub.who),
+        planId(sub.plan),
+        categoryIds.get(sub.category),
+        sub.plan,
+        [...sub.tasks],
+        sub.frequency,
+        [...sub.days],
+        sub.window,
+        sub.minutes,
+        customer(sub.who).address,
+        customer(sub.who).postcode,
+        sub.addon !== null,
+        sub.addon,
+        sub.price,
+        sub.seasonal,
+        sub.seasonal ? 4 : null,
+        sub.seasonal ? 10 : null,
+        proIds.get(sub.pro),
+        `sub_seed_${index}`,
+      ],
+    );
+    const subscriptionId = created.rows[0]?.id ?? '';
+    await db.query(
+      `INSERT INTO subscription_payouts (subscription_id, pro_id, invoice_id, amount_cents, transfer_id, status, created_at)
+       VALUES ($1, $2, $3, $4, $5, 'sent', now() - interval '10 days')`,
+      [subscriptionId, proIds.get(sub.pro), `in_seed_${index}`, Math.floor((sub.price * 70) / 100), `tr_seed_sub_${index}`],
+    );
+    const row = await db.query(
+      `SELECT id, pro_id, days, frequency, time_window, visit_minutes, seasonal, season_from, season_to, started_at, created_at, ends_at
+       FROM subscriptions WHERE id = $1`,
+      [subscriptionId],
+    );
+    await planVisits(db, row.rows[0], tz, 'planned');
+  }
 
   // Booked a moment ago, card not confirmed yet.
   await addBooking({

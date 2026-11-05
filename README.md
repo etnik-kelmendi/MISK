@@ -125,6 +125,11 @@ stateDiagram-v2
   the job and of approved extra work is transferred to their Stripe account, paid out every Friday.
   The service fee (€2.90 by default) stays with MISK. Both are set under **Settings**.
 - **Extra work** is charged only after the customer approves it in the app.
+- **Monthly plans** are built and published by admins. Customers subscribe in the app's Plans tab (size,
+  days, morning or afternoon, optional extra), get one regular pro, and pay monthly through Stripe. Visits
+  are planned four weeks ahead; customers can skip a limited number a month and cancel after the minimum
+  term. Seasonal plans run April to October and are not charged in winter. Pros see the plans in their
+  trades and their plan visits, and tick off the tasks on each visit.
 - **Cancelling** is free until a pro is assigned and then until 24 hours before; after that only admins
   can cancel. Admins can also refund a finished job, which takes the pro's payout back.
 
@@ -139,8 +144,9 @@ files, which git ignores.
    `NODE_ENV=production`.
 2. Enable **Connect** in the Stripe dashboard, with Express accounts.
 3. Add a webhook endpoint for `https://<api host>/payments/webhook` listening to
-   `payment_intent.amount_capturable_updated` and `payment_intent.payment_failed`, and put its signing
-   secret in `STRIPE_WEBHOOK_SECRET`.
+   `payment_intent.amount_capturable_updated`, `payment_intent.payment_failed`, `invoice.paid` and
+   `invoice.payment_failed` (the last two bill monthly plans), and put its signing secret in
+   `STRIPE_WEBHOOK_SECRET`.
 
 ### Twilio
 

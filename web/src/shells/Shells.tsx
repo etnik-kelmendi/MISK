@@ -37,6 +37,7 @@ export function CustomerShell() {
         tabs={[
           { to: '/', icon: 'home', label: t('nav.home'), end: true },
           { to: '/bookings', icon: 'list', label: t('nav.bookings') },
+          { to: '/plans', icon: 'repeat', label: t('nav.plans') },
           { to: '/account', icon: 'user', label: t('nav.account') },
         ]}
       />

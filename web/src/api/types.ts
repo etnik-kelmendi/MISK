@@ -301,3 +301,71 @@ export interface Plan extends PlanInput {
   publishedAt: string | null;
   updatedAt: string;
 }
+
+export type TimeWindow = 'morning' | 'afternoon';
+export type SubscriptionStatus = 'awaiting_payment' | 'active' | 'past_due' | 'cancelled';
+export type VisitStatus = 'planned' | 'skipped' | 'completed' | 'cancelled';
+
+export interface SubscriptionVisit {
+  id: string;
+  startsAt: string;
+  endsAt: string;
+  status: VisitStatus;
+  tasksDone: string[];
+}
+
+export interface Subscription {
+  id: string;
+  planId: string;
+  planName: string;
+  categoryId: string;
+  tasks: string[];
+  size: JobSize;
+  frequency: Frequency;
+  days: number[];
+  timeWindow: TimeWindow;
+  visitMinutes: number;
+  address: string;
+  postcode: string;
+  notes: string;
+  withAddon: boolean;
+  addonName: string | null;
+  priceCents: number;
+  seasonal: boolean;
+  seasonFrom: number | null;
+  seasonTo: number | null;
+  skipsPerMonth: number;
+  minTermMonths: number;
+  status: SubscriptionStatus;
+  billingPaused: boolean;
+  startedAt: string | null;
+  currentPeriodEnd: string | null;
+  endsAt: string | null;
+  createdAt: string;
+  proName: string | null;
+  cancelableFrom: string | null;
+  visits: SubscriptionVisit[];
+  skipsLeftThisMonth: number;
+}
+
+export interface ProVisit {
+  id: string;
+  subscriptionId: string;
+  startsAt: string;
+  endsAt: string;
+  status: VisitStatus;
+  tasksDone: string[];
+  tasks: string[];
+  planName: string;
+  address: string;
+  postcode: string;
+  notes: string;
+  customerName: string | null;
+  earningsCents: number;
+}
+
+export interface ProPlan extends Plan {
+  mySubscribers: number;
+  earningsPerMonthCents: number;
+  visitsPerMonth: number;
+}

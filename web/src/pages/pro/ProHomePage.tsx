@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Link, useNavigate } from 'react-router';
 import { useApi } from '../../api/ApiContext';
 import { useMarket } from '../../api/MarketContext';
-import type { JobListItem, Offer, ProJob, ProProfile } from '../../api/types';
+import type { BookingStatus, Offer, ProJob, ProProfile } from '../../api/types';
 import { useResource } from '../../api/useResource';
 import { useUser } from '../../auth/AuthContext';
 import { ErrorText } from '../../components/ErrorText';
@@ -12,9 +12,11 @@ import { PhotoGrid } from '../../components/Photos';
 import { ResourceState } from '../../components/ResourceState';
 import { Stars, StatusBadge } from '../../components/StatusBadge';
 import { dateTime, euro, time } from '../../lib/format';
+import { loadSchedule } from '../../lib/proSchedule';
 import { useAction } from '../../lib/useAction';
 import { usePolling } from '../../lib/usePolling';
 import { ApplicationForm } from './ApplicationForm';
+import { ProPlansSection } from './ProVisitPage';
 
 function useCountdown(until: string): number {
   const [now, setNow] = useState(() => Date.now());
@@ -122,7 +124,7 @@ function ApprovedHome({ profile }: { profile: ProProfile }) {
   const { timezone } = useMarket();
   const loadOffers = useCallback(() => api.get<{ offers: Offer[] }>('/pro/offers'), [api]);
   const offers = useResource(loadOffers);
-  const loadJobs = useCallback(() => api.get<{ jobs: JobListItem[] }>('/pro/jobs'), [api]);
+  const loadJobs = useCallback(() => loadSchedule(api), [api]);
   const jobs = useResource(loadJobs);
   usePolling(offers.reload, 10_000);
   usePolling(jobs.reload, 30_000);
@@ -149,23 +151,29 @@ function ApprovedHome({ profile }: { profile: ProProfile }) {
       </ResourceState>
       <h2 className="h-sm">{t('pro.upcoming')}</h2>
       <ResourceState state={jobs.state} reload={jobs.reload}>
-        {({ jobs: list }) => {
-          const open = list.filter((job) => job.status !== 'completed');
+        {(list) => {
+          const open = list.filter((item) => !item.closed);
           return open.length === 0 ? (
             <p className="muted small">{t('pro.noJobs')}</p>
           ) : (
             <ul className="stack">
-              {open.map((job) => (
-                <li key={job.id}>
-                  <Link to={`/pro/jobs/${job.id}`} className="job link-card">
-                    <span className="jt">{time(job.startsAt, timezone)}</span>
+              {open.map((item) => (
+                <li key={item.key}>
+                  <Link to={item.href} className={`job link-card ${item.kind === 'visit' ? 'rec' : ''}`}>
+                    <span className="jt">{time(item.startsAt, timezone)}</span>
                     <span className="grow">
-                      <span className="b small block">{job.serviceName}</span>
+                      <span className="b small block">{item.title}</span>
                       <span className="tiny muted">
-                        {dateTime(job.startsAt, timezone)} · {job.address}
+                        {dateTime(item.startsAt, timezone)} · {item.address}
                       </span>
                     </span>
-                    <StatusBadge status={job.status} />
+                    {item.kind === 'visit' ? (
+                      <span className="badge a">
+                        <Icon name="repeat" /> {t('visit.plan')}
+                      </span>
+                    ) : (
+                      <StatusBadge status={item.status as BookingStatus} />
+                    )}
                   </Link>
                 </li>
               ))}
@@ -173,6 +181,7 @@ function ApprovedHome({ profile }: { profile: ProProfile }) {
           );
         }}
       </ResourceState>
+      <ProPlansSection />
     </div>
   );
 }
