@@ -54,7 +54,9 @@ export async function adminBookingRoutes(app: FastifyInstance, ctx: AppContext) 
              (SELECT COALESCE(sum(p.amount_cents), 0)::int FROM payouts p JOIN bookings b ON b.id = p.booking_id, period
                 WHERE b.completed_at >= since) AS "payoutCents",
              (SELECT round(avg(stars)::numeric, 2)::float FROM ratings, period WHERE created_at >= since) AS "ratingAverage",
-             (SELECT count(*)::int FROM ratings, period WHERE created_at >= since) AS "ratingCount"`,
+             (SELECT count(*)::int FROM ratings, period WHERE created_at >= since) AS "ratingCount",
+             (SELECT count(*)::int FROM subscriptions WHERE status = 'active') AS "activeSubscriptions",
+             (SELECT count(*)::int FROM subscriptions, period WHERE started_at >= since) AS "newSubscriptions"`,
           [days],
         ),
         pool.query(

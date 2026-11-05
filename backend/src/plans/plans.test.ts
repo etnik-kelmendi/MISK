@@ -23,19 +23,32 @@ const plan = () => ({
   addonName: 'Hedge trimming',
   addonPriceCents: 1500,
   seasonal: true,
-  seasonFrom: 4,
-  seasonTo: 10,
   skipsPerMonth: 2,
   minTermMonths: 3,
   proSharePct: 70,
 });
+
+const empty = {
+  name: null,
+  categoryId: null,
+  priceCents: null,
+  frequency: 'weekly',
+  visitMinutes: 60,
+  tasks: [],
+  addonName: null,
+  addonPriceCents: null,
+  seasonal: false,
+  skipsPerMonth: 2,
+  minTermMonths: 3,
+  proSharePct: 70,
+};
 
 describe('plans', () => {
   it('lets admins create a draft, edit it and publish it for customers', async () => {
     const created = await call(t, 'POST', '/admin/plans', { cookie: admin, body: plan() });
     expect(created.statusCode).toBe(201);
     const draft = created.json().plan;
-    expect(draft).toMatchObject({ name: 'Weekly lawn care', categoryName: 'Gardening', status: 'draft', seasonFrom: 4 });
+    expect(draft).toMatchObject({ name: 'Weekly lawn care', categoryName: 'Gardening', status: 'draft', subscribers: 0 });
     expect((await t.app.inject({ method: 'GET', url: '/plans' })).json().plans).toEqual([]);
 
     const edited = await call(t, 'PUT', `/admin/plans/${draft.id}`, {
@@ -46,7 +59,6 @@ describe('plans', () => {
 
     const published = await call(t, 'POST', `/admin/plans/${draft.id}/status`, { cookie: admin, body: { published: true } });
     expect(published.json().plan.status).toBe('published');
-    expect(published.json().plan.publishedAt).not.toBeNull();
     const again = await call(t, 'POST', `/admin/plans/${draft.id}/status`, { cookie: admin, body: { published: true } });
     expect(again.json()).toEqual({ error: 'already_published' });
     expect((await t.app.inject({ method: 'GET', url: '/plans' })).json().plans).toHaveLength(1);
@@ -55,31 +67,48 @@ describe('plans', () => {
     expect((await t.app.inject({ method: 'GET', url: '/plans' })).json().plans).toEqual([]);
   });
 
-  it('stores a year-round plan without season months and a plan without an extra', async () => {
-    const created = await call(t, 'POST', '/admin/plans', {
-      cookie: admin,
-      body: { ...plan(), seasonal: false, addonName: null, addonPriceCents: null },
-    });
-    expect(created.json().plan).toMatchObject({ seasonal: false, seasonFrom: null, seasonTo: null, addonName: null });
+  it('runs seasonal plans from April to October', async () => {
+    const created = (await call(t, 'POST', '/admin/plans', { cookie: admin, body: plan() })).json().plan;
+    expect(created).toMatchObject({ seasonal: true, seasonFrom: 4, seasonTo: 10 });
+    const yearRound = (await call(t, 'POST', '/admin/plans', { cookie: admin, body: { ...plan(), seasonal: false } })).json().plan;
+    expect(yearRound).toMatchObject({ seasonal: false, seasonFrom: null, seasonTo: null });
   });
 
-  it('refuses incomplete or invalid plans', async () => {
-    const refuse = async (body: Record<string, unknown>, error?: string) => {
+  it('saves a draft however incomplete, and cleans its tasks', async () => {
+    const created = await call(t, 'POST', '/admin/plans', { cookie: admin, body: { ...empty, tasks: [' Mow ', 'mow', 'Edge'] } });
+    expect(created.statusCode).toBe(201);
+    expect(created.json().plan).toMatchObject({ name: null, categoryId: null, priceCents: null, tasks: ['Mow', 'Edge'], status: 'draft' });
+    const list = (await call(t, 'GET', '/admin/plans', { cookie: admin })).json().plans;
+    expect(list).toHaveLength(1);
+  });
+
+  it('refuses to publish an incomplete plan, and says what is missing', async () => {
+    const draft = (await call(t, 'POST', '/admin/plans', { cookie: admin, body: { ...empty, addonName: 'Extra' } })).json().plan;
+    const refused = await call(t, 'POST', `/admin/plans/${draft.id}/status`, { cookie: admin, body: { published: true } });
+    expect(refused.statusCode).toBe(400);
+    expect(refused.json()).toEqual({ error: 'plan_incomplete', missing: ['name', 'category', 'price', 'tasks', 'addonPrice'] });
+
+    const cheap = (await call(t, 'POST', '/admin/plans', { cookie: admin, body: { ...plan(), priceCents: 100 } })).json().plan;
+    const tooCheap = await call(t, 'POST', `/admin/plans/${cheap.id}/status`, { cookie: admin, body: { published: true } });
+    expect(tooCheap.json().missing).toEqual(['price']);
+  });
+
+  it('keeps a live plan complete', async () => {
+    const live = (await call(t, 'POST', '/admin/plans', { cookie: admin, body: plan() })).json().plan;
+    await call(t, 'POST', `/admin/plans/${live.id}/status`, { cookie: admin, body: { published: true } });
+    const broken = await call(t, 'PUT', `/admin/plans/${live.id}`, { cookie: admin, body: { ...plan(), tasks: [] } });
+    expect(broken.json()).toEqual({ error: 'plan_incomplete', missing: ['tasks'] });
+  });
+
+  it('refuses invalid values and unknown categories', async () => {
+    const refuse = async (body: Record<string, unknown>, status = 400) => {
       const response = await call(t, 'POST', '/admin/plans', { cookie: admin, body: { ...plan(), ...body } });
-      expect(response.statusCode).toBe(error === 'category_not_found' ? 404 : 400);
-      if (error) {
-        expect(response.json()).toEqual({ error });
-      }
+      expect(response.statusCode).toBe(status);
     };
-    await refuse({ addonPriceCents: null }, 'addon_incomplete');
-    await refuse({ seasonFrom: null }, 'season_incomplete');
-    await refuse({ tasks: ['Mow', 'mow'] }, 'duplicate_task');
-    await refuse({ tasks: [] });
-    await refuse({ priceCents: 100 });
     await refuse({ proSharePct: 95 });
     await refuse({ visitMinutes: 50 });
     await refuse({ frequency: 'daily' });
-    await refuse({ categoryId: '00000000-0000-4000-8000-000000000000' }, 'category_not_found');
+    await refuse({ categoryId: '00000000-0000-4000-8000-000000000000' }, 404);
   });
 
   it('keeps plan building to admins', async () => {

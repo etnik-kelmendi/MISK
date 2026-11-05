@@ -110,12 +110,62 @@ export function createStripeGateway(config: StripeConfig): PaymentGateway {
           amount: input.amountCents,
           currency: CURRENCY,
           destination: input.accountId,
-          source_transaction: input.sourceChargeId,
+          ...(input.sourceChargeId ? { source_transaction: input.sourceChargeId } : {}),
           transfer_group: input.transferGroup,
         },
         { idempotencyKey: input.idempotencyKey },
       );
       return { transferId: transfer.id };
+    },
+
+    async ensureProduct({ planId, name, existing }) {
+      if (existing) {
+        return existing;
+      }
+      const product = await stripe.products.create({ name: `MISK ${name}`, metadata: { planId } }, { idempotencyKey: `product-${planId}` });
+      return product.id;
+    },
+
+    async createSubscription(input) {
+      const subscription = await stripe.subscriptions.create(
+        {
+          customer: input.customerRef,
+          items: [{ price_data: { currency: CURRENCY, product: input.productId, unit_amount: input.amountCents, recurring: { interval: 'month' } } }],
+          payment_behavior: 'default_incomplete',
+          payment_settings: { save_default_payment_method: 'on_subscription' },
+          metadata: input.metadata,
+          expand: ['latest_invoice.confirmation_secret'],
+        },
+        { idempotencyKey: input.idempotencyKey },
+      );
+      const invoice = subscription.latest_invoice;
+      const active = subscription.status === 'active';
+      return {
+        subscriptionId: subscription.id,
+        clientSecret: active || typeof invoice === 'string' ? null : (invoice?.confirmation_secret?.client_secret ?? null),
+        active,
+      };
+    },
+
+    async subscriptionClientSecret(subscriptionId) {
+      const subscription = await stripe.subscriptions.retrieve(subscriptionId, { expand: ['latest_invoice.confirmation_secret'] });
+      const invoice = subscription.latest_invoice;
+      if (subscription.status !== 'incomplete' || !invoice || typeof invoice === 'string') {
+        return null;
+      }
+      return invoice.confirmation_secret?.client_secret ?? null;
+    },
+
+    async cancelSubscription(subscriptionId, atPeriodEnd) {
+      if (atPeriodEnd) {
+        await stripe.subscriptions.update(subscriptionId, { cancel_at_period_end: true });
+      } else {
+        await stripe.subscriptions.cancel(subscriptionId);
+      }
+    },
+
+    async setBillingPaused(subscriptionId, paused) {
+      await stripe.subscriptions.update(subscriptionId, { pause_collection: paused ? { behavior: 'void' } : '' });
     },
 
     async createConnectedAccount({ userId, idempotencyKey }) {
@@ -153,6 +203,22 @@ export function createStripeGateway(config: StripeConfig): PaymentGateway {
         parsed = { kind: 'hold_confirmed', intentId: event.data.object.id };
       } else if (event.type === 'payment_intent.payment_failed') {
         parsed = { kind: 'payment_failed', intentId: event.data.object.id };
+      } else if (event.type === 'invoice.paid' || event.type === 'invoice.payment_failed') {
+        const invoice = event.data.object;
+        const owner = invoice.parent?.subscription_details?.subscription;
+        const subscriptionId = typeof owner === 'string' ? owner : owner?.id;
+        if (subscriptionId && invoice.id) {
+          parsed =
+            event.type === 'invoice.paid'
+              ? {
+                  kind: 'invoice_paid',
+                  subscriptionId,
+                  invoiceId: invoice.id,
+                  amountCents: invoice.amount_paid,
+                  periodEnd: new Date((invoice.lines.data[0]?.period.end ?? invoice.period_end) * 1000),
+                }
+              : { kind: 'invoice_failed', subscriptionId };
+        }
       }
       return { eventId: event.id, event: parsed };
     },

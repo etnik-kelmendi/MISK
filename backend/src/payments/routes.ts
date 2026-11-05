@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { AppContext } from '../context.js';
 import { confirmHold, markPaymentFailed } from '../bookings/lifecycle.js';
+import { markPastDue, recordPaidMonth } from '../subscriptions/service.js';
 
 export const WEBHOOK_PATH = '/payments/webhook';
 
@@ -34,6 +35,11 @@ export async function paymentRoutes(app: FastifyInstance, ctx: AppContext) {
         await confirmHold(deps, parsed.event.intentId);
       } else if (parsed.event.kind === 'payment_failed') {
         await markPaymentFailed(deps, parsed.event.intentId);
+      } else if (parsed.event.kind === 'invoice_paid') {
+        const { subscriptionId, invoiceId, amountCents, periodEnd } = parsed.event;
+        await recordPaidMonth(deps, { subscriptionId, invoiceId, amountCents, periodEnd });
+      } else if (parsed.event.kind === 'invoice_failed') {
+        await markPastDue(deps, parsed.event.subscriptionId);
       }
     } catch (error) {
       // Forget the event so Stripe's retry is handled instead of skipped.

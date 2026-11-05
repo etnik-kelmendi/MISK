@@ -13,7 +13,18 @@ export interface HoldResult {
 export type GatewayEvent =
   | { kind: 'hold_confirmed'; intentId: string }
   | { kind: 'payment_failed'; intentId: string }
+  /** A monthly plan invoice was paid; `periodEnd` is when the paid month ends. */
+  | { kind: 'invoice_paid'; subscriptionId: string; invoiceId: string; amountCents: number; periodEnd: Date }
+  | { kind: 'invoice_failed'; subscriptionId: string }
   | { kind: 'ignored' };
+
+export interface SubscriptionStart {
+  subscriptionId: string;
+  /** Secret the customer's browser needs to pay the first month; null when nothing is left to do. */
+  clientSecret: string | null;
+  /** True when the first month is already paid. */
+  active: boolean;
+}
 
 export interface PaymentGateway {
   /** Key the browser uses to show the card form; null when the gateway needs no browser step. */
@@ -37,11 +48,28 @@ export interface PaymentGateway {
   transfer(input: {
     accountId: string;
     amountCents: number;
-    sourceChargeId: string;
+    /** The charge the money came from; without one it is paid from the available balance. */
+    sourceChargeId?: string;
     transferGroup: string;
     idempotencyKey: string;
   }): Promise<{ transferId: string }>;
   createConnectedAccount(input: { userId: string; idempotencyKey: string }): Promise<string>;
+  /** The provider's product a plan is billed under, created once per plan. */
+  ensureProduct(input: { planId: string; name: string; existing: string | null }): Promise<string>;
+  /** Starts monthly billing; the first month is paid by the customer in the browser. */
+  createSubscription(input: {
+    customerRef: string;
+    productId: string;
+    amountCents: number;
+    idempotencyKey: string;
+    metadata: Record<string, string>;
+  }): Promise<SubscriptionStart>;
+  /** The browser secret of an unpaid first month, so the customer can finish paying after a reload. */
+  subscriptionClientSecret(subscriptionId: string): Promise<string | null>;
+  /** Stops billing, either now or once the paid month ends. */
+  cancelSubscription(subscriptionId: string, atPeriodEnd: boolean): Promise<void>;
+  /** Pauses or resumes monthly charges, e.g. for a seasonal plan in winter. */
+  setBillingPaused(subscriptionId: string, paused: boolean): Promise<void>;
   onboardingLink(input: { accountId: string; returnUrl: string; refreshUrl: string }): Promise<string>;
   accountStatus(accountId: string): Promise<{ payoutsEnabled: boolean }>;
   /** Verifies a webhook's signature and reads it. Throws when the signature is wrong. */

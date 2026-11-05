@@ -16,7 +16,8 @@ export interface FakeIntent {
 export function createFakeGateway(options: { instantHolds?: boolean } = {}) {
   const intents = new Map<string, FakeIntent>();
   const transfers: { id: string; accountId: string; amountCents: number; reversed: boolean }[] = [];
-  const failures = new Set<'hold' | 'capture' | 'transfer'>();
+  const failures = new Set<'hold' | 'capture' | 'transfer' | 'subscription'>();
+  const subscriptions = new Map<string, { id: string; amountCents: number; status: 'incomplete' | 'active' | 'cancelled'; cancelAtPeriodEnd: boolean; paused: boolean; metadata: Record<string, string> }>();
   let instantHolds = options.instantHolds ?? true;
 
   function hold(input: HoldInput) {
@@ -76,6 +77,40 @@ export function createFakeGateway(options: { instantHolds?: boolean } = {}) {
       return { transferId: id };
     },
     createConnectedAccount: async ({ userId }) => `acct_${userId.slice(0, 8)}`,
+    ensureProduct: async ({ planId, existing }) => existing ?? `prod_${planId.slice(0, 8)}`,
+    async createSubscription(input) {
+      if (failures.has('subscription')) {
+        throw new Error('fake subscription failure');
+      }
+      const id = `sub_${randomUUID()}`;
+      subscriptions.set(id, {
+        id,
+        amountCents: input.amountCents,
+        status: instantHolds ? 'active' : 'incomplete',
+        cancelAtPeriodEnd: false,
+        paused: false,
+        metadata: input.metadata,
+      });
+      return { subscriptionId: id, clientSecret: instantHolds ? null : `${id}_secret`, active: instantHolds };
+    },
+    subscriptionClientSecret: async (subscriptionId) =>
+      subscriptions.get(subscriptionId)?.status === 'incomplete' ? `${subscriptionId}_secret` : null,
+    async cancelSubscription(subscriptionId, atPeriodEnd) {
+      const subscription = subscriptions.get(subscriptionId);
+      if (subscription) {
+        if (atPeriodEnd) {
+          subscription.cancelAtPeriodEnd = true;
+        } else {
+          subscription.status = 'cancelled';
+        }
+      }
+    },
+    async setBillingPaused(subscriptionId, paused) {
+      const subscription = subscriptions.get(subscriptionId);
+      if (subscription) {
+        subscription.paused = paused;
+      }
+    },
     onboardingLink: async ({ returnUrl }) => returnUrl,
     accountStatus: async () => ({ payoutsEnabled: true }),
     parseWebhook(rawBody, signature) {
@@ -90,6 +125,7 @@ export function createFakeGateway(options: { instantHolds?: boolean } = {}) {
     gateway,
     intents,
     transfers,
+    subscriptions,
     failures,
     /** Makes payments that already exist in seeded data known to the fake. */
     addIntents(seeded: { id: string; amountCents: number; status: FakeIntent['status'] }[]) {
@@ -100,6 +136,7 @@ export function createFakeGateway(options: { instantHolds?: boolean } = {}) {
     /** Forgets everything, for a clean start in each test. */
     reset() {
       intents.clear();
+      subscriptions.clear();
       transfers.length = 0;
       failures.clear();
       instantHolds = options.instantHolds ?? true;

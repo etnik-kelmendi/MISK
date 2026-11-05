@@ -45,6 +45,11 @@ export function eligibleProFilter(cat: string, pc: string, s: string, e: string,
         AND tstzrange(busy.starts_at, busy.ends_at) && tstzrange(${s}, ${e})
     )
     AND NOT EXISTS (
+      SELECT 1 FROM subscription_visits visit
+      WHERE visit.pro_id = p.user_id AND visit.status IN ('pending', 'planned')
+        AND tstzrange(visit.starts_at, visit.ends_at) && tstzrange(${s}, ${e})
+    )
+    AND NOT EXISTS (
       SELECT 1 FROM booking_offers held JOIN bookings hb ON hb.id = held.booking_id
       WHERE held.pro_id = p.user_id AND held.status = 'pending'
         AND tstzrange(hb.starts_at, hb.ends_at) && tstzrange(${s}, ${e})
