@@ -1,6 +1,7 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { CustomerBooking, ProProfile } from './api/types';
+import { forgetApprovalLink } from './pages/admin/ApproveRequestPage';
 import { fakeApi, renderAt, users } from './test/harness';
 
 const user = () => userEvent.setup();
@@ -725,6 +726,27 @@ describe('admin', () => {
     await user().type(screen.getByLabelText('Password'), 'a long new admin password');
     await user().click(screen.getByRole('button', { name: 'Sign in' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('waiting for an admin to approve it');
+  });
+
+  it('approves an account request with one click from the email link, and hides the token', async () => {
+    forgetApprovalLink();
+    const api = fakeApi(null);
+    api.on('POST /auth/admin/approve', { body: { admin: { email: 'lina@misk.test', firstName: 'Lina', lastName: 'Hoxha' } } });
+    window.history.replaceState(null, '', '/admin/approve#token=abcdefghijklmnopqrstuvwxyz123456');
+    renderAt('/admin/approve');
+    expect(await screen.findByText(/Lina Hoxha can now sign in with lina@misk.test/)).toBeInTheDocument();
+    expect(api.calls.filter((c) => c === 'POST /auth/admin/approve')).toHaveLength(1);
+    expect(api.bodies['POST /auth/admin/approve']).toEqual({ token: 'abcdefghijklmnopqrstuvwxyz123456' });
+    expect(window.location.hash).toBe('');
+  });
+
+  it('explains a used or expired approval link', async () => {
+    forgetApprovalLink();
+    const api = fakeApi(null);
+    api.on('POST /auth/admin/approve', { status: 400, body: { error: 'invalid_approval_link' } });
+    window.history.replaceState(null, '', '/admin/approve#token=abcdefghijklmnopqrstuvwxyz123456');
+    renderAt('/admin/approve');
+    expect(await screen.findByRole('alert')).toHaveTextContent('expired or was already used');
   });
 
   it('lets an admin approve an account request on the Team page', async () => {

@@ -88,7 +88,8 @@
     "already_published": "This plan is already live.",
     "not_published": "This plan is not live.",
     "pending_approval": "Your account is waiting for an admin to approve it. You can sign in once it is approved.",
-    "not_pending": "This request was already answered."
+    "not_pending": "This request was already answered.",
+    "invalid_approval_link": "This approval link has expired or was already used. The request may already be answered; see Team."
   },
   "nav": {
     "customer": "Main menu",
@@ -749,8 +750,14 @@
       "email": "Work email address",
       "passwordShort": "The password needs at least {{min}} characters.",
       "submit": "Request account",
-      "sent": "Thanks! Your request is with the MISK team. You can sign in once an admin approves it; they have been told by email.",
+      "sent": "Thanks! Your request is with the MISK team. You can sign in with your email once an admin approves it; they have been emailed a link to do so.",
       "toLogin": "Back to sign-in"
+    },
+    "approve": {
+      "title": "Approve account request",
+      "working": "Approving…",
+      "done": "{{name}} can now sign in with {{email}}. We emailed them to say so.",
+      "toTeam": "Go to Team"
     }
   },
   "signUp": {

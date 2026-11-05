@@ -1,28 +1,40 @@
+import { randomBytes } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type { AppContext } from '../context.js';
+import { withTransaction } from '../db.js';
 import { badRequest, conflict, notFound } from '../errors.js';
 import { isUniqueViolation, uuidParams } from '../http.js';
 import { normalizeEmail } from './admin-accounts.js';
 import { currentUser } from './guard.js';
 import { hashPassword, MIN_PASSWORD_LENGTH } from './passwords.js';
 import { refuseWrongSite } from './routes.js';
-import { recordAttempt } from './sessions.js';
+import { hashToken, recordAttempt } from './sessions.js';
 
 export const MAX_ADMIN_REQUESTS_PER_IP = 5;
+/** How long the one-click approval link in the admins' email works. */
+export const APPROVAL_LINK_DAYS = 7;
 const EMAIL_FORMAT = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const nameProperty = { type: 'string', minLength: 1, maxLength: 60, pattern: '\\S' } as const;
 
-export function adminRequestEmail(name: string, email: string, teamLink: string) {
+export function adminRequestEmail(name: string, email: string, approveLink: string, teamLink: string) {
   return {
     subject: 'New MISK admin account request',
     text: [
       `${name} (${email}) asked for an admin account on the MISK control panel.`,
       '',
-      `They cannot sign in until an admin approves the request. Approve or decline it under Team:`,
-      teamLink,
+      `To approve, open this link. ${name} can sign in with ${email} straight away. It works once, for ${APPROVAL_LINK_DAYS} days:`,
+      approveLink,
       '',
-      'If you do not know this person, decline the request.',
+      'If you do not know this person, do not open the link. Decline the request under Team instead:',
+      teamLink,
     ].join('\n'),
+  };
+}
+
+export function adminApprovedEmail(name: string, email: string, loginLink: string) {
+  return {
+    subject: 'Your MISK admin account is ready',
+    text: [`Hello ${name},`, '', `Your admin account is approved. Sign in with ${email} and your password:`, loginLink].join('\n'),
   };
 }
 
@@ -67,12 +79,19 @@ export async function adminRequestRoutes(app: FastifyInstance, ctx: AppContext) 
       }
       const firstName = request.body.firstName.trim();
       const lastName = request.body.lastName.trim();
+      const token = randomBytes(32).toString('base64url');
       try {
-        await pool.query(
-          `INSERT INTO users (username, email, password_hash, role, first_name, last_name, admin_requested_at)
-           VALUES ($1, $1, $2, 'admin', $3, $4, now())`,
-          [email, await hashPassword(request.body.password), firstName, lastName],
-        );
+        await withTransaction(pool, async (client) => {
+          const created = await client.query<{ id: string }>(
+            `INSERT INTO users (username, email, password_hash, role, first_name, last_name, admin_requested_at)
+             VALUES ($1, $1, $2, 'admin', $3, $4, now()) RETURNING id`,
+            [email, await hashPassword(request.body.password), firstName, lastName],
+          );
+          await client.query(
+            `INSERT INTO admin_approval_links (user_id, token_hash, expires_at) VALUES ($1, $2, now() + make_interval(days => $3))`,
+            [created.rows[0]?.id, hashToken(token), APPROVAL_LINK_DAYS],
+          );
+        });
       } catch (error) {
         if (isUniqueViolation(error)) {
           return reply.code(409).send({ error: 'email_taken' });
@@ -87,7 +106,13 @@ export async function adminRequestRoutes(app: FastifyInstance, ctx: AppContext) 
           `SELECT email FROM users WHERE role = 'admin' AND email IS NOT NULL AND disabled_at IS NULL
              AND (admin_requested_at IS NULL OR admin_approved_at IS NOT NULL)`,
         );
-        const message = adminRequestEmail(`${firstName} ${lastName}`, email, `${config.adminOrigin}/admin/settings/team`);
+        // The token goes after #, so it never reaches server logs or other sites in a Referer header.
+        const message = adminRequestEmail(
+          `${firstName} ${lastName}`,
+          email,
+          `${config.adminOrigin}/admin/approve#token=${token}`,
+          `${config.adminOrigin}/admin/settings/team`,
+        );
         for (const admin of admins.rows) {
           await ctx.deliverEmail({ to: admin.email, ...message }).catch((error: unknown) =>
             request.log.error({ event: 'admin_request_email_failed', err: error }),
@@ -95,6 +120,65 @@ export async function adminRequestRoutes(app: FastifyInstance, ctx: AppContext) 
         }
       }
       return reply.code(201).send({ status: 'pending_approval' });
+    },
+  );
+
+  /** Lets the new admin know they can sign in. A failed email never undoes the approval. */
+  async function tellApproved(userId: string) {
+    if (!ctx.deliverEmail) {
+      return;
+    }
+    const found = await pool.query<{ email: string; first_name: string | null }>('SELECT email, first_name FROM users WHERE id = $1', [userId]);
+    const user = found.rows[0];
+    if (user) {
+      await ctx
+        .deliverEmail({ to: user.email, ...adminApprovedEmail(user.first_name ?? '', user.email, `${config.adminOrigin}/admin/login`) })
+        .catch((error: unknown) => app.log.error({ event: 'admin_approved_email_failed', err: error }));
+    }
+  }
+
+  // The link in the admins' email. Holding the link is the permission: only approved admins get it.
+  app.post<{ Body: { token: string } }>(
+    '/auth/admin/approve',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['token'],
+          additionalProperties: false,
+          properties: { token: { type: 'string', minLength: 20, maxLength: 100 } },
+        },
+      },
+    },
+    async (request, reply) => {
+      if (refuseWrongSite(request, reply, config, 'admin')) {
+        return reply;
+      }
+      const approved = await withTransaction(pool, async (client) => {
+        const link = await client.query<{ user_id: string }>(
+          `UPDATE admin_approval_links SET used_at = now()
+           WHERE token_hash = $1 AND used_at IS NULL AND expires_at > now()
+           RETURNING user_id`,
+          [hashToken(request.body.token)],
+        );
+        const userId = link.rows[0]?.user_id;
+        if (!userId) {
+          return null;
+        }
+        const user = await client.query<{ id: string; email: string; firstName: string | null; lastName: string | null }>(
+          `UPDATE users SET admin_approved_at = now()
+           WHERE id = $1 AND role = 'admin' AND admin_requested_at IS NOT NULL AND admin_approved_at IS NULL
+           RETURNING id, email, first_name AS "firstName", last_name AS "lastName"`,
+          [userId],
+        );
+        return user.rows[0] ?? null;
+      });
+      if (!approved) {
+        return reply.code(400).send({ error: 'invalid_approval_link' });
+      }
+      request.log.info({ event: 'admin_request_approved_by_link', adminId: approved.id });
+      await tellApproved(approved.id);
+      return { admin: { email: approved.email, firstName: approved.firstName, lastName: approved.lastName } };
     },
   );
 
@@ -110,6 +194,8 @@ export async function adminRequestRoutes(app: FastifyInstance, ctx: AppContext) 
       if (!approved.rowCount) {
         throw conflict('not_pending');
       }
+      await pool.query('UPDATE admin_approval_links SET used_at = now() WHERE user_id = $1 AND used_at IS NULL', [request.params.id]);
+      await tellApproved(request.params.id);
       request.log.info({ event: 'admin_request_approved', adminId: request.params.id, by: currentUser(request).id });
       return { approved: true };
     },

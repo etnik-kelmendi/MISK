@@ -82,6 +82,52 @@ describe('asking for an admin account', () => {
     expect(t.emails[0]?.text).toContain(`${ADMIN}/admin/settings/team`);
   });
 
+  describe('approving from the email', () => {
+    const tokenFrom = (text: string) => text.match(/\/admin\/approve#token=([A-Za-z0-9_-]+)/)?.[1] ?? '';
+    const approve = (token: string, origin = ADMIN) => call(t, 'POST', '/auth/admin/approve', { origin, body: { token } });
+
+    it('approves with one click, after which the person signs in with their email', async () => {
+      await ownerCookie();
+      await request();
+      const email = t.emails.find((e) => e.to === 'owner@misk.test');
+      expect(email?.text).toContain(`${ADMIN}/admin/approve#token=`);
+      const token = tokenFrom(email?.text ?? '');
+
+      const approved = await approve(token);
+      expect(approved.json()).toEqual({ admin: { email: 'lina@misk.test', firstName: 'Lina', lastName: 'Hoxha' } });
+      expect((await login('lina@misk.test')).statusCode).toBe(200);
+      expect(t.emails.find((e) => e.to === 'lina@misk.test')).toMatchObject({
+        subject: 'Your MISK admin account is ready',
+        text: expect.stringContaining(`${ADMIN}/admin/login`),
+      });
+    });
+
+    it('works only once, and not after the request was answered on the Team page', async () => {
+      const owner = await ownerCookie();
+      await request();
+      const token = tokenFrom(t.emails[0]?.text ?? '');
+      expect((await approve(token)).statusCode).toBe(200);
+      expect((await approve(token)).json()).toEqual({ error: 'invalid_approval_link' });
+
+      await request({ email: 'second@misk.test' });
+      const second = tokenFrom(t.emails.filter((e) => e.text.includes('second@misk.test'))[0]?.text ?? '');
+      const id = (await t.pool.query<{ id: string }>("SELECT id FROM users WHERE email = 'second@misk.test'")).rows[0]?.id;
+      await call(t, 'POST', `/admin/team/${id}/decline`, { cookie: owner, origin: ADMIN });
+      expect((await approve(second)).json()).toEqual({ error: 'invalid_approval_link' });
+    });
+
+    it('expires, refuses made-up links, and only works on the control panel', async () => {
+      await ownerCookie();
+      await request();
+      const token = tokenFrom(t.emails[0]?.text ?? '');
+      expect((await approve(token, APP)).json()).toEqual({ error: 'wrong_site' });
+      expect((await approve('x'.repeat(43))).json()).toEqual({ error: 'invalid_approval_link' });
+      await t.pool.query("UPDATE admin_approval_links SET expires_at = now() - interval '1 second'");
+      expect((await approve(token)).json()).toEqual({ error: 'invalid_approval_link' });
+      expect((await login('lina@misk.test')).json()).toEqual({ error: 'pending_approval' });
+    });
+  });
+
   it('never gives a waiting request a password reset link', async () => {
     await request();
     await call(t, 'POST', '/auth/admin/forgot', { origin: ADMIN, body: { identifier: 'lina@misk.test' } });
