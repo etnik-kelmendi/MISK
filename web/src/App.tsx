@@ -8,7 +8,7 @@ import { AuthProvider } from './auth/AuthContext';
 import { RequireRole } from './auth/RequireRole';
 import type { AppConfig, Site } from './config';
 import { AccountPage } from './pages/AccountPage';
-import { AdminBookingPage } from './pages/admin/AdminBookingPage';
+import { AdminBookingRedirect } from './pages/admin/AdminBookingPage';
 import { AdminBookingsPage } from './pages/admin/AdminBookingsPage';
 import { AdminLoginPage } from './pages/admin/AdminLoginPage';
 import { AdminSignUpPage } from './pages/admin/AdminSignUpPage';
@@ -112,7 +112,7 @@ function AdminRoutes() {
       >
         <Route index element={<OverviewPage />} />
         <Route path="bookings" element={<AdminBookingsPage />} />
-        <Route path="bookings/:id" element={<AdminBookingPage />} />
+        <Route path="bookings/:id" element={<AdminBookingRedirect />} />
         <Route path="providers" element={<AdminProsPage />} />
         <Route path="providers/:id" element={<AdminProPage />} />
         <Route path="plans" element={<PlansPage />} />

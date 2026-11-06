@@ -75,7 +75,7 @@ export function OverviewPage() {
                       <Link to="/admin/providers?status=submitted">{t('admin.overview.applications', { count: a.pendingApplications })}</Link>
                     </li>
                     <li>
-                      <Link to="/admin/bookings?status=unassigned" className={a.unassigned ? 'warn' : ''}>
+                      <Link to="/admin/bookings?tab=needs_action" className={a.unassigned ? 'warn' : ''}>
                         {t('admin.overview.unassigned', { count: a.unassigned })}
                       </Link>
                     </li>

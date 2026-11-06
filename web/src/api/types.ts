@@ -78,6 +78,14 @@ export interface Extra {
 
 export interface BookingBase {
   id: string;
+  /** "B-1042": what the team and the customer quote on the phone. */
+  number: string;
+  categoryName: string;
+  problemReportedAt: string | null;
+  problemNote: string | null;
+  problemResolvedAt: string | null;
+  /** When the card is charged: 24 hours after the job is done. Null until then. */
+  chargeAt: string | null;
   status: BookingStatus;
   serviceName: string;
   categoryId: string;
@@ -117,6 +125,7 @@ export interface CustomerBooking extends BookingBase, Money {
   pro: ProSummary | null;
   canCancel: boolean;
   canRate: boolean;
+  canReportProblem: boolean;
 }
 
 export interface ProJob extends BookingBase {
@@ -131,6 +140,44 @@ export interface AdminBooking extends BookingBase, Money {
   customer: { id: string; firstName: string | null; phone: string | null };
   offers: { id: string; proId: string; proName: string | null; status: string; offeredAt: string; expiresAt: string }[];
   payouts: { amountCents: number; status: string; error: string | null; createdAt: string }[];
+  actions: AdminAction[];
+  split: { proCents: number; miskCents: number };
+}
+
+export type AdminActionKind = 'assigned' | 'restarted_search' | 'rescheduled' | 'cancelled' | 'refunded' | 'charged_after_problem';
+
+/** One change the team made to a booking. */
+export interface AdminAction {
+  id: string;
+  action: AdminActionKind;
+  details: { proName?: string | null; from?: string; to?: string; amountCents?: number; wasCharged?: boolean };
+  createdAt: string;
+  adminName: string | null;
+}
+
+export interface AdminVisit {
+  id: string;
+  number: string;
+  startsAt: string;
+  endsAt: string;
+  status: VisitStatus;
+  tasksDone: string[];
+  completedAt: string | null;
+  subscriptionId: string;
+  planName: string;
+  tasks: string[];
+  address: string;
+  postcode: string;
+  notes: string;
+  priceCents: number;
+  proSharePct: number;
+  subscriptionStatus: string;
+  categoryName: string;
+  customer: { firstName: string | null; lastName: string | null; phone: string | null; email: string | null };
+  pro: { id: string; firstName: string | null; phone: string | null };
+  perVisitCents: number;
+  proMonthlyCents: number;
+  miskMonthlyCents: number;
 }
 
 export interface PaymentStep {
@@ -225,18 +272,35 @@ export interface Overview {
   attention: { pendingApplications: number; unassigned: number; unreleasedHolds: number; failedPayouts: number };
 }
 
+export const ADMIN_TABS = ['all', 'needs_action', 'live', 'upcoming', 'done'] as const;
+export type AdminTab = (typeof ADMIN_TABS)[number];
+
+/** A one-off booking or a plan visit in the admin list. */
 export interface AdminBookingListItem {
+  kind: 'booking' | 'visit';
   id: string;
-  status: BookingStatus;
-  serviceName: string;
+  number: string;
   startsAt: string;
-  createdAt: string;
-  postcode: string;
+  endsAt: string;
+  service: string;
+  categoryId: string;
+  trade: string;
+  customer: string | null;
   address: string;
-  customerName: string | null;
-  proName: string | null;
-  totalCents: number;
-  paymentStatus: PaymentStatus;
+  postcode: string;
+  pro: string | null;
+  status: BookingStatus | VisitStatus;
+  valueCents: number;
+  /** A booking's payment, or a plan visit's subscription status. */
+  paymentStatus: string;
+  problem: boolean;
+  tab: Exclude<AdminTab, 'all'>;
+}
+
+export interface AdminBookingList {
+  bookings: AdminBookingListItem[];
+  counts: Record<AdminTab, number>;
+  truncated: boolean;
 }
 
 export interface AdminCategory {

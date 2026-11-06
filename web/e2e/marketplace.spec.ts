@@ -110,12 +110,14 @@ test.describe.serial('MISK marketplace', () => {
     await pro.context().close();
 
     await customer.reload();
+    // The card is charged 24 hours after the job, unless the customer reports a problem first.
+    await expect(customer.getByRole('button', { name: 'Report a problem' })).toBeVisible();
     await customer.getByRole('img', { name: '5 stars' }).click();
     await expect(customer.getByRole('radio', { name: '5 stars' })).toBeChecked();
     await customer.getByText('Tidy work').click();
     await customer.getByRole('button', { name: 'Send rating' }).click();
     await expect(customer.getByText('You gave 5 stars. Thank you!')).toBeVisible();
-    await expect(customer.getByText('Paid.')).toBeVisible();
+    await expect(customer.getByText('The amount is held on your card.')).toBeVisible();
     await expectAccessible(customer);
     await customer.context().close();
   });
@@ -166,6 +168,8 @@ test.describe.serial('MISK marketplace', () => {
     // The control panel is its own website, with its own login.
     const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, baseURL: 'http://localhost:4174' });
     const page = await context.newPage();
+    // A day later: the job is charged and the pro paid.
+    expect((await page.request.post(`${API}/test/pass-charge-delay`, { headers: { origin: 'http://localhost:4174' } })).ok()).toBe(true);
     await page.goto('/admin');
     await page.getByLabel('Username or email').fill('admin');
     await page.getByLabel('Password').fill('e2e admin password');
@@ -177,10 +181,19 @@ test.describe.serial('MISK marketplace', () => {
     await expectAccessible(page);
 
     await nav.getByRole('link', { name: 'Bookings', exact: true }).click();
-    await page.getByRole('link', { name: 'Lawn mowing' }).click();
-    await expect(page.getByText('Sara', { exact: false }).first()).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Refund' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Done (1)' })).toBeVisible();
+    await page.getByLabel('Search').fill('sara');
+    await page.getByRole('button', { name: /^Open B-\d+$/ }).click();
+    const panel = page.getByRole('dialog');
+    await expect(panel.getByText('Sara', { exact: false }).first()).toBeVisible();
+    await expect(panel.getByRole('list', { name: 'Progress' })).toBeVisible();
+    await expect(panel.getByText('Paid.')).toBeVisible();
+    await expect(panel.getByRole('button', { name: 'Refund in full' })).toBeVisible();
     await expectAccessible(page);
+    await page.keyboard.press('Escape');
+    await expect(panel).toBeHidden();
+    await page.getByLabel('Search').fill('nobody here');
+    await expect(page.getByText('No bookings match these filters')).toBeVisible();
 
     await nav.getByRole('link', { name: 'Providers', exact: true }).click();
     await expect(page.getByRole('link', { name: 'Daniel' })).toBeVisible();

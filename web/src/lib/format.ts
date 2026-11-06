@@ -66,3 +66,43 @@ export function isoWeekday(iso: string, timeZone: string): number {
   const name = new Intl.DateTimeFormat('en-US', { timeZone, weekday: 'short' }).format(new Date(iso));
   return ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].indexOf(name) + 1;
 }
+
+/** "2026-11-05" and "10:00" of an instant in the market time zone, e.g. for date and time inputs. */
+export function zonedParts(iso: string, timeZone: string): { date: string; time: string } {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    })
+      .formatToParts(new Date(iso))
+      .map((part) => [part.type, part.value]),
+  );
+  return { date: `${parts.year}-${parts.month}-${parts.day}`, time: `${parts.hour}:${parts.minute}` };
+}
+
+/**
+ * The instant at which the market's clocks show `date` ("2026-11-05") and `time` ("10:00"), as ISO text.
+ * Null when the input is not a real date and time.
+ */
+export function zonedToIso(date: string, time: string, timeZone: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(time)) {
+    return null;
+  }
+  const wall = Date.parse(`${date}T${time}:00Z`);
+  if (Number.isNaN(wall)) {
+    return null;
+  }
+  // Guess the offset, then correct it once: enough for every real time zone, including daylight-saving days.
+  let guess = wall;
+  for (let i = 0; i < 2; i += 1) {
+    const shown = zonedParts(new Date(guess).toISOString(), timeZone);
+    guess += wall - Date.parse(`${shown.date}T${shown.time}:00Z`);
+  }
+  const check = zonedParts(new Date(guess).toISOString(), timeZone);
+  return check.date === date && check.time === time ? new Date(guess).toISOString() : null;
+}

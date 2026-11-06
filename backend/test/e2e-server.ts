@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import pg from 'pg';
 import { buildApp } from '../src/app.js';
+import { settleTick } from '../src/bookings/lifecycle.js';
 import { hashPassword } from '../src/auth/passwords.js';
 import { loadConfig } from '../src/config.js';
 import { runMigrations } from '../src/migrate.js';
@@ -121,6 +122,12 @@ app.get<{ Querystring: { phone: string } }>('/test/last-code', async (request, r
 app.get<{ Querystring: { to: string } }>('/test/last-email', async (request, reply) => {
   const email = [...emails].reverse().find((e) => e.to === request.query.to?.toLowerCase());
   return email ?? reply.code(404).send({ error: 'not_found' });
+});
+
+// Lets a browser test skip the 24 hours before a finished job is charged.
+app.post('/test/pass-charge-delay', async () => {
+  await pool.query("UPDATE bookings SET completed_at = now() - interval '25 hours' WHERE status = 'completed'");
+  return { charged: await settleTick({ pool, gateway: fake.gateway, config, log: app.log }) };
 });
 
 const stopWorkers = startWorkers({ pool, gateway: fake.gateway, config, log: app.log }, null, app.log);

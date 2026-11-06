@@ -143,6 +143,55 @@ function RatingForm({ booking, onRated }: { booking: CustomerBooking; onRated: (
   );
 }
 
+/** Within 24 hours of the job, the customer can stop the charge by telling MISK what went wrong. */
+function ProblemForm({ booking, onReported }: { booking: CustomerBooking; onReported: (b: CustomerBooking) => void }) {
+  const { t } = useTranslation();
+  const api = useApi();
+  const { timezone } = useMarket();
+  const [open, setOpen] = useState(false);
+  const [note, setNote] = useState('');
+  const { run, busy, error } = useAction();
+  const tooShort = note.trim().length < 3;
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    const result = await run(() => api.post<{ booking: CustomerBooking }>(`/bookings/${booking.id}/problem`, { note: note.trim() }));
+    if (result) {
+      onReported(result.booking);
+    }
+  }
+
+  if (!open) {
+    return (
+      <section className="card stack">
+        <p className="small">{booking.chargeAt && t('problem.chargeAt', { date: dateTime(booking.chargeAt, timezone) })}</p>
+        <button type="button" className="btn btn-ghost" onClick={() => setOpen(true)}>
+          {t('problem.open')}
+        </button>
+      </section>
+    );
+  }
+  return (
+    <form className="card stack" onSubmit={submit}>
+      <h2 className="b">{t('problem.title')}</h2>
+      <div className="field">
+        <label htmlFor="problem-note">{t('problem.note')}</label>
+        <textarea id="problem-note" rows={4} maxLength={1000} value={note} onChange={(e) => setNote(e.target.value)} />
+      </div>
+      <p className="tiny muted">{t('problem.hint')}</p>
+      <ErrorText error={error} />
+      <div className="row gap8">
+        <button type="button" className="btn btn-ghost" onClick={() => setOpen(false)}>
+          {t('common.cancel')}
+        </button>
+        <button className="cta" type="submit" disabled={busy || tooShort}>
+          {t('problem.send')}
+        </button>
+      </div>
+    </form>
+  );
+}
+
 function PaymentSection({ booking, onConfirmed }: { booking: CustomerBooking; onConfirmed: () => void }) {
   const { t } = useTranslation();
   const api = useApi();
@@ -228,6 +277,12 @@ function BookingView({ booking, onChanged, reload }: { booking: CustomerBooking;
       <PhotoGrid ids={proPhotos} label={t('booking.proPhotos')} />
 
       {booking.canRate && <RatingForm booking={booking} onRated={onChanged} />}
+      {booking.canReportProblem && <ProblemForm booking={booking} onReported={onChanged} />}
+      {booking.problemReportedAt && (
+        <p className="card" role="status">
+          {booking.problemResolvedAt ? t('problem.resolved') : t('problem.received')}
+        </p>
+      )}
       {booking.rating && (
         <p className="card">
           {t('booking.youRated', { stars: booking.rating.stars })}

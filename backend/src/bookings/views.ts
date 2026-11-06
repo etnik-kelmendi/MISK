@@ -1,11 +1,17 @@
 import { proShareCents } from '../catalogue/pricing.js';
 import type { Queryable } from '../db.js';
-import { FREE_CANCEL_HOURS } from './lifecycle.js';
+import { CHARGE_DELAY_HOURS, FREE_CANCEL_HOURS } from './lifecycle.js';
 
 export type Viewer = 'customer' | 'pro' | 'admin';
 
 interface BookingRow {
   id: string;
+  number: string;
+  categoryName: string;
+  problemReportedAt: Date | null;
+  problemNote: string | null;
+  problemResolvedAt: Date | null;
+  chargeAt: Date | null;
   status: string;
   serviceName: string;
   categoryId: string;
@@ -31,7 +37,9 @@ interface BookingRow {
   proPhone: string | null;
 }
 
-export const BOOKING_COLUMNS = `b.id, b.status, b.service_name AS "serviceName", b.category_id AS "categoryId", b.size,
+export const BOOKING_COLUMNS = `b.id, 'B-' || b.number AS number, cat.name AS "categoryName",
+  b.problem_reported_at AS "problemReportedAt", b.problem_note AS "problemNote", b.problem_resolved_at AS "problemResolvedAt",
+  b.completed_at + make_interval(hours => ${CHARGE_DELAY_HOURS}) AS "chargeAt", b.status, b.service_name AS "serviceName", b.category_id AS "categoryId", b.size,
   b.address, b.postcode, b.notes, b.starts_at AS "startsAt", b.ends_at AS "endsAt", b.price_cents AS "priceCents",
   b.fee_cents AS "feeCents", b.pro_share_pct AS "proSharePct", b.payment_status AS "paymentStatus",
   b.cancelled_by AS "cancelledBy", b.created_at AS "createdAt", b.completed_at AS "completedAt",
@@ -39,7 +47,8 @@ export const BOOKING_COLUMNS = `b.id, b.status, b.service_name AS "serviceName",
   b.customer_id AS "customerId", cu.first_name AS "customerName", cu.phone AS "customerPhone",
   b.pro_id AS "proId", pu.first_name AS "proName", pu.phone AS "proPhone"`;
 
-export const BOOKING_FROM = `bookings b JOIN users cu ON cu.id = b.customer_id LEFT JOIN users pu ON pu.id = b.pro_id`;
+export const BOOKING_FROM = `bookings b JOIN users cu ON cu.id = b.customer_id LEFT JOIN users pu ON pu.id = b.pro_id
+  JOIN categories cat ON cat.id = b.category_id`;
 
 /** A booking as one viewer may see it. Phone numbers are only shown to admins. */
 export async function loadBooking(db: Queryable, bookingId: string, viewer: Viewer) {
@@ -69,6 +78,12 @@ export async function loadBooking(db: Queryable, bookingId: string, viewer: View
   const unassigned = ['awaiting_payment', 'searching', 'unassigned'].includes(b.status);
   const base = {
     id: b.id,
+    number: b.number,
+    categoryName: b.categoryName,
+    problemReportedAt: b.problemReportedAt,
+    problemNote: b.problemNote,
+    problemResolvedAt: b.problemResolvedAt,
+    chargeAt: b.chargeAt,
     status: b.status,
     serviceName: b.serviceName,
     categoryId: b.categoryId,
@@ -118,6 +133,9 @@ export async function loadBooking(db: Queryable, bookingId: string, viewer: View
       pro,
       canCancel: unassigned || (b.status === 'accepted' && b.hoursLeft >= FREE_CANCEL_HOURS),
       canRate: b.status === 'completed' && !rating.rowCount,
+      // Until the card is charged, the customer can tell MISK something went wrong.
+      canReportProblem:
+        b.status === 'completed' && b.paymentStatus === 'held' && !b.problemReportedAt && b.chargeAt !== null && b.chargeAt > new Date(),
     };
   }
 
@@ -131,6 +149,12 @@ export async function loadBooking(db: Queryable, bookingId: string, viewer: View
     `SELECT amount_cents AS "amountCents", status, error, created_at AS "createdAt" FROM payouts WHERE booking_id = $1`,
     [bookingId],
   );
+  const actions = await db.query(
+    `SELECT a.id, a.action, a.details, a.created_at AS "createdAt", COALESCE(u.email, u.username) AS "adminName"
+     FROM booking_admin_actions a LEFT JOIN users u ON u.id = a.admin_id WHERE a.booking_id = $1 ORDER BY a.id DESC`,
+    [bookingId],
+  );
+  const proCents = proShareCents(b.priceCents, b.proSharePct) + proShareCents(approvedExtras, b.proSharePct);
   return {
     ...base,
     ...money,
@@ -140,5 +164,7 @@ export async function loadBooking(db: Queryable, bookingId: string, viewer: View
     customer: { id: b.customerId, firstName: b.customerName, phone: b.customerPhone },
     offers: offers.rows,
     payouts: payouts.rows,
+    actions: actions.rows,
+    split: { proCents, miskCents: money.totalCents - proCents },
   };
 }

@@ -9,6 +9,7 @@ import { emailAccountRoutes } from './auth/email-accounts.js';
 import { createGuards } from './auth/guard.js';
 import type { CodeDelivery } from './auth/phone-sign-in.js';
 import { authRoutes } from './auth/routes.js';
+import { adminListRoutes } from './bookings/admin-list.js';
 import { adminBookingRoutes } from './bookings/admin-routes.js';
 import { customerBookingRoutes } from './bookings/customer-routes.js';
 import { proJobRoutes } from './bookings/pro-routes.js';
@@ -150,6 +151,7 @@ export async function buildApp({ config, pool, gateway, sms, email = null, stora
     customerBookingRoutes,
     proJobRoutes,
     adminBookingRoutes,
+    adminListRoutes,
     uploadRoutes,
     paymentRoutes,
   ]) {

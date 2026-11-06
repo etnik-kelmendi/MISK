@@ -116,12 +116,14 @@ stateDiagram-v2
     searching --> unassigned: nobody left, admins step in
     accepted --> on_the_way
     on_the_way --> working
-    working --> completed: photo added, money taken, pro paid
+    working --> completed: photo added
+    completed --> completed: 24 hours later with no problem, money taken and pro paid
 ```
 
 - **Slots** start every two hours from 08:00 to 18:00 for today and the next five days, in
   `MARKET_TIMEZONE`, and only when a free, approved pro with payouts set up covers the postcode.
-- **Money** is held on the card at booking and taken at completion. The pro's share (82% by default) of
+- **Money** is held on the card at booking and taken 24 hours after the job is done. If the customer
+  reports a problem in the app before then, the charge waits for the team to refund or charge it. The pro's share (82% by default) of
   the job and of approved extra work is transferred to their Stripe account, paid out every Friday.
   The service fee (€2.90 by default) stays with MISK. Both are set under **Settings**.
 - **Extra work** is charged only after the customer approves it in the app.
@@ -132,6 +134,10 @@ stateDiagram-v2
   trades and their plan visits, and tick off the tasks on each visit.
 - **Cancelling** is free until a pro is assigned and then until 24 hours before; after that only admins
   can cancel. Admins can also refund a finished job, which takes the pro's payout back.
+- **Admin Bookings** lists one-off bookings and plan visits with tabs (All, Needs action, Live now,
+  Upcoming, Done), search (booking number, customer, address, pro), trade and type filters, CSV export of
+  the rows shown, and a side panel to assign a pro, move the time, cancel, refund or charge. Every action
+  is logged with the admin who made it.
 
 ## Configuration
 

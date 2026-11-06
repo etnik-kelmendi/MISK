@@ -9,7 +9,7 @@ import { isUniqueViolation, uuidParams } from '../http.js';
 import { readSingleFile, storeUpload } from '../uploads/uploads.js';
 import { findSlots } from './availability.js';
 import { setStatus, type BookingDeps } from './events.js';
-import { cancelBooking, confirmHold } from './lifecycle.js';
+import { cancelBooking, CHARGE_DELAY_HOURS, confirmHold } from './lifecycle.js';
 import { loadBooking } from './views.js';
 
 export const MAX_CUSTOMER_PHOTOS = 3;
@@ -376,6 +376,37 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
       if (!declined.rowCount) {
         throw conflict('extra_not_pending');
       }
+      return { booking: await ownBooking(customerId, request.params.id) };
+    },
+  );
+
+  // Stops the 24-hour charge until the MISK team has looked at it.
+  app.post<{ Params: { id: string }; Body: { note: string } }>(
+    '/bookings/:id/problem',
+    {
+      preHandler: guards.customer,
+      schema: {
+        params: uuidParams,
+        body: {
+          type: 'object',
+          required: ['note'],
+          additionalProperties: false,
+          properties: { note: { type: 'string', minLength: 3, maxLength: 1000, pattern: '\\S' } },
+        },
+      },
+    },
+    async (request) => {
+      const customerId = currentUser(request).id;
+      const reported = await pool.query(
+        `UPDATE bookings SET problem_reported_at = now(), problem_note = $3, updated_at = now()
+         WHERE id = $1 AND customer_id = $2 AND status = 'completed' AND payment_status = 'held'
+           AND problem_reported_at IS NULL AND completed_at > now() - make_interval(hours => $4)`,
+        [request.params.id, customerId, request.body.note.trim(), CHARGE_DELAY_HOURS],
+      );
+      if (!reported.rowCount) {
+        throw conflict('too_late_to_report');
+      }
+      request.log.warn({ event: 'problem_reported', bookingId: request.params.id });
       return { booking: await ownBooking(customerId, request.params.id) };
     },
   );

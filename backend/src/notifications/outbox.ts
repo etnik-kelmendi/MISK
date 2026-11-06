@@ -11,6 +11,7 @@ export type NotificationKind =
   | 'job_completed'
   | 'extra_requested'
   | 'booking_cancelled'
+  | 'booking_rescheduled'
   | 'booking_unassigned'
   | 'application_reviewed';
 

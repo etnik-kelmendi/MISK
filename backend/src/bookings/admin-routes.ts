@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import type { Queryable } from '../db.js';
 import { currentUser } from '../auth/guard.js';
 import type { AppContext } from '../context.js';
 import { onlyRow, withTransaction } from '../db.js';
@@ -8,11 +9,30 @@ import { formatSlot, messages } from '../notifications/messages.js';
 import { enqueue } from '../notifications/outbox.js';
 import { offerNext } from './dispatch.js';
 import { setStatus, type BookingDeps } from './events.js';
-import { cancelBooking } from './lifecycle.js';
+import { cancelBooking, settleBooking } from './lifecycle.js';
 import { loadBooking } from './views.js';
 
-const STATUSES = ['awaiting_payment', 'searching', 'unassigned', 'accepted', 'on_the_way', 'working', 'completed', 'cancelled'];
 const REASSIGNABLE = ['searching', 'unassigned', 'accepted', 'on_the_way'];
+/** The time can be changed until the pro sets off. */
+const RESCHEDULABLE = ['searching', 'unassigned', 'accepted'];
+
+export type AdminAction = 'assigned' | 'restarted_search' | 'rescheduled' | 'cancelled' | 'refunded' | 'charged_after_problem';
+
+/** Every change the team makes to a booking is written down, with who made it. */
+export async function logAction(
+  db: Queryable,
+  bookingId: string,
+  adminId: string,
+  action: AdminAction,
+  details: Record<string, unknown> = {},
+) {
+  await db.query('INSERT INTO booking_admin_actions (booking_id, admin_id, action, details) VALUES ($1, $2, $3, $4)', [
+    bookingId,
+    adminId,
+    action,
+    JSON.stringify(details),
+  ]);
+}
 
 export async function adminBookingRoutes(app: FastifyInstance, ctx: AppContext) {
   const { pool, guards, gateway } = ctx;
@@ -84,36 +104,6 @@ export async function adminBookingRoutes(app: FastifyInstance, ctx: AppContext) 
     },
   );
 
-  app.get<{ Querystring: { status?: string; q?: string } }>(
-    '/admin/bookings',
-    {
-      preHandler: guards.admin,
-      schema: {
-        querystring: {
-          type: 'object',
-          additionalProperties: false,
-          properties: { status: { type: 'string', enum: STATUSES }, q: { type: 'string', maxLength: 60 } },
-        },
-      },
-    },
-    async (request) => {
-      const q = request.query.q?.trim() || null;
-      const result = await pool.query(
-        `SELECT b.id, b.status, b.service_name AS "serviceName", b.starts_at AS "startsAt", b.created_at AS "createdAt",
-           b.postcode, b.address, cu.first_name AS "customerName", pu.first_name AS "proName",
-           b.price_cents + b.fee_cents AS "totalCents", b.payment_status AS "paymentStatus"
-         FROM bookings b JOIN users cu ON cu.id = b.customer_id LEFT JOIN users pu ON pu.id = b.pro_id
-         WHERE ($1::text IS NULL OR b.status = $1)
-           AND ($2::text IS NULL OR b.address ILIKE '%' || $2 || '%' OR b.service_name ILIKE '%' || $2 || '%'
-                OR cu.first_name ILIKE '%' || $2 || '%' OR pu.first_name ILIKE '%' || $2 || '%' OR b.postcode ILIKE $2 || '%')
-         ORDER BY (b.status = 'unassigned') DESC, b.starts_at DESC
-         LIMIT 200`,
-        [request.query.status ?? null, q],
-      );
-      return { bookings: result.rows };
-    },
-  );
-
   app.get<{ Params: { id: string } }>(
     '/admin/bookings/:id',
     { preHandler: guards.admin, schema: { params: uuidParams } },
@@ -154,6 +144,7 @@ export async function adminBookingRoutes(app: FastifyInstance, ctx: AppContext) 
     { preHandler: guards.admin, schema: { params: uuidParams } },
     async (request) => {
       await cancelBooking(deps(), request.params.id, 'admin');
+      await logAction(pool, request.params.id, currentUser(request).id, 'cancelled');
       request.log.info({ event: 'admin_cancelled_booking', bookingId: request.params.id, by: currentUser(request).id });
       return { booking: await adminView(request.params.id) };
     },
@@ -170,6 +161,7 @@ export async function adminBookingRoutes(app: FastifyInstance, ctx: AppContext) 
     },
     async (request) => {
       const bookingId = request.params.id;
+      const adminId = currentUser(request).id;
       const targetPro = request.body.proId ?? null;
       const restart = await withTransaction(pool, async (client) => {
         const found = await client.query<{
@@ -203,6 +195,7 @@ export async function adminBookingRoutes(app: FastifyInstance, ctx: AppContext) 
           // Start the search again; pros who passed before may be asked again.
           await client.query("DELETE FROM booking_offers WHERE booking_id = $1 AND status <> 'withdrawn'", [bookingId]);
           await setStatus(client, bookingId, 'searching', ', pro_id = NULL');
+          await logAction(client, bookingId, adminId, 'restarted_search', { previousPro: booking.pro_id });
           return true;
         }
 
@@ -220,7 +213,7 @@ export async function adminBookingRoutes(app: FastifyInstance, ctx: AppContext) 
           await setStatus(client, bookingId, 'accepted', ', pro_id = $3', [targetPro]);
         } catch (error) {
           if (isExclusionViolation(error)) {
-            throw conflict('schedule_conflict');
+            throw conflict('pro_busy');
           }
           throw error;
         }
@@ -237,6 +230,11 @@ export async function adminBookingRoutes(app: FastifyInstance, ctx: AppContext) 
           messages.proAssigned(booking.service_name, when, onlyRow(pro).firstName ?? 'Your pro'),
         );
         await enqueue(client, targetPro, 'job_offer', messages.assignedByTeam(booking.service_name, when));
+        await logAction(client, bookingId, adminId, 'assigned', {
+          proId: targetPro,
+          proName: onlyRow(pro).firstName,
+          previousPro: booking.pro_id,
+        });
         return false;
       });
       request.log.info({ event: 'admin_reassigned_booking', bookingId, proId: targetPro, by: currentUser(request).id });
@@ -247,7 +245,7 @@ export async function adminBookingRoutes(app: FastifyInstance, ctx: AppContext) 
     },
   );
 
-  // Gives a completed job's money back and takes the pro's payouts back.
+  // Gives a finished job's money back: held money is released, taken money is refunded and the pro's payouts reversed.
   app.post<{ Params: { id: string } }>(
     '/admin/bookings/:id/refund',
     { preHandler: guards.admin, schema: { params: uuidParams } },
@@ -261,37 +259,166 @@ export async function adminBookingRoutes(app: FastifyInstance, ctx: AppContext) 
       if (!booking) {
         throw notFound();
       }
-      if (booking.status !== 'completed' || booking.payment_status !== 'captured' || !booking.payment_intent_id) {
+      if (booking.status !== 'completed' || !booking.payment_intent_id || !['held', 'captured'].includes(booking.payment_status)) {
         throw conflict('not_refundable');
       }
-      const extras = await pool.query<{ payment_intent_id: string }>(
-        "SELECT payment_intent_id FROM extra_requests WHERE booking_id = $1 AND payment_status = 'captured'",
-        [bookingId],
-      );
-      const transfers = await pool.query<{ transfer_id: string }>(
-        "SELECT transfer_id FROM payouts WHERE booking_id = $1 AND status = 'sent' AND transfer_id IS NOT NULL",
+      const totals = await pool.query<{ cents: number }>(
+        `SELECT (b.price_cents + b.fee_cents + COALESCE((SELECT sum(e.price_cents) FROM extra_requests e
+           WHERE e.booking_id = b.id AND e.payment_status IN ('held', 'captured')), 0))::int AS cents
+         FROM bookings b WHERE b.id = $1`,
         [bookingId],
       );
       try {
-        for (const { transfer_id } of transfers.rows) {
-          await gateway.reverseTransfer(transfer_id);
-          await pool.query("UPDATE payouts SET status = 'reversed', updated_at = now() WHERE transfer_id = $1", [
-            transfer_id,
+        if (booking.payment_status === 'held') {
+          // Claim the hold first so the 24-hour charge cannot take it at the same time.
+          const claimed = await pool.query(
+            "UPDATE bookings SET payment_status = 'released', updated_at = now() WHERE id = $1 AND payment_status = 'held'",
+            [bookingId],
+          );
+          if (!claimed.rowCount) {
+            throw conflict('not_refundable');
+          }
+          await gateway.release(booking.payment_intent_id);
+        } else {
+          const transfers = await pool.query<{ transfer_id: string }>(
+            "SELECT transfer_id FROM payouts WHERE booking_id = $1 AND status = 'sent' AND transfer_id IS NOT NULL",
+            [bookingId],
+          );
+          for (const { transfer_id } of transfers.rows) {
+            await gateway.reverseTransfer(transfer_id);
+            await pool.query("UPDATE payouts SET status = 'reversed', updated_at = now() WHERE transfer_id = $1", [
+              transfer_id,
+            ]);
+          }
+          // Payouts not sent yet must never be sent now.
+          await pool.query("UPDATE payouts SET status = 'reversed', updated_at = now() WHERE booking_id = $1 AND status IN ('pending', 'failed')", [
+            bookingId,
           ]);
+          await gateway.refund(booking.payment_intent_id);
+          await pool.query("UPDATE bookings SET payment_status = 'refunded', updated_at = now() WHERE id = $1", [bookingId]);
         }
-        await gateway.refund(booking.payment_intent_id);
-        await pool.query("UPDATE bookings SET payment_status = 'refunded', updated_at = now() WHERE id = $1", [bookingId]);
-        for (const { payment_intent_id } of extras.rows) {
-          await gateway.refund(payment_intent_id);
-          await pool.query("UPDATE extra_requests SET payment_status = 'refunded' WHERE payment_intent_id = $1", [
-            payment_intent_id,
-          ]);
+        const extras = await pool.query<{ payment_intent_id: string; payment_status: string }>(
+          "SELECT payment_intent_id, payment_status FROM extra_requests WHERE booking_id = $1 AND payment_status IN ('held', 'captured')",
+          [bookingId],
+        );
+        for (const extra of extras.rows) {
+          if (extra.payment_status === 'held') {
+            await gateway.release(extra.payment_intent_id);
+            await pool.query("UPDATE extra_requests SET payment_status = 'released' WHERE payment_intent_id = $1", [
+              extra.payment_intent_id,
+            ]);
+          } else {
+            await gateway.refund(extra.payment_intent_id);
+            await pool.query("UPDATE extra_requests SET payment_status = 'refunded' WHERE payment_intent_id = $1", [
+              extra.payment_intent_id,
+            ]);
+          }
         }
       } catch (error) {
+        if (error instanceof ApiError) {
+          throw error;
+        }
         request.log.error({ event: 'refund_failed', bookingId, err: error });
         throw new ApiError(502, 'payment_unavailable');
       }
+      await pool.query(
+        "UPDATE bookings SET problem_resolved_at = now() WHERE id = $1 AND problem_reported_at IS NOT NULL AND problem_resolved_at IS NULL",
+        [bookingId],
+      );
+      await logAction(pool, bookingId, currentUser(request).id, 'refunded', {
+        amountCents: onlyRow(totals).cents,
+        wasCharged: booking.payment_status === 'captured',
+      });
       request.log.info({ event: 'admin_refunded_booking', bookingId, by: currentUser(request).id });
+      return { booking: await adminView(bookingId) };
+    },
+  );
+
+  // Moves a booking that has not started yet to a new time; the length of the job stays the same.
+  app.post<{ Params: { id: string }; Body: { startsAt: string } }>(
+    '/admin/bookings/:id/reschedule',
+    {
+      preHandler: guards.admin,
+      schema: {
+        params: uuidParams,
+        body: {
+          type: 'object',
+          required: ['startsAt'],
+          additionalProperties: false,
+          properties: { startsAt: { type: 'string', format: 'date-time' } },
+        },
+      },
+    },
+    async (request) => {
+      const bookingId = request.params.id;
+      const startsAt = new Date(request.body.startsAt);
+      if (startsAt.getTime() <= Date.now()) {
+        throw new ApiError(400, 'time_in_past');
+      }
+      await withTransaction(pool, async (client) => {
+        const found = await client.query<{
+          status: string;
+          pro_id: string | null;
+          customer_id: string;
+          service_name: string;
+          starts_at: Date;
+        }>('SELECT status, pro_id, customer_id, service_name, starts_at FROM bookings WHERE id = $1 FOR UPDATE', [bookingId]);
+        const booking = found.rows[0];
+        if (!booking) {
+          throw notFound();
+        }
+        if (!RESCHEDULABLE.includes(booking.status)) {
+          throw conflict('invalid_status');
+        }
+        await client.query('SAVEPOINT move');
+        try {
+          await client.query(
+            'UPDATE bookings SET ends_at = $2::timestamptz + (ends_at - starts_at), starts_at = $2, updated_at = now() WHERE id = $1',
+            [bookingId, startsAt],
+          );
+        } catch (error) {
+          if (isExclusionViolation(error)) {
+            throw conflict('pro_busy');
+          }
+          throw error;
+        }
+        const when = formatSlot(startsAt, ctx.config.timezone);
+        await enqueue(client, booking.customer_id, 'booking_rescheduled', messages.bookingRescheduled(booking.service_name, when));
+        if (booking.pro_id) {
+          await enqueue(client, booking.pro_id, 'booking_rescheduled', messages.jobRescheduled(booking.service_name, when));
+        }
+        await logAction(client, bookingId, currentUser(request).id, 'rescheduled', {
+          from: booking.starts_at.toISOString(),
+          to: startsAt.toISOString(),
+        });
+      });
+      request.log.info({ event: 'admin_rescheduled_booking', bookingId, by: currentUser(request).id });
+      return { booking: await adminView(bookingId) };
+    },
+  );
+
+  // The team looked at the customer's problem and found the job fine: the money is taken as usual.
+  app.post<{ Params: { id: string } }>(
+    '/admin/bookings/:id/charge',
+    { preHandler: guards.admin, schema: { params: uuidParams } },
+    async (request) => {
+      const bookingId = request.params.id;
+      const resolved = await pool.query(
+        `UPDATE bookings SET problem_resolved_at = now(), updated_at = now()
+         WHERE id = $1 AND status = 'completed' AND payment_status = 'held'
+           AND problem_reported_at IS NOT NULL AND problem_resolved_at IS NULL`,
+        [bookingId],
+      );
+      if (!resolved.rowCount) {
+        throw conflict('nothing_to_charge');
+      }
+      await logAction(pool, bookingId, currentUser(request).id, 'charged_after_problem');
+      try {
+        // Charges now if the 24 hours have passed; otherwise the settlement worker charges when they do.
+        await settleBooking(deps(), bookingId);
+      } catch (error) {
+        request.log.error({ event: 'settle_failed', bookingId, err: error });
+      }
       return { booking: await adminView(bookingId) };
     },
   );

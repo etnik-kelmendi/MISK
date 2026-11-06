@@ -1,5 +1,6 @@
 import { call, createTestContext, FILES, lastCode, resetDatabase, sessionCookie, upload, type TestContext } from '../../test/helpers.js';
 import { DEMO_ADMIN, DEMO_CUSTOMER_PASSWORD, seedDemoData, type SeedSummary } from './demo-data.js';
+import { settleTick } from '../bookings/lifecycle.js';
 import { emptyDatabase } from './reset.js';
 
 let t: TestContext;
@@ -70,15 +71,32 @@ describe('demo data', () => {
     expect(slots.some((s: { available: boolean }) => s.available)).toBe(true);
   });
 
-  it('lets the pro finish the job in progress, taking the payment and paying them', async () => {
+  it('lets the pro finish the job in progress, charging the customer a day later', async () => {
     const daniel = await phoneCookie('+4915200000001');
     const working = await t.pool.query<{ id: string }>("SELECT id FROM bookings WHERE status = 'working'");
     const id = working.rows[0]?.id ?? '';
     expect((await upload(t, `/pro/jobs/${id}/photos`, daniel, FILES.png)).statusCode).toBe(201);
     const done = await call(t, 'POST', `/pro/jobs/${id}/complete`, { cookie: daniel });
     expect(done.json().job.status).toBe('completed');
-    const paid = await t.pool.query("SELECT payment_status FROM bookings WHERE id = $1", [id]);
+    const held = await t.pool.query('SELECT payment_status FROM bookings WHERE id = $1', [id]);
+    expect(held.rows[0].payment_status).toBe('held');
+    await t.pool.query("UPDATE bookings SET completed_at = now() - interval '25 hours' WHERE id = $1", [id]);
+    await settleTick(t.deps);
+    const paid = await t.pool.query('SELECT payment_status FROM bookings WHERE id = $1', [id]);
     expect(paid.rows[0].payment_status).toBe('captured');
+  });
+
+  it('lists plan visits next to one-off bookings for admins, with their details', async () => {
+    const admin = await adminCookie();
+    const visits = (await call(t, 'GET', '/admin/bookings?type=visit', { cookie: admin })).json();
+    expect(visits.bookings.length).toBeGreaterThan(0);
+    const first = visits.bookings[0];
+    expect(first).toMatchObject({ kind: 'visit', number: expect.stringMatching(/^V-\d+$/), valueCents: expect.any(Number) });
+    const detail = (await call(t, 'GET', `/admin/visits/${first.id}`, { cookie: admin })).json().visit;
+    expect(detail).toMatchObject({ id: first.id, number: first.number, customer: { firstName: expect.any(String) } });
+    expect(detail.proMonthlyCents + detail.miskMonthlyCents).toBe(detail.priceCents);
+    const all = (await call(t, 'GET', '/admin/bookings', { cookie: admin })).json();
+    expect(all.counts.all).toBe(all.counts.needs_action + all.counts.live + all.counts.upcoming + all.counts.done);
   });
 
   it('serves the seeded documents and photos', async () => {

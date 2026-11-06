@@ -69,7 +69,11 @@
     "photos_required": "Add at least one photo of the finished work first.",
     "invalid_range": "That date range is not valid.",
     "pro_not_eligible": "This pro cannot take this job.",
-    "not_refundable": "Only finished, paid jobs can be refunded.",
+    "not_refundable": "Only finished jobs that have not been refunded yet can be refunded.",
+    "pro_busy": "This pro already has another job at that time.",
+    "time_in_past": "Choose a time in the future.",
+    "nothing_to_charge": "There is no open problem on this job, so there is nothing to charge.",
+    "too_late_to_report": "The 24 hours to report a problem are over. Please contact us instead.",
     "internal_error": "Something went wrong on our side. Please try again.",
     "request_failed": "That did not work. Please try again.",
     "password_too_short": "The password must have at least 12 characters.",
@@ -290,6 +294,16 @@
       "cancelled": "Not answered in time"
     }
   },
+  "problem": {
+    "chargeAt": "We charge your card on {{date}}. Not happy with the job? Tell us before then.",
+    "open": "Report a problem",
+    "title": "What went wrong?",
+    "note": "Tell us what was not done right",
+    "hint": "We hold the charge until the MISK team has looked at it, and contact you.",
+    "send": "Send to MISK",
+    "received": "Thanks, we got your report. The charge is on hold and the MISK team will contact you.",
+    "resolved": "The MISK team has dealt with the problem you reported."
+  },
   "rating": {
     "title": "How was {{name}}?",
     "stars": "Stars",
@@ -507,46 +521,166 @@
     },
     "bookings": {
       "title": "Bookings",
-      "status": "Status",
+      "tabsLabel": "Show bookings",
       "all": "All",
-      "search": "Search address, service, name or postcode",
-      "find": "Search",
-      "none": "No bookings match.",
-      "when": "When",
+      "tab": {
+        "all": "All",
+        "needs_action": "Needs action",
+        "live": "Live now",
+        "upcoming": "Upcoming",
+        "done": "Done"
+      },
+      "tabCount": "{{label}} ({{count}})",
+      "search": "Search",
+      "searchHint": "Booking number, customer, address or pro",
+      "trade": "Trade",
+      "allTrades": "All trades",
+      "type": "Type",
+      "allTypes": "All types",
+      "typeBooking": "One-off",
+      "typeVisit": "Plan visit",
+      "export": "Export",
+      "exportFile": "misk-bookings-{{date}}.csv",
+      "none": "No bookings match these filters",
+      "truncated": "Showing the first {{count}}. Narrow the search to see the rest.",
+      "number": "Number",
+      "date": "Date",
       "service": "Service",
-      "customer": "Customer · postcode",
-      "pro": "Pro",
-      "value": "Value"
-    },
-    "booking": {
-      "back": "All bookings",
-      "when": "When",
-      "where": "Where",
       "customer": "Customer",
       "pro": "Pro",
-      "notes": "Notes",
+      "status": "Status",
+      "price": "Price",
+      "unassigned": "Unassigned",
+      "problem": "Problem reported",
+      "open": "Open {{number}}",
+      "updated": "Updates by itself every 15 seconds.",
+      "visitStatus": {
+        "planned": "Planned",
+        "skipped": "Skipped",
+        "completed": "Done",
+        "cancelled": "Cancelled"
+      },
+      "csv": {
+        "number": "Booking number",
+        "date": "Date",
+        "time": "Time",
+        "service": "Service",
+        "trade": "Trade",
+        "type": "Type",
+        "customer": "Customer",
+        "address": "Address",
+        "pro": "Pro",
+        "status": "Status",
+        "value": "Value (EUR)",
+        "payment": "Payment status"
+      },
+      "subscription": {
+        "awaiting_payment": "Plan waiting for payment",
+        "active": "Plan paid monthly",
+        "past_due": "Plan payment failed",
+        "cancelled": "Plan ended"
+      }
+    },
+    "booking": {
+      "close": "Close",
+      "loading": "Loading the booking…",
+      "progress": "Progress",
+      "steps": {
+        "booked": "Booked",
+        "confirmed": "Pro confirmed",
+        "on_the_way": "On the way",
+        "working": "Working",
+        "done": "Done"
+      },
+      "stepState": {
+        "done": "done",
+        "current": "now",
+        "todo": "not yet"
+      },
+      "cancelledNote": "Cancelled by {{by}}.",
+      "cancelledBy": {
+        "customer": "the customer",
+        "admin": "the MISK team",
+        "system": "MISK (not paid in time)",
+        "unknown": "MISK"
+      },
+      "when": "When",
+      "where": "Where",
+      "trade": "Trade",
+      "notes": "Notes from the customer",
+      "customer": "Customer",
+      "pro": "Pro",
+      "noPro": "No pro yet",
       "money": "Money",
-      "moneyLine": "{{total}} in total, of which {{fee}} fee and {{extras}} extra work. Pro share {{share}}%.",
+      "price": "Job price",
+      "fee": "Service fee",
+      "extras": "Extra work",
+      "total": "Total",
+      "splitPro": "Pro gets ({{pct}}%)",
+      "splitMisk": "MISK keeps",
       "payment": "Payment",
+      "chargeAt": "The customer is charged on {{date}}, 24 hours after the job, if they report no problem.",
+      "chargeWhenDone": "The customer is charged 24 hours after the job is done, if they report no problem.",
+      "problemOpen": "The customer reported a problem on {{date}}, so the charge is on hold:",
+      "problemResolved": "Problem settled on {{date}}.",
       "photos": "Photos",
-      "actions": "Actions",
-      "assignTo": "Give the job to",
-      "restartSearch": "Nobody: offer it to pros again",
-      "candidate": "{{name}} · {{km}} km · rating {{rating}}",
-      "assign": "Assign",
-      "restart": "Restart the search",
+      "assign": {
+        "titleNoPro": "No pro yet: give the job to a pro nearby",
+        "titleChange": "Change the pro",
+        "loading": "Finding free pros nearby…",
+        "none": "No free pro with this trade is near enough at this time. Change the time, or offer it to pros again later.",
+        "line": "{{km}} km away · rating {{rating}}",
+        "button": "Assign",
+        "buttonLabel": "Assign {{name}}",
+        "restart": "Offer it to pros again",
+        "done": "{{name}} has the job. The customer and the pro were texted."
+      },
+      "move": {
+        "title": "Change the time",
+        "date": "New date",
+        "time": "New start time",
+        "button": "Move booking",
+        "invalid": "Enter a real date and time.",
+        "done": "Moved. The customer and the pro were texted."
+      },
       "confirm": {
-        "cancel": "Cancel this booking? Money held on the card is released and the customer and pro are texted.",
-        "refund": "Refund this job in full? The pro's payout is taken back from their Stripe account."
+        "cancel": "Cancel this booking? All money held on the card goes back to the customer, and the customer and pro are texted.",
+        "refund": "Give the customer all their money back? If they were charged, the pro's payout is taken back from their Stripe account.",
+        "charge": "The problem is settled and the job was fine: charge the customer as usual?"
       },
       "do": {
         "cancel": "Cancel booking",
-        "refund": "Refund"
+        "refund": "Refund in full",
+        "charge": "Charge the customer"
       },
-      "history": "History",
+      "keep": "Keep it",
+      "log": "Activity log",
+      "noLog": "Nobody from the team has changed this booking yet.",
+      "logBy": "{{name}} · {{date}}",
+      "logAction": {
+        "assigned": "Gave the job to {{name}}",
+        "restarted_search": "Offered the job to pros again",
+        "rescheduled": "Moved from {{from}} to {{to}}",
+        "cancelled": "Cancelled the booking",
+        "refunded": "Refunded {{amount}}",
+        "refundedHold": "Released the {{amount}} held on the card",
+        "charged_after_problem": "Settled the problem and charged the customer"
+      },
+      "history": "Status history",
       "offers": "Offers to pros",
       "noOffers": "Not offered to anyone yet.",
-      "payouts": "Payouts"
+      "payouts": "Payouts",
+      "visit": {
+        "plan": "Plan",
+        "tasks": "Tasks",
+        "tasksDone": "Done {{done}} of {{total}} tasks",
+        "perVisit": "Value of one visit",
+        "monthly": "Monthly price",
+        "proMonthly": "Pro gets per month ({{pct}}%)",
+        "miskMonthly": "MISK keeps per month",
+        "billing": "Billing",
+        "billingNote": "Plan visits are paid by the monthly subscription, not one by one. Change the plan from the customer's subscription."
+      }
     },
     "pros": {
       "title": "Providers",

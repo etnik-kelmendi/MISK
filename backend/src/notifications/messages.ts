@@ -27,12 +27,15 @@ export const messages = {
   proAssigned: (service: string, when: string, proName: string) =>
     `MISK: ${proName} will do your ${service} on ${when}.`,
   proOnTheWay: (proName: string) => `MISK: ${proName} is on the way to you.`,
-  jobCompleted: (service: string) => `MISK: your ${service} is done. Please rate your pro in the app.`,
+  jobCompleted: (service: string) =>
+    `MISK: your ${service} is done. We charge your card in 24 hours. Something wrong? Report it in the app before then.`,
   extraRequested: (description: string, priceCents: number) =>
     `MISK: your pro asks to add "${description}" for ${formatEuro(priceCents)}. Approve or decline in the app.`,
   bookingCancelled: (service: string, when: string) =>
     `MISK: your ${service} on ${when} was cancelled. Any money held on your card is released.`,
   bookingCancelledForPro: (service: string, when: string) => `MISK: the ${service} job on ${when} was cancelled.`,
+  bookingRescheduled: (service: string, when: string) => `MISK: your ${service} has moved to ${when}.`,
+  jobRescheduled: (service: string, when: string) => `MISK: the ${service} job has moved to ${when}. See the app.`,
   bookingUnassigned: (service: string, when: string) =>
     `MISK: we have not found a pro for your ${service} on ${when} yet. Our team is on it and will contact you.`,
   applicationApproved: () => 'MISK: you are approved! Set up payouts in the app to start getting jobs.',

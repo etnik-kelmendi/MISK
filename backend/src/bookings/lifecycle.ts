@@ -8,6 +8,13 @@ import { setStatus, type BookingDeps } from './events.js';
 
 /** An unpaid booking is dropped after this, so its slot is free again. */
 export const PAYMENT_WINDOW_MINUTES = 30;
+/** The customer is charged this long after the job is done, unless they report a problem first (D25). */
+export const CHARGE_DELAY_HOURS = 24;
+
+/** SQL: a completed booking whose money may be taken now. */
+const READY_TO_CHARGE = `b.completed_at <= now() - make_interval(hours => ${CHARGE_DELAY_HOURS})
+  AND (b.problem_reported_at IS NULL OR b.problem_resolved_at IS NOT NULL)`;
+
 /** Customers may cancel an assigned job until this long before it starts (QUESTIONS Q3). */
 export const FREE_CANCEL_HOURS = 24;
 
@@ -181,6 +188,10 @@ interface Charge {
  * to their Stripe account. Every step is recorded, so a failed run is finished by the next one.
  */
 export async function settleBooking(deps: BookingDeps, bookingId: string): Promise<void> {
+  const ready = await deps.pool.query(`SELECT 1 FROM bookings b WHERE b.id = $1 AND ${READY_TO_CHARGE}`, [bookingId]);
+  if (!ready.rowCount) {
+    return;
+  }
   const found = await deps.pool.query<{
     pro_id: string;
     status: string;
@@ -265,11 +276,11 @@ export async function settleBooking(deps: BookingDeps, bookingId: string): Promi
   }
 }
 
-/** Finishes settlement for completed bookings with money still held or pros still unpaid. */
+/** Charges completed bookings once their 24 hours have passed without an open problem, and pays the pros. */
 export async function settleTick(deps: BookingDeps): Promise<number> {
   const due = await deps.pool.query<{ id: string }>(
     `SELECT b.id FROM bookings b
-     WHERE b.status = 'completed' AND (
+     WHERE b.status = 'completed' AND ${READY_TO_CHARGE} AND (
        b.payment_status = 'held'
        OR EXISTS (SELECT 1 FROM extra_requests e WHERE e.booking_id = b.id AND e.status = 'approved' AND e.payment_status = 'held')
        OR EXISTS (SELECT 1 FROM payouts p WHERE p.booking_id = b.id AND p.status IN ('pending', 'failed')

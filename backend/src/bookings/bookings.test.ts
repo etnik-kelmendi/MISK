@@ -98,6 +98,12 @@ async function acceptFirstOffer(proCookie: string) {
   return offer.bookingId;
 }
 
+/** Moves a finished job's completion 25 hours back and runs the settlement worker, as if a day had passed. */
+async function afterChargeDelay(bookingId: string) {
+  await t.pool.query("UPDATE bookings SET completed_at = now() - interval '25 hours' WHERE id = $1", [bookingId]);
+  await settleTick(t.deps);
+}
+
 function errorOf(response: LightMyRequestResponse) {
   return response.json().error;
 }
@@ -278,8 +284,15 @@ describe('doing the job', () => {
     const done = await call(t, 'POST', `/pro/jobs/${bookingId}/complete`, { cookie: pro.cookie });
     expect(done.json().job).toMatchObject({ status: 'completed', earningsCents: 3731 });
 
+    const justDone = await booking(bookingId);
+    expect(justDone).toMatchObject({ status: 'completed', paymentStatus: 'held', canRate: true, canReportProblem: true });
+    expect(new Date(justDone.chargeAt).getTime() - new Date(justDone.completedAt).getTime()).toBe(24 * 3600 * 1000);
+    await settleTick(t.deps);
+    expect(t.fake.transfers).toEqual([]);
+
+    await afterChargeDelay(bookingId);
     const seen = await booking(bookingId);
-    expect(seen).toMatchObject({ status: 'completed', paymentStatus: 'captured', canRate: true });
+    expect(seen).toMatchObject({ status: 'completed', paymentStatus: 'captured', canRate: true, canReportProblem: false });
     expect(seen.events.map((e: { status: string }) => e.status)).toEqual([
       'awaiting_payment',
       'searching',
@@ -316,6 +329,7 @@ describe('doing the job', () => {
 
     await upload(t, `/pro/jobs/${bookingId}/photos`, pro.cookie, FILES.png);
     await call(t, 'POST', `/pro/jobs/${bookingId}/complete`, { cookie: pro.cookie });
+    await afterChargeDelay(bookingId);
 
     const seen = await booking(bookingId);
     expect(seen.extras.map((e: { status: string }) => e.status)).toEqual(['approved', 'declined', 'cancelled']);
@@ -323,15 +337,16 @@ describe('doing the job', () => {
     expect(t.fake.transfers.map((x) => x.amountCents).sort()).toEqual([1640, 3731]);
   });
 
-  it('finishes taking the money later when the provider fails at completion', async () => {
+  it('tries again later when the payment provider fails at charge time', async () => {
     const pro = await approvedPro(t, '+4915100000101', { trades: [market.gardening] });
     await bookFirst();
     const bookingId = await acceptFirstOffer(pro.cookie);
     await walkToWorking(pro.cookie, bookingId);
     await upload(t, `/pro/jobs/${bookingId}/photos`, pro.cookie, FILES.png);
-    t.fake.failures.add('capture');
     const done = await call(t, 'POST', `/pro/jobs/${bookingId}/complete`, { cookie: pro.cookie });
     expect(done.json().job.status).toBe('completed');
+    t.fake.failures.add('capture');
+    await afterChargeDelay(bookingId);
     expect((await booking(bookingId)).paymentStatus).toBe('held');
 
     t.fake.failures.clear();
@@ -359,6 +374,43 @@ describe('doing the job', () => {
     expect(errorOf(again)).toBe('already_rated');
     const badTag = await call(t, 'POST', `/bookings/${bookingId}/rating`, { cookie: customer, body: { stars: 4, tags: ['rude'] } });
     expect(badTag.statusCode).toBe(400);
+  });
+
+  it('holds the charge when the customer reports a problem within 24 hours', async () => {
+    const pro = await approvedPro(t, '+4915100000101', { trades: [market.gardening] });
+    await bookFirst();
+    const bookingId = await acceptFirstOffer(pro.cookie);
+    const early = await call(t, 'POST', `/bookings/${bookingId}/problem`, { cookie: customer, body: { note: 'Not done yet' } });
+    expect(errorOf(early)).toBe('too_late_to_report');
+
+    await walkToWorking(pro.cookie, bookingId);
+    await upload(t, `/pro/jobs/${bookingId}/photos`, pro.cookie, FILES.png);
+    await call(t, 'POST', `/pro/jobs/${bookingId}/complete`, { cookie: pro.cookie });
+    const empty = await call(t, 'POST', `/bookings/${bookingId}/problem`, { cookie: customer, body: { note: '   ' } });
+    expect(empty.statusCode).toBe(400);
+    const reported = await call(t, 'POST', `/bookings/${bookingId}/problem`, {
+      cookie: customer,
+      body: { note: 'The back lawn was not mowed' },
+    });
+    expect(reported.json().booking).toMatchObject({ problemNote: 'The back lawn was not mowed', canReportProblem: false });
+    const twice = await call(t, 'POST', `/bookings/${bookingId}/problem`, { cookie: customer, body: { note: 'Again' } });
+    expect(errorOf(twice)).toBe('too_late_to_report');
+
+    await afterChargeDelay(bookingId);
+    expect((await booking(bookingId)).paymentStatus).toBe('held');
+    expect(t.fake.transfers).toEqual([]);
+  });
+
+  it('lets nobody report a problem once the 24 hours are over', async () => {
+    const pro = await approvedPro(t, '+4915100000101', { trades: [market.gardening] });
+    await bookFirst();
+    const bookingId = await acceptFirstOffer(pro.cookie);
+    await walkToWorking(pro.cookie, bookingId);
+    await upload(t, `/pro/jobs/${bookingId}/photos`, pro.cookie, FILES.png);
+    await call(t, 'POST', `/pro/jobs/${bookingId}/complete`, { cookie: pro.cookie });
+    await t.pool.query("UPDATE bookings SET completed_at = now() - interval '25 hours' WHERE id = $1", [bookingId]);
+    const late = await call(t, 'POST', `/bookings/${bookingId}/problem`, { cookie: customer, body: { note: 'Too late' } });
+    expect(errorOf(late)).toBe('too_late_to_report');
   });
 });
 
@@ -463,8 +515,14 @@ describe('admin booking actions', () => {
     return { bookingId, pro };
   }
 
+  async function chargedJob() {
+    const job = await completedJob();
+    await afterChargeDelay(job.bookingId);
+    return job;
+  }
+
   it('reports bookings, money and ratings on the overview', async () => {
-    const { bookingId } = await completedJob();
+    const { bookingId } = await chargedJob();
     await call(t, 'POST', `/bookings/${bookingId}/rating`, { cookie: customer, body: { stars: 4 } });
     const admin = await signInAdmin(t);
     const overview = (await call(t, 'GET', '/admin/overview?days=7', { cookie: admin })).json();
@@ -480,14 +538,19 @@ describe('admin booking actions', () => {
     const detail = (await call(t, 'GET', `/admin/bookings/${bookingId}`, { cookie: admin })).json().booking;
     expect(detail.customer.phone).toBe('+4915100000001');
     expect(detail.payouts).toEqual([expect.objectContaining({ amountCents: 3731, status: 'sent' })]);
+    expect(detail.split).toEqual({ proCents: 3731, miskCents: 4840 - 3731 });
+    expect(detail.number).toMatch(/^B-\d+$/);
   });
 
   it('refunds a finished job and takes the payout back', async () => {
-    const { bookingId } = await completedJob();
+    const { bookingId } = await chargedJob();
     const admin = await signInAdmin(t);
     const refunded = await call(t, 'POST', `/admin/bookings/${bookingId}/refund`, { cookie: admin });
     expect(refunded.json().booking).toMatchObject({ paymentStatus: 'refunded' });
     expect(refunded.json().booking.payouts[0].status).toBe('reversed');
+    expect(refunded.json().booking.actions).toEqual([
+      expect.objectContaining({ action: 'refunded', details: { amountCents: 4840, wasCharged: true }, adminName: 'admin' }),
+    ]);
     expect(t.fake.transfers[0]?.reversed).toBe(true);
     expect(errorOf(await call(t, 'POST', `/admin/bookings/${bookingId}/refund`, { cookie: admin }))).toBe('not_refundable');
   });
@@ -500,10 +563,135 @@ describe('admin booking actions', () => {
     expect((await booking(created.id)).status).toBe('unassigned');
 
     const admin = await signInAdmin(t);
-    const list = (await call(t, 'GET', '/admin/bookings?status=unassigned', { cookie: admin })).json().bookings;
+    const list = (await call(t, 'GET', '/admin/bookings?tab=needs_action', { cookie: admin })).json().bookings;
     expect(list.map((b: { id: string }) => b.id)).toEqual([created.id]);
     const restarted = await call(t, 'POST', `/admin/bookings/${created.id}/reassign`, { cookie: admin, body: {} });
     expect(restarted.json().booking.status).toBe('searching');
+    expect(restarted.json().booking.actions.map((a: { action: string }) => a.action)).toEqual(['restarted_search']);
     expect(await pendingOffer(pro.cookie)).toBeDefined();
+  });
+
+  it('gives a job nobody took to a chosen pro and tells both sides', async () => {
+    const first = await approvedPro(t, '+4915100000101', { trades: [market.gardening] });
+    const created = await bookFirst();
+    const offer = await pendingOffer(first.cookie);
+    await call(t, 'POST', `/pro/offers/${offer?.id}/decline`, { cookie: first.cookie });
+    const second = await approvedPro(t, '+4915100000102', { trades: [market.gardening], firstName: 'Jonas' });
+
+    const admin = await signInAdmin(t);
+    const candidates = (await call(t, 'GET', `/admin/bookings/${created.id}/candidates`, { cookie: admin })).json().candidates;
+    expect(candidates.map((c: { id: string }) => c.id)).toContain(second.proId);
+    const assigned = await call(t, 'POST', `/admin/bookings/${created.id}/reassign`, { cookie: admin, body: { proId: second.proId } });
+    expect(assigned.json().booking).toMatchObject({ status: 'accepted', pro: { id: second.proId } });
+    expect(assigned.json().booking.actions[0]).toMatchObject({ action: 'assigned', details: { proId: second.proId } });
+    const toPro = await t.pool.query("SELECT body FROM notifications WHERE user_id = $1 AND body LIKE '%team gave you%'", [second.proId]);
+    expect(toPro.rowCount).toBe(1);
+    const toCustomer = await t.pool.query("SELECT body FROM notifications WHERE kind = 'pro_assigned' AND body LIKE 'MISK: Jonas%'");
+    expect(toCustomer.rowCount).toBe(1);
+  });
+
+  it('moves a booking to a new time, keeping its length, and refuses past times', async () => {
+    const pro = await approvedPro(t, '+4915100000101', { trades: [market.gardening] });
+    const created = await bookFirst();
+    const bookingId = await acceptFirstOffer(pro.cookie);
+    const before = await booking(bookingId);
+    const admin = await signInAdmin(t);
+    const later = new Date(new Date(before.startsAt).getTime() + 3 * 24 * 3600 * 1000).toISOString();
+    const moved = await call(t, 'POST', `/admin/bookings/${created.id}/reschedule`, { cookie: admin, body: { startsAt: later } });
+    expect(moved.statusCode).toBe(200);
+    const after = moved.json().booking;
+    expect(after.startsAt).toBe(later);
+    expect(new Date(after.endsAt).getTime() - new Date(after.startsAt).getTime()).toBe(
+      new Date(before.endsAt).getTime() - new Date(before.startsAt).getTime(),
+    );
+    expect(after.actions[0]).toMatchObject({ action: 'rescheduled', details: { from: before.startsAt, to: later } });
+    const past = await call(t, 'POST', `/admin/bookings/${created.id}/reschedule`, {
+      cookie: admin,
+      body: { startsAt: new Date(Date.now() - 3600 * 1000).toISOString() },
+    });
+    expect(errorOf(past)).toBe('time_in_past');
+  });
+
+  it('refuses a new time that double-books the pro', async () => {
+    const pro = await approvedPro(t, '+4915100000101', { trades: [market.gardening] });
+    const first = await bookFirst();
+    await acceptFirstOffer(pro.cookie);
+    const second = await bookFirst();
+    await acceptFirstOffer(pro.cookie);
+    const firstSeen = await booking(first.id);
+    const admin = await signInAdmin(t);
+    const clash = await call(t, 'POST', `/admin/bookings/${second.id}/reschedule`, {
+      cookie: admin,
+      body: { startsAt: firstSeen.startsAt },
+    });
+    expect(errorOf(clash)).toBe('pro_busy');
+  });
+
+  it('gives held money back on a finished job before it is charged', async () => {
+    const { bookingId } = await completedJob();
+    const admin = await signInAdmin(t);
+    const refunded = await call(t, 'POST', `/admin/bookings/${bookingId}/refund`, { cookie: admin });
+    expect(refunded.json().booking).toMatchObject({ paymentStatus: 'released' });
+    expect(refunded.json().booking.actions[0]).toMatchObject({ action: 'refunded', details: { wasCharged: false } });
+    await afterChargeDelay(bookingId);
+    expect(t.fake.transfers).toEqual([]);
+  });
+
+  it('charges a job after the team settles the reported problem', async () => {
+    const { bookingId } = await completedJob();
+    await call(t, 'POST', `/bookings/${bookingId}/problem`, { cookie: customer, body: { note: 'Missed a corner' } });
+    const admin = await signInAdmin(t);
+    const listed = (await call(t, 'GET', '/admin/bookings?tab=needs_action', { cookie: admin })).json();
+    expect(listed.bookings).toEqual([expect.objectContaining({ id: bookingId, problem: true })]);
+
+    await t.pool.query("UPDATE bookings SET completed_at = now() - interval '25 hours' WHERE id = $1", [bookingId]);
+    const charged = await call(t, 'POST', `/admin/bookings/${bookingId}/charge`, { cookie: admin });
+    expect(charged.json().booking).toMatchObject({ paymentStatus: 'captured' });
+    expect(charged.json().booking.actions[0].action).toBe('charged_after_problem');
+    expect(errorOf(await call(t, 'POST', `/admin/bookings/${bookingId}/charge`, { cookie: admin }))).toBe('nothing_to_charge');
+  });
+
+  it('lists bookings by tab with counts, search and filters', async () => {
+    const pro = await approvedPro(t, '+4915100000101', { trades: [market.gardening] });
+    const upcoming = await bookFirst();
+    await acceptFirstOffer(pro.cookie);
+    const live = await bookFirst();
+    await acceptFirstOffer(pro.cookie);
+    await walkToWorking(pro.cookie, live.id);
+    const admin = await signInAdmin(t);
+
+    const all = (await call(t, 'GET', '/admin/bookings', { cookie: admin })).json();
+    expect(all.counts).toEqual({ all: 2, needs_action: 0, live: 1, upcoming: 1, done: 0 });
+    const row = all.bookings.find((b: { id: string }) => b.id === upcoming.id);
+    expect(row).toMatchObject({
+      kind: 'booking',
+      number: expect.stringMatching(/^B-\d+$/),
+      service: expect.any(String),
+      trade: expect.any(String),
+      customer: 'Sara',
+      pro: expect.any(String),
+      status: 'accepted',
+      valueCents: 4840,
+      paymentStatus: 'held',
+      tab: 'upcoming',
+    });
+
+    const liveOnly = (await call(t, 'GET', '/admin/bookings?tab=live', { cookie: admin })).json();
+    expect(liveOnly.bookings.map((b: { id: string }) => b.id)).toEqual([live.id]);
+    expect(liveOnly.counts.all).toBe(2);
+
+    const byNumber = (await call(t, 'GET', `/admin/bookings?q=${encodeURIComponent(row.number.toLowerCase())}`, { cookie: admin })).json();
+    expect(byNumber.bookings.map((b: { id: string }) => b.id)).toEqual([upcoming.id]);
+    const byAddress = (await call(t, 'GET', '/admin/bookings?q=linden', { cookie: admin })).json();
+    expect(byAddress.counts.all).toBe(2);
+    const nobody = (await call(t, 'GET', '/admin/bookings?q=zzzz', { cookie: admin })).json();
+    expect(nobody).toMatchObject({ bookings: [], counts: { all: 0 } });
+
+    const visitsOnly = (await call(t, 'GET', '/admin/bookings?type=visit', { cookie: admin })).json();
+    expect(visitsOnly.counts.all).toBe(0);
+    const otherTrade = (await call(t, 'GET', `/admin/bookings?trade=${market.plumbing}`, { cookie: admin })).json();
+    expect(otherTrade.counts.all).toBe(0);
+    expect((await call(t, 'GET', '/admin/bookings?tab=nope', { cookie: admin })).statusCode).toBe(400);
+    expect((await call(t, 'GET', '/admin/bookings', { cookie: pro.cookie })).statusCode).toBe(403);
   });
 });

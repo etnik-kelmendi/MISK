@@ -38,6 +38,8 @@ pie showData
 | 2026-11-04 | M13 | 6 | Browser story: customer books and pays, pro accepts, asks for extra work, adds a photo, completes; customer approves and rates; admin sees the money. axe checks on every screen. Fixed along the way: two real accessibility faults (low-contrast weekday label, `aria-label` on a plain `span` for star ratings) and three ambiguous test locators. 4 of 4 stories pass. |
 | 2026-11-04 | Admin menu, plan builder | 1 | Menu now matches the design: Overview, Bookings, Providers, Plans, Catalogue, Settings. Areas and Team moved into Settings; sign-out to a top bar. Plan builder (Phase 2 first step) with live preview, drafts and publishing. |
 
+| 2026-11-06 | Admin bookings page | 4 | Bookings and plan visits in one list with tabs and counts, search, trade and type filters, CSV export; side panel (×, Esc, click outside) with progress, money split, assign, move, cancel, refund, charge after a problem, and an action log. Customers are charged 24 hours after the job and can report a problem first (D25, D26). Loop 2: the old tests expected an immediate charge; they now move the clock a day. Loop 3: a moved booking lost its "Moved" message because the form was keyed by the start time. Loop 4: axe found `role="dialog"` on an `<aside>`; now a `<div>`. 142 API, 74 web and 7 browser tests pass. |
+
 ## Next
 
 Phase 2 continues with customer subscriptions, automatic visit planning, skip and pause (the plan builder

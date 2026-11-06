@@ -1,103 +1,292 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link, useSearchParams } from 'react-router';
+import { useSearchParams } from 'react-router';
 import { useApi } from '../../api/ApiContext';
 import { useMarket } from '../../api/MarketContext';
-import type { AdminBookingListItem, BookingStatus } from '../../api/types';
+import {
+  ADMIN_TABS,
+  type AdminBookingList,
+  type AdminBookingListItem,
+  type AdminCategory,
+  type AdminTab,
+  type BookingStatus,
+  type PaymentStatus,
+  type VisitStatus,
+} from '../../api/types';
 import { useResource } from '../../api/useResource';
+import { Icon } from '../../components/Icon';
 import { ResourceState } from '../../components/ResourceState';
 import { StatusBadge } from '../../components/StatusBadge';
-import { dateTime, euro } from '../../lib/format';
+import { downloadFile, toCsv } from '../../lib/csv';
+import { dateTime, euro, zonedParts } from '../../lib/format';
+import { usePolling } from '../../lib/usePolling';
+import { AdminBookingDrawer, REFRESH_MS, type OpenItem } from './AdminBookingDrawer';
 
-const STATUSES: BookingStatus[] = ['unassigned', 'searching', 'awaiting_payment', 'accepted', 'on_the_way', 'working', 'completed', 'cancelled'];
+const SEARCH_DELAY_MS = 250;
+
+const VISIT_TONE: Record<VisitStatus, string> = { planned: 'b', skipped: 'grey', completed: 'g', cancelled: 'grey' };
+type SubscriptionStatus = 'awaiting_payment' | 'active' | 'past_due' | 'cancelled';
+
+function isTab(value: string | null): value is AdminTab {
+  return ADMIN_TABS.some((tab) => tab === value);
+}
+
+/** "b:<id>" or "v:<id>" in the address bar keeps the open booking across reloads and shared links. */
+export function parseOpen(value: string | null): OpenItem | null {
+  const match = value ? /^([bv]):([0-9a-f-]{36})$/i.exec(value) : null;
+  if (!match?.[1] || !match[2]) {
+    return null;
+  }
+  return { kind: match[1] === 'b' ? 'booking' : 'visit', id: match[2] };
+}
+
+function ItemStatus({ item }: { item: AdminBookingListItem }) {
+  const { t } = useTranslation();
+  if (item.kind === 'visit') {
+    const status = item.status as VisitStatus;
+    return <span className={`badge ${VISIT_TONE[status]}`}>{t(`admin.bookings.visitStatus.${status}`)}</span>;
+  }
+  return <StatusBadge status={item.status as BookingStatus} />;
+}
 
 export function AdminBookingsPage() {
   const { t } = useTranslation();
   const api = useApi();
   const { timezone } = useMarket();
   const [params, setParams] = useSearchParams();
-  const status = params.get('status') ?? '';
-  const [query, setQuery] = useState('');
-  const [submitted, setSubmitted] = useState('');
+  const tabParam = params.get('tab');
+  const tab: AdminTab = isTab(tabParam) ? tabParam : 'all';
+  const q = params.get('q') ?? '';
+  const trade = params.get('trade') ?? '';
+  const typeParam = params.get('type');
+  const type = typeParam === 'booking' || typeParam === 'visit' ? typeParam : '';
+  const open = parseOpen(params.get('open'));
+  const [typed, setTyped] = useState(q);
+  const returnFocus = useRef<HTMLElement | null>(null);
+
+  const change = useCallback(
+    (next: Record<string, string>) => {
+      setParams(
+        (current) => {
+          const updated = new URLSearchParams(current);
+          for (const [key, value] of Object.entries(next)) {
+            if (value) updated.set(key, value);
+            else updated.delete(key);
+          }
+          return updated;
+        },
+        { replace: true },
+      );
+    },
+    [setParams],
+  );
+
+  // Search as the admin types, without a request per key press.
+  useEffect(() => {
+    const trimmed = typed.trim();
+    if (trimmed === q) {
+      return;
+    }
+    const timer = setTimeout(() => change({ q: trimmed }), SEARCH_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [typed, q, change]);
+
   const load = useCallback(() => {
-    const search = new URLSearchParams();
-    if (status) search.set('status', status);
-    if (submitted) search.set('q', submitted);
-    return api.get<{ bookings: AdminBookingListItem[] }>(`/admin/bookings?${search.toString()}`);
-  }, [api, status, submitted]);
+    const search = new URLSearchParams({ tab });
+    if (q) search.set('q', q);
+    if (trade) search.set('trade', trade);
+    if (type) search.set('type', type);
+    return api.get<AdminBookingList>(`/admin/bookings?${search.toString()}`);
+  }, [api, tab, q, trade, type]);
   const { state, reload } = useResource(load);
+  usePolling(reload, REFRESH_MS);
+
+  const loadTrades = useCallback(() => api.get<{ categories: AdminCategory[] }>('/admin/catalogue'), [api]);
+  const trades = useResource(loadTrades);
+
+  function openItem(item: AdminBookingListItem, from: HTMLElement) {
+    returnFocus.current = from;
+    change({ open: `${item.kind === 'booking' ? 'b' : 'v'}:${item.id}` });
+  }
+
+  const closeItem = useCallback(() => {
+    change({ open: '' });
+    returnFocus.current?.focus();
+  }, [change]);
+
+  function typeLabel(item: AdminBookingListItem) {
+    return item.kind === 'booking' ? t('admin.bookings.typeBooking') : t('admin.bookings.typeVisit');
+  }
+
+  function statusLabel(item: AdminBookingListItem) {
+    return item.kind === 'booking'
+      ? t(`status.${item.status as BookingStatus}`)
+      : t(`admin.bookings.visitStatus.${item.status as VisitStatus}`);
+  }
+
+  function paymentLabel(item: AdminBookingListItem) {
+    return item.kind === 'booking'
+      ? t(`payment.${item.paymentStatus as PaymentStatus}`)
+      : t(`admin.bookings.subscription.${item.paymentStatus as SubscriptionStatus}`);
+  }
+
+  /** Exactly the rows on screen: the current tab, search and filters. */
+  function exportShown(items: AdminBookingListItem[]) {
+    const columns = ['number', 'date', 'time', 'service', 'trade', 'type', 'customer', 'address', 'pro', 'status', 'value', 'payment'] as const;
+    const rows = items.map((item) => {
+      const when = zonedParts(item.startsAt, timezone);
+      return [
+        item.number,
+        when.date,
+        when.time,
+        item.service,
+        item.trade,
+        typeLabel(item),
+        item.customer,
+        `${item.address}, ${item.postcode}`,
+        item.pro ?? t('admin.bookings.unassigned'),
+        statusLabel(item),
+        (item.valueCents / 100).toFixed(2),
+        paymentLabel(item),
+      ];
+    });
+    const today = zonedParts(new Date().toISOString(), timezone).date;
+    downloadFile(t('admin.bookings.exportFile', { date: today }), toCsv([columns.map((key) => t(`admin.bookings.csv.${key}`)), ...rows]));
+  }
+
+  const ready = state.status === 'ready' ? state.data : null;
 
   return (
     <>
-      <h1>{t('admin.bookings.title')}</h1>
-      <form
-        className="row gap8 wrap filters"
-        onSubmit={(event) => {
-          event.preventDefault();
-          setSubmitted(query.trim());
-        }}
-      >
+      <div className="row between wrap gap8">
+        <h1>{t('admin.bookings.title')}</h1>
+        <button
+          type="button"
+          className="abtn ghost"
+          disabled={!ready || ready.bookings.length === 0}
+          onClick={() => {
+            if (ready) exportShown(ready.bookings);
+          }}
+        >
+          <Icon name="file" /> {t('admin.bookings.export')}
+        </button>
+      </div>
+
+      <div className="seg wrap" role="group" aria-label={t('admin.bookings.tabsLabel')}>
+        {ADMIN_TABS.map((key) => (
+          <button
+            key={key}
+            type="button"
+            className={key === tab ? 'on' : ''}
+            aria-pressed={key === tab}
+            onClick={() => change({ tab: key === 'all' ? '' : key })}
+          >
+            {t('admin.bookings.tabCount', { label: t(`admin.bookings.tab.${key}`), count: ready?.counts[key] ?? 0 })}
+          </button>
+        ))}
+      </div>
+
+      <div className="row gap8 wrap filters">
+        <div className="af grow">
+          <label htmlFor="booking-search">{t('admin.bookings.search')}</label>
+          <input
+            id="booking-search"
+            type="search"
+            maxLength={60}
+            placeholder={t('admin.bookings.searchHint')}
+            value={typed}
+            onChange={(event) => setTyped(event.target.value)}
+          />
+        </div>
         <div className="af">
-          <label htmlFor="status-filter">{t('admin.bookings.status')}</label>
-          <select id="status-filter" value={status} onChange={(e) => setParams(e.target.value ? { status: e.target.value } : {})}>
-            <option value="">{t('admin.bookings.all')}</option>
-            {STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {t(`status.${s}`)}
-              </option>
-            ))}
+          <label htmlFor="trade-filter">{t('admin.bookings.trade')}</label>
+          <select id="trade-filter" value={trade} onChange={(event) => change({ trade: event.target.value })}>
+            <option value="">{t('admin.bookings.allTrades')}</option>
+            {trades.state.status === 'ready' &&
+              trades.state.data.categories.map((category) => (
+                <option key={category.id} value={category.id}>
+                  {category.name}
+                </option>
+              ))}
           </select>
         </div>
-        <div className="af grow">
-          <label htmlFor="search">{t('admin.bookings.search')}</label>
-          <input id="search" type="search" maxLength={60} value={query} onChange={(e) => setQuery(e.target.value)} />
+        <div className="af">
+          <label htmlFor="type-filter">{t('admin.bookings.type')}</label>
+          <select id="type-filter" value={type} onChange={(event) => change({ type: event.target.value })}>
+            <option value="">{t('admin.bookings.allTypes')}</option>
+            <option value="booking">{t('admin.bookings.typeBooking')}</option>
+            <option value="visit">{t('admin.bookings.typeVisit')}</option>
+          </select>
         </div>
-        <button type="submit" className="abtn ghost">
-          {t('admin.bookings.find')}
-        </button>
-      </form>
+      </div>
+
       <ResourceState state={state} reload={reload}>
-        {({ bookings }) =>
+        {({ bookings, truncated }) =>
           bookings.length === 0 ? (
             <p className="panel muted">{t('admin.bookings.none')}</p>
           ) : (
             <div className="panel scroll-x">
-              <table className="t">
+              <table className="t clickable">
                 <thead>
                   <tr>
-                    <th scope="col">{t('admin.bookings.when')}</th>
+                    <th scope="col">{t('admin.bookings.number')}</th>
+                    <th scope="col">{t('admin.bookings.date')}</th>
                     <th scope="col">{t('admin.bookings.service')}</th>
                     <th scope="col">{t('admin.bookings.customer')}</th>
                     <th scope="col">{t('admin.bookings.pro')}</th>
                     <th scope="col">{t('admin.bookings.status')}</th>
-                    <th scope="col">{t('admin.bookings.value')}</th>
+                    <th scope="col">{t('admin.bookings.price')}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {bookings.map((b) => (
-                    <tr key={b.id} className={b.status === 'unassigned' ? 'hl' : ''}>
-                      <td>{dateTime(b.startsAt, timezone)}</td>
+                  {bookings.map((item) => (
+                    <tr
+                      key={`${item.kind}-${item.id}`}
+                      className={item.tab === 'needs_action' ? 'hl' : ''}
+                      onClick={(event) => openItem(item, event.currentTarget.querySelector('button') ?? event.currentTarget)}
+                    >
                       <td>
-                        <Link to={`/admin/bookings/${b.id}`} className="b">
-                          {b.serviceName}
-                        </Link>
+                        <button
+                          type="button"
+                          className="link b"
+                          aria-label={t('admin.bookings.open', { number: item.number })}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openItem(item, event.currentTarget);
+                          }}
+                        >
+                          {item.number}
+                        </button>
+                      </td>
+                      <td>{dateTime(item.startsAt, timezone)}</td>
+                      <td>
+                        {item.service}
+                        <div className="small muted">
+                          {item.trade} · {typeLabel(item)}
+                        </div>
                       </td>
                       <td>
-                        {b.customerName} · {b.postcode}
+                        {item.customer}
+                        <div className="small muted">{item.address}</div>
                       </td>
-                      <td>{b.proName ?? '–'}</td>
+                      <td>{item.pro ?? <span className="unassigned">{t('admin.bookings.unassigned')}</span>}</td>
                       <td>
-                        <StatusBadge status={b.status} />
+                        <ItemStatus item={item} />
+                        {item.problem && <div className="small unassigned">{t('admin.bookings.problem')}</div>}
                       </td>
-                      <td>{euro(b.totalCents)}</td>
+                      <td>{euro(item.valueCents)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+              {truncated && <p className="small muted">{t('admin.bookings.truncated', { count: bookings.length })}</p>}
             </div>
           )
         }
       </ResourceState>
+      <p className="small muted">{t('admin.bookings.updated')}</p>
+
+      {open && <AdminBookingDrawer item={open} onClose={closeItem} onChanged={reload} />}
     </>
   );
 }

@@ -10,7 +10,6 @@ import { enqueue } from '../notifications/outbox.js';
 import { readSingleFile, storeUpload } from '../uploads/uploads.js';
 import { acceptOffer, declineOffer } from './dispatch.js';
 import { setStatus, type BookingDeps } from './events.js';
-import { settleBooking } from './lifecycle.js';
 import { loadBooking } from './views.js';
 
 export const MAX_COMPLETION_PHOTOS = 6;
@@ -300,13 +299,8 @@ export async function proJobRoutes(app: FastifyInstance, ctx: AppContext) {
         await setStatus(client, request.params.id, 'completed', ', completed_at = now()');
         await enqueue(client, job.customer_id, 'job_completed', messages.jobCompleted(job.service_name));
       });
+      // The card is charged 24 hours from now by the settlement worker, unless the customer reports a problem.
       request.log.info({ event: 'job_completed', bookingId: request.params.id, proId });
-      try {
-        await settleBooking(deps(), request.params.id);
-      } catch (error) {
-        // The job is done either way; the settlement worker finishes the payment.
-        request.log.error({ event: 'settle_failed', bookingId: request.params.id, err: error });
-      }
       return { job: await ownJob(proId, request.params.id) };
     },
   );

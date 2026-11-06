@@ -9,6 +9,13 @@ const user = () => userEvent.setup();
 function booking(overrides: Partial<CustomerBooking> = {}): CustomerBooking {
   return {
     id: 'b1',
+    number: 'B-1001',
+    categoryName: 'Gardening',
+    problemReportedAt: null,
+    problemNote: null,
+    problemResolvedAt: null,
+    chargeAt: null,
+    canReportProblem: false,
     status: 'accepted',
     serviceName: 'Lawn mowing',
     categoryId: 'cat-garden',
@@ -346,6 +353,25 @@ describe('a booking', () => {
     expect(await screen.findByText('You gave 5 stars. Thank you!')).toBeInTheDocument();
     expect(api.bodies['POST /bookings/b1/rating']).toEqual({ stars: 5, tags: ['tidy'] });
   });
+  it('lets the customer report a problem before the card is charged', async () => {
+    const api = fakeApi(users.customer);
+    const done = { status: 'completed' as const, canCancel: false, chargeAt: '2026-11-07T10:00:00.000Z' };
+    api.on('GET /bookings/b1', { body: { booking: booking({ ...done, canReportProblem: true }) } });
+    api.on('POST /bookings/b1/problem', {
+      body: {
+        booking: booking({ ...done, canReportProblem: false, problemReportedAt: '2026-11-06T12:00:00.000Z', problemNote: 'Back lawn not mowed' }),
+      },
+    });
+    renderAt('/bookings/b1');
+    expect(await screen.findByText('We charge your card on Sat 7 Nov, 11:00. Not happy with the job? Tell us before then.')).toBeInTheDocument();
+    await user().click(screen.getByRole('button', { name: 'Report a problem' }));
+    const send = screen.getByRole('button', { name: 'Send to MISK' });
+    expect(send).toBeDisabled();
+    await user().type(screen.getByLabelText('Tell us what was not done right'), '  Back lawn not mowed ');
+    await user().click(send);
+    expect(await screen.findByText(/we got your report/)).toBeInTheDocument();
+    expect(api.bodies['POST /bookings/b1/problem']).toEqual({ note: 'Back lawn not mowed' });
+  });
 });
 
 describe('pro app', () => {
@@ -613,7 +639,7 @@ describe('admin navigation', () => {
         attention: { pendingApplications: 0, unassigned: 0, unreleasedHolds: 0, failedPayouts: 0 },
       },
     });
-    api.on('GET /admin/bookings', { body: { bookings: [] } });
+    api.on('GET /admin/bookings', { body: { bookings: [], counts: { all: 0, needs_action: 0, live: 0, upcoming: 0, done: 0 }, truncated: false } });
     api.on('GET /admin/pros', { body: { pros: [] } });
     api.on('GET /admin/plans', { body: { plans: [] } });
     api.on('GET /admin/catalogue', { body: { categories: [], services: [] } });
