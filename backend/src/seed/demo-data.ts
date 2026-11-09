@@ -60,6 +60,7 @@ const CATALOGUE: [string, string, Icon, [string, number, number, string][]][] = 
     ['Furniture assembly', 40, 90, 'Wardrobes, beds, shelves and more'],
     ['TV & shelf mounting', 49, 60, 'Wall mounting with cables hidden'],
     ['Small repairs', 32, 60, 'Doors, handles, hinges, silicone'],
+    ['Handyman by the hour', 38, 120, 'A list of small jobs, paid per hour'],
   ]],
   ['plumbing', 'Plumbing', 'drop', [
     ['Leak repair', 59, 60, 'Find and fix leaking pipes and joints'],
@@ -81,6 +82,9 @@ const CATALOGUE: [string, string, Icon, [string, number, number, string][]][] = 
     ['Wall touch-up', 69, 120, 'Patch holes and repaint marks'],
   ]],
 ];
+
+/** Services paid per hour instead of by size (D31). */
+const HOURLY = new Set(['Handyman by the hour']);
 
 interface ProSeed {
   key: string;
@@ -166,6 +170,7 @@ interface ServiceRow {
   sizeSmallPct: number;
   sizeMediumPct: number;
   sizeLargePct: number;
+  pricing: 'fixed' | 'hourly';
 }
 
 /** A local slot in the market time zone, `day` days from today, as SQL. */
@@ -224,16 +229,16 @@ async function fill(
   const services: ServiceRow[] = [];
   for (const [order, [slug, name, icon, items]] of CATALOGUE.entries()) {
     const category = await db.query<{ id: string }>(
-      'INSERT INTO categories (slug, name, icon, sort_order) VALUES ($1, $2, $3, $4) RETURNING id',
+      'INSERT INTO categories (slug, name, icon, sort_order, active) VALUES ($1, $2, $3, $4, true) RETURNING id',
       [slug, name, icon, order],
     );
     const categoryId = category.rows[0]?.id ?? '';
     categoryIds.set(slug, categoryId);
     for (const [index, [serviceName, euros, minutes, description]] of items.entries()) {
       const row = await db.query<{ id: string }>(
-        `INSERT INTO services (category_id, name, description, price_cents, duration_minutes, sort_order)
-         VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-        [categoryId, serviceName, description, euros * 100, minutes, index],
+        `INSERT INTO services (category_id, name, description, price_cents, duration_minutes, sort_order, pricing, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, now() - interval '120 days') RETURNING id`,
+        [categoryId, serviceName, description, euros * 100, minutes, index, HOURLY.has(serviceName) ? 'hourly' : 'fixed'],
       );
       services.push({
         id: row.rows[0]?.id ?? '',
@@ -245,9 +250,19 @@ async function fill(
         sizeSmallPct: 100,
         sizeMediumPct: 130,
         sizeLargePct: 170,
+        pricing: HOURLY.has(serviceName) ? 'hourly' : 'fixed',
       });
     }
   }
+  // A trade the team is still setting up: a draft, so customers do not see it yet.
+  const draft = await db.query<{ id: string }>(
+    "INSERT INTO categories (slug, name, icon, sort_order, active) VALUES ('pool-care', 'Pool care', 'sun', 99, false) RETURNING id",
+  );
+  await db.query(
+    `INSERT INTO services (category_id, name, description, price_cents, duration_minutes)
+     VALUES ($1, 'Pool cleaning', 'Skim, vacuum and check the water', 6900, 90)`,
+    [draft.rows[0]?.id],
+  );
 
   for (const plan of PLANS) {
     await db.query(

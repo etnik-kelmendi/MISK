@@ -140,6 +140,10 @@ stateDiagram-v2
   to Pending approval by themselves until a new copy is accepted. The team can approve, ask for more
   information, reject, pause jobs, put on a watch list, book a coaching call, suspend (their jobs go to
   other pros) and reinstate; every action is logged.
+- **Catalogue** (admin) lists the trades on the left (visible services, pros) and the selected trade's
+  services on the right, with duration, base price (edited in the table), Small / Medium / Large prices
+  or a per-hour price, what the pro earns, and a visible switch. New trades start as drafts; "See in the
+  app" shows the trade as customers see it. Every change is logged and reaches the app within 30 seconds.
 - **Admin Bookings** lists one-off bookings and plan visits with tabs (All, Needs action, Live now,
   Upcoming, Done), search (booking number, customer, address, pro), trade and type filters, CSV export of
   the rows shown, and a side panel to assign a pro, move the time, cancel, refund or charge. Every action

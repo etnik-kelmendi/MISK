@@ -217,7 +217,11 @@ test.describe.serial('MISK marketplace', () => {
     await expect(page.getByRole('heading', { name: 'Plan published' })).toBeVisible();
     await nav.getByRole('link', { name: 'Catalogue', exact: true }).click();
     await expect(page.getByRole('heading', { name: /Gardening/ })).toBeVisible();
+    await expect(page.getByRole('switch', { name: 'Visible to customers: Lawn mowing' })).toBeChecked();
     await expectAccessible(page);
+    await page.getByRole('button', { name: 'See in the app' }).click();
+    await expect(page.getByRole('dialog', { name: 'Gardening in the customer app' }).getByText('Lawn mowing')).toBeVisible();
+    await page.keyboard.press('Escape');
     await context.close();
   });
   test('a customer subscribes to the plan the team published, and the pro sees it', async ({ browser }) => {

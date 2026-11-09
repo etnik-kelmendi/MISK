@@ -54,7 +54,7 @@ if (demo) {
     `INSERT INTO postcodes (code, name, lat, lng) VALUES ('10115', 'Mitte', 52.5323, 13.3846), ('10117', 'Mitte South', 52.517, 13.3889)`,
   );
   const category = await pool.query<{ id: string }>(
-    `INSERT INTO categories (slug, name, icon) VALUES ('gardening', 'Gardening', 'leaf') RETURNING id`,
+    `INSERT INTO categories (slug, name, icon, active) VALUES ('gardening', 'Gardening', 'leaf', true) RETURNING id`,
   );
   const categoryId = category.rows[0]?.id;
   await pool.query(

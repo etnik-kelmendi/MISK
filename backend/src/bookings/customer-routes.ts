@@ -24,6 +24,7 @@ interface ServiceRow {
   sizeSmallPct: number;
   sizeMediumPct: number;
   sizeLargePct: number;
+  pricing: 'fixed' | 'hourly';
 }
 
 interface BookingBody {
@@ -45,7 +46,7 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
     const found = await pool.query<ServiceRow>(
       `SELECT s.id, s.category_id AS "categoryId", s.name, s.price_cents AS "priceCents",
          s.duration_minutes AS "durationMinutes", s.size_small_pct AS "sizeSmallPct",
-         s.size_medium_pct AS "sizeMediumPct", s.size_large_pct AS "sizeLargePct"
+         s.size_medium_pct AS "sizeMediumPct", s.size_large_pct AS "sizeLargePct", s.pricing
        FROM services s JOIN categories c ON c.id = s.category_id
        WHERE s.id = $1 AND s.active AND c.active`,
       [serviceId],

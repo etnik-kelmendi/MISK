@@ -26,7 +26,7 @@ async function phoneCookie(phone: string) {
 
 describe('demo data', () => {
   it('fills every part of the marketplace', async () => {
-    expect(summary).toMatchObject({ postcodes: 8, categories: 6, services: 18, plans: 4, pros: 13, customers: 9 });
+    expect(summary).toMatchObject({ postcodes: 8, categories: 6, services: 19, plans: 4, pros: 13, customers: 9 });
     expect(summary.bookings).toBeGreaterThan(60);
     expect(summary.ratings).toBeGreaterThan(40);
     const statuses = await t.pool.query<{ status: string }>('SELECT DISTINCT status FROM bookings ORDER BY status');

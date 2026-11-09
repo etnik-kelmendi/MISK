@@ -27,6 +27,10 @@ export interface Service {
   sizeLargePct: number;
   sortOrder: number;
   active: boolean;
+  /** 'hourly': the price is per hour and there are no sizes. */
+  pricing: 'fixed' | 'hourly';
+  /** Added in the last 14 days. */
+  isNew: boolean;
 }
 
 export interface Category {
@@ -424,7 +428,44 @@ export interface AdminCategory {
   name: string;
   icon: IconName;
   sortOrder: number;
+  /** False while the trade is a draft, hidden from customers. */
   active: boolean;
+  visibleServices: number;
+  totalServices: number;
+  /** Pros with this trade, applicants included. */
+  pros: number;
+  /** Approved pros with this trade. */
+  verifiedPros: number;
+}
+
+export type CatalogueChangeAction =
+  | 'trade_added'
+  | 'trade_published'
+  | 'trade_unpublished'
+  | 'trade_edited'
+  | 'service_added'
+  | 'service_edited'
+  | 'price_changed'
+  | 'service_hidden'
+  | 'service_shown';
+
+export interface CatalogueChange {
+  id: string;
+  categoryId: string;
+  serviceId: string | null;
+  action: CatalogueChangeAction;
+  details: { from?: number; to?: number; name?: string };
+  createdAt: string;
+  serviceName: string | null;
+  adminName: string | null;
+}
+
+export interface AdminCatalogue {
+  categories: AdminCategory[];
+  services: Service[];
+  proSharePct: number;
+  appUrl: string;
+  changes: CatalogueChange[];
 }
 
 export interface AdminPostcode {

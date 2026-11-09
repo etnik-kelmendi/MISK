@@ -56,9 +56,27 @@ export function parseEuroToCents(input: string): number | null {
   return Math.round(Number(normalized) * 100);
 }
 
-export function sizePrice(service: { priceCents: number; sizeSmallPct: number; sizeMediumPct: number; sizeLargePct: number }, size: 'S' | 'M' | 'L') {
+export interface PricedService {
+  priceCents: number;
+  sizeSmallPct: number;
+  sizeMediumPct: number;
+  sizeLargePct: number;
+  pricing?: 'fixed' | 'hourly';
+  durationMinutes?: number;
+}
+
+/** The job price, as the API charges it: base price times the size, or the hourly rate times the job length. */
+export function sizePrice(service: PricedService, size: 'S' | 'M' | 'L') {
+  if (service.pricing === 'hourly') {
+    return Math.round((service.priceCents * (service.durationMinutes ?? 60)) / 60);
+  }
   const pct = { S: service.sizeSmallPct, M: service.sizeMediumPct, L: service.sizeLargePct }[size];
   return Math.round((service.priceCents * pct) / 100);
+}
+
+/** The pro's part of an amount, rounded down like the API does. */
+export function proShare(amountCents: number, proSharePct: number) {
+  return Math.floor((amountCents * proSharePct) / 100);
 }
 
 /** ISO weekday 1–7 of an instant in the market time zone. */

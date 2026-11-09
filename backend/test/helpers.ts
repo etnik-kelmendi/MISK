@@ -187,8 +187,8 @@ export async function seedMarket(pool: pg.Pool): Promise<Market> {
        ('14167', 'Zehlendorf', 52.4180, 13.2600)`,
   );
   const categories = await pool.query<{ id: string; slug: string }>(
-    `INSERT INTO categories (slug, name, icon, sort_order) VALUES
-       ('gardening', 'Gardening', 'leaf', 1), ('plumbing', 'Plumbing', 'drop', 2)
+    `INSERT INTO categories (slug, name, icon, sort_order, active) VALUES
+       ('gardening', 'Gardening', 'leaf', 1, true), ('plumbing', 'Plumbing', 'drop', 2, true)
      RETURNING id, slug`,
   );
   const id = (slug: string) => categories.rows.find((c) => c.slug === slug)?.id ?? '';

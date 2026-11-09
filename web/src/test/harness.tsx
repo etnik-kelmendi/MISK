@@ -35,6 +35,8 @@ export const catalogue: Catalogue = {
           sizeLargePct: 170,
           sortOrder: 0,
           active: true,
+          pricing: 'fixed',
+          isNew: false,
         },
       ],
     },

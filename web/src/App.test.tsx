@@ -2,7 +2,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { CustomerBooking, ProProfile } from './api/types';
 import { forgetApprovalLink } from './pages/admin/ApproveRequestPage';
-import { fakeApi, renderAt, users } from './test/harness';
+import { catalogue, fakeApi, renderAt, users } from './test/harness';
 
 const user = () => userEvent.setup();
 
@@ -289,6 +289,27 @@ describe('booking a job', () => {
       postcode: '10115',
       startsAt: '2026-11-06T09:00:00.000Z',
     });
+  });
+
+  it('shows new services and hourly prices, and books hourly services without sizes', async () => {
+    const api = fakeApi(users.customer);
+    const garden = catalogue.categories[0];
+    const mowing = garden?.services[0];
+    if (!garden || !mowing) throw new Error('test catalogue changed');
+    const hourly = { ...mowing, id: 'svc-hour', name: 'Gardener by the hour', priceCents: 3800, durationMinutes: 120, pricing: 'hourly' as const, isNew: true };
+    api.on('GET /catalogue', { body: { ...catalogue, categories: [{ ...garden, services: [mowing, hourly] }] } });
+    api.on('GET /postcodes', { body: { postcodes: [{ code: '10115', name: 'Mitte' }] } });
+    renderAt('/category/gardening');
+    const option = await screen.findByRole('radio', { name: /Gardener by the hour/ });
+    expect(option.closest('label')).toHaveTextContent('New');
+    expect(option.closest('label')).toHaveTextContent('€38/h');
+    await user().click(option);
+    await user().click(screen.getByRole('button', { name: 'Continue · €38/h' }));
+    await user().type(await screen.findByLabelText('Street and house number'), '12 Linden Street');
+    await user().selectOptions(await screen.findByLabelText('Postcode'), '10115');
+    expect(screen.queryByRole('radio', { name: /Large/ })).not.toBeInTheDocument();
+    expect(screen.getByText(/Paid by the hour: €38\/h for about 2 h/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Continue · €76' })).toBeEnabled();
   });
 
   it('says so when the slot was just taken', async () => {
