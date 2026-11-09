@@ -1,6 +1,7 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { Pool } from 'pg';
 import type { Config } from '../config.js';
+import { areaOf, canOpen } from './access.js';
 import { findSessionUser, type Role, type User } from './sessions.js';
 
 export const SESSION_COOKIE = 'misk_session';
@@ -84,5 +85,17 @@ export function createGuards(pool: Pool, config: Config): Guards {
       }
     };
 
-  return { signedIn, customer: withRole('customer'), pro: withRole('pro'), admin: withRole('admin') };
+  // Admins may only use the parts of the control panel their team role opens (D35).
+  async function admin(request: FastifyRequest, reply: FastifyReply) {
+    await withRole('admin')(request, reply);
+    if (reply.sent) {
+      return;
+    }
+    const area = areaOf(request.routeOptions.url ?? request.url);
+    if (area && !canOpen(request.user?.adminRole ?? null, area)) {
+      return reply.code(403).send({ error: 'no_access' });
+    }
+  }
+
+  return { signedIn, customer: withRole('customer'), pro: withRole('pro'), admin };
 }

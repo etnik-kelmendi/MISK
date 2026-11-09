@@ -222,6 +222,22 @@ test.describe.serial('MISK marketplace', () => {
     await page.getByRole('button', { name: 'See in the app' }).click();
     await expect(page.getByRole('dialog', { name: 'Gardening in the customer app' }).getByText('Lawn mowing')).toBeVisible();
     await page.keyboard.press('Escape');
+
+    await nav.getByRole('link', { name: 'Settings', exact: true }).click();
+    await expect(page.getByText('All changes saved')).toBeVisible();
+    await expect(page.getByRole('slider', { name: 'MISK commission: 18%' })).toBeVisible();
+    await expectAccessible(page);
+    const settingsTabs = page.getByRole('navigation', { name: 'Settings sections' });
+    await settingsTabs.getByRole('link', { name: 'Service area' }).click();
+    await expect(page.getByRole('img', { name: 'Map of service zones' })).toBeVisible();
+    await expectAccessible(page);
+    await settingsTabs.getByRole('link', { name: 'Notifications' }).click();
+    await expect(page.getByRole('checkbox', { name: 'SMS for New job offer' })).toBeChecked();
+    await expectAccessible(page);
+    await settingsTabs.getByRole('link', { name: 'Team & access' }).click();
+    await expect(page.getByRole('button', { name: 'Invite teammate' })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Activity log' })).toBeVisible();
+    await expectAccessible(page);
     await context.close();
   });
   test('a customer subscribes to the plan the team published, and the pro sees it', async ({ browser }) => {

@@ -74,6 +74,13 @@ export interface PaymentGateway {
   accountStatus(accountId: string): Promise<{ payoutsEnabled: boolean }>;
   /** The pro's bank account (last 4 digits only) and their next payout, as their Stripe account shows it. */
   payoutDetails(accountId: string): Promise<PayoutDetails>;
+  /**
+   * How often Stripe pays the pro's balance to their bank: weekly (Fridays) or monthly (the 1st).
+   * 'manual' means MISK starts each payout itself, for every two weeks.
+   */
+  setPayoutSchedule(accountId: string, schedule: 'weekly' | 'monthly' | 'manual'): Promise<void>;
+  /** Pays the pro's available balance to their bank now; returns the amount, 0 when there is nothing. */
+  payOutBalance(accountId: string, idempotencyKey: string): Promise<number>;
   /** Verifies a webhook's signature and reads it. Throws when the signature is wrong. */
   parseWebhook(rawBody: Buffer, signature: string): { eventId: string; event: GatewayEvent };
 }

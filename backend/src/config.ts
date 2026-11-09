@@ -1,6 +1,7 @@
 import { resolve } from 'node:path';
 import { normalizePhone } from './notifications/phone.js';
 import type { SmtpConfig } from './notifications/email.js';
+import type { PushConfig } from './notifications/push.js';
 import type { TwilioConfig } from './notifications/sms.js';
 
 export interface StripeConfig {
@@ -28,6 +29,8 @@ export interface Config {
   stripe: StripeConfig | null;
   /** Outgoing email for admin password recovery; null until the SMTP settings are given. */
   smtp: SmtpConfig | null;
+  /** Web Push to the app on people's phones; null until the VAPID keys are given. */
+  push: PushConfig | null;
 }
 
 type RawEnv = Record<string, string | undefined>;
@@ -137,6 +140,26 @@ function parseSmtp(env: RawEnv): SmtpConfig | null {
   return { host, port, secure: port === 465, user, password, from };
 }
 
+// Both keys and the contact together or none.
+function parsePush(env: RawEnv): PushConfig | null {
+  const publicKey = env.VAPID_PUBLIC_KEY?.trim();
+  const privateKey = env.VAPID_PRIVATE_KEY?.trim();
+  const subject = env.VAPID_SUBJECT?.trim();
+  if (!publicKey && !privateKey && !subject) {
+    return null;
+  }
+  if (!publicKey || !privateKey || !subject) {
+    throw new Error('VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, and VAPID_SUBJECT must be set together');
+  }
+  if (!/^[A-Za-z0-9_-]{80,100}$/.test(publicKey) || !/^[A-Za-z0-9_-]{40,50}$/.test(privateKey)) {
+    throw new Error('VAPID keys must be the URL-safe base64 keys printed by `npx web-push generate-vapid-keys`');
+  }
+  if (!/^(mailto:[^\s@]+@[^\s@]+|https:\/\/\S+)$/.test(subject)) {
+    throw new Error('VAPID_SUBJECT must be a mailto: address or an https URL');
+  }
+  return { publicKey, privateKey, subject };
+}
+
 export function loadConfig(env: RawEnv): Config {
   const production = env.NODE_ENV === 'production';
   const twilio = parseTwilio(env);
@@ -157,5 +180,6 @@ export function loadConfig(env: RawEnv): Config {
     twilio,
     stripe: parseStripe(env, production),
     smtp: parseSmtp(env),
+    push: parsePush(env),
   };
 }

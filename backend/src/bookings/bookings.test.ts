@@ -424,17 +424,63 @@ describe('cancelling', () => {
     expect([...t.fake.intents.values()][0]?.status).toBe('released');
   });
 
-  it('lets the customer cancel an assigned job only until 24 hours before', async () => {
+  it('lets the customer cancel an assigned job for free until 24 hours before', async () => {
+    const pro = await approvedPro(t, '+4915100000101', { trades: [market.gardening] });
+    await bookFirst();
+    const bookingId = await acceptFirstOffer(pro.cookie);
+    await t.pool.query("UPDATE bookings SET starts_at = now() + interval '30 hours', ends_at = now() + interval '31 hours'");
+    expect((await booking(bookingId)).lateCancelCents).toBeNull();
+    const cancelled = await call(t, 'POST', `/bookings/${bookingId}/cancel`, { cookie: customer });
+    expect(cancelled.json().booking).toMatchObject({ status: 'cancelled', paymentStatus: 'released', lateCancel: false });
+    const proText = await t.pool.query("SELECT 1 FROM notifications WHERE kind = 'booking_cancelled'");
+    expect(proText.rowCount).toBe(1);
+  });
+
+  it('charges the full price for a late cancellation, once accepted, and pays the pro their share', async () => {
     const pro = await approvedPro(t, '+4915100000101', { trades: [market.gardening] });
     await bookFirst();
     const bookingId = await acceptFirstOffer(pro.cookie);
     await t.pool.query("UPDATE bookings SET starts_at = now() + interval '10 hours', ends_at = now() + interval '11 hours'");
-    expect(errorOf(await call(t, 'POST', `/bookings/${bookingId}/cancel`, { cookie: customer }))).toBe('too_late_to_cancel');
+    expect((await booking(bookingId)).lateCancelCents).toBe(4840);
+    expect(errorOf(await call(t, 'POST', `/bookings/${bookingId}/cancel`, { cookie: customer }))).toBe('late_cancel_charge');
+    const bad = await call(t, 'POST', `/bookings/${bookingId}/cancel`, { cookie: customer, body: { acceptLateCharge: 'yes' } });
+    expect(bad.statusCode).toBe(400);
 
-    await t.pool.query("UPDATE bookings SET starts_at = now() + interval '30 hours', ends_at = now() + interval '31 hours'");
-    expect((await call(t, 'POST', `/bookings/${bookingId}/cancel`, { cookie: customer })).statusCode).toBe(200);
-    const proText = await t.pool.query("SELECT 1 FROM notifications WHERE kind = 'booking_cancelled'");
-    expect(proText.rowCount).toBe(1);
+    const cancelled = await call(t, 'POST', `/bookings/${bookingId}/cancel`, { cookie: customer, body: { acceptLateCharge: true } });
+    expect(cancelled.json().booking).toMatchObject({ status: 'cancelled', paymentStatus: 'captured', lateCancel: true });
+    // The pro gets 82% of the job price; MISK keeps the rest and the service fee.
+    expect(t.fake.transfers).toEqual([expect.objectContaining({ amountCents: 3731 })]);
+    const texts = await t.pool.query<{ body: string }>("SELECT body FROM notifications WHERE kind = 'booking_cancelled' ORDER BY created_at");
+    expect(texts.rows.map((r) => r.body).join(' ')).toContain('€48.40 was charged');
+    expect(texts.rows.map((r) => r.body).join(' ')).toContain('You still earn €37.31');
+  });
+
+  it('takes a tip on the saved card and gives the pro their share of it', async () => {
+    const pro = await approvedPro(t, '+4915100000101', { trades: [market.gardening] });
+    await bookFirst();
+    const bookingId = await acceptFirstOffer(pro.cookie);
+    expect(errorOf(await call(t, 'POST', `/bookings/${bookingId}/tip`, { cookie: customer, body: { amountCents: 500 } }))).toBe('not_tippable');
+    await walkToWorking(pro.cookie, bookingId);
+    await upload(t, `/pro/jobs/${bookingId}/photos`, pro.cookie, FILES.png);
+    await call(t, 'POST', `/pro/jobs/${bookingId}/complete`, { cookie: pro.cookie });
+    expect((await booking(bookingId)).canTip).toBe(true);
+    await t.pool.query('UPDATE settings SET pro_share_pct = 80');
+
+    const tipped = await call(t, 'POST', `/bookings/${bookingId}/tip`, { cookie: customer, body: { amountCents: 500 } });
+    expect(tipped.statusCode).toBe(201);
+    expect(tipped.json().booking).toMatchObject({ tip: { amountCents: 500, proCents: 400, status: 'captured' }, canTip: false });
+    expect(errorOf(await call(t, 'POST', `/bookings/${bookingId}/tip`, { cookie: customer, body: { amountCents: 500 } }))).toBe('already_tipped');
+    expect((await call(t, 'POST', `/bookings/${bookingId}/tip`, { cookie: customer, body: { amountCents: 50 } })).statusCode).toBe(400);
+
+    // Paid with the job, a day later; a refund of the job leaves the tip with the pro.
+    await afterChargeDelay(bookingId);
+    expect(t.fake.transfers.map((x) => x.amountCents).sort()).toEqual([3731, 400]);
+    const admin = await signInAdmin(t);
+    await call(t, 'POST', `/admin/bookings/${bookingId}/refund`, { cookie: admin });
+    const tipTransfer = t.fake.transfers.find((x) => x.amountCents === 400);
+    expect(tipTransfer?.reversed).toBe(false);
+    const payoutTexts = await t.pool.query("SELECT 1 FROM notifications WHERE kind = 'payout_sent'");
+    expect(payoutTexts.rowCount).toBeGreaterThanOrEqual(1);
   });
 
   it('lets admins cancel a job in progress', async () => {

@@ -16,7 +16,9 @@ export interface FakeIntent {
 export function createFakeGateway(options: { instantHolds?: boolean } = {}) {
   const intents = new Map<string, FakeIntent>();
   const transfers: { id: string; accountId: string; amountCents: number; reversed: boolean }[] = [];
-  const failures = new Set<'hold' | 'capture' | 'transfer' | 'subscription' | 'payoutDetails'>();
+  const failures = new Set<'hold' | 'capture' | 'transfer' | 'subscription' | 'payoutDetails' | 'payoutSchedule'>();
+  const schedules = new Map<string, 'weekly' | 'monthly' | 'manual'>();
+  const manualPayouts: string[] = [];
   const subscriptions = new Map<string, { id: string; amountCents: number; status: 'incomplete' | 'active' | 'cancelled'; cancelAtPeriodEnd: boolean; paused: boolean; metadata: Record<string, string> }>();
   let instantHolds = options.instantHolds ?? true;
 
@@ -113,6 +115,16 @@ export function createFakeGateway(options: { instantHolds?: boolean } = {}) {
     },
     onboardingLink: async ({ returnUrl }) => returnUrl,
     accountStatus: async () => ({ payoutsEnabled: true }),
+    setPayoutSchedule: async (accountId, schedule) => {
+      if (failures.has('payoutSchedule')) {
+        throw new Error('fake payout schedule failure');
+      }
+      schedules.set(accountId, schedule);
+    },
+    payOutBalance: async (accountId) => {
+      manualPayouts.push(accountId);
+      return 5_000;
+    },
     payoutDetails: async () => {
       if (failures.has('payoutDetails')) {
         throw new Error('fake payout details failure');
@@ -133,6 +145,8 @@ export function createFakeGateway(options: { instantHolds?: boolean } = {}) {
     transfers,
     subscriptions,
     failures,
+    schedules,
+    manualPayouts,
     /** Makes payments that already exist in seeded data known to the fake. */
     addIntents(seeded: { id: string; amountCents: number; status: FakeIntent['status'] }[]) {
       for (const intent of seeded) {
@@ -145,6 +159,8 @@ export function createFakeGateway(options: { instantHolds?: boolean } = {}) {
       subscriptions.clear();
       transfers.length = 0;
       failures.clear();
+      schedules.clear();
+      manualPayouts.length = 0;
       instantHolds = options.instantHolds ?? true;
     },
     setInstantHolds(value: boolean) {

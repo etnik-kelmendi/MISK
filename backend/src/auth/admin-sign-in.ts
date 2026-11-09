@@ -19,7 +19,8 @@ export async function adminLogin(
   const username = normalizeUsername(input.username);
 
   const found = await pool.query<User & { password_hash: string; pending: boolean }>(
-    `SELECT id, role, phone, username, email, first_name AS "firstName", last_name AS "lastName", password_hash,
+    `SELECT id, role, phone, username, email, first_name AS "firstName", last_name AS "lastName",
+       admin_role AS "adminRole", password_hash,
        (admin_requested_at IS NOT NULL AND admin_approved_at IS NULL) AS pending
      FROM users WHERE (username = $1 OR email = $1) AND role = 'admin' AND disabled_at IS NULL`,
     [username],
@@ -45,6 +46,7 @@ export async function adminLogin(
     email: row.email,
     firstName: row.firstName,
     lastName: row.lastName,
+    adminRole: row.adminRole,
   };
   return { outcome: 'success', user, token: await createSession(pool, user.id) };
 }

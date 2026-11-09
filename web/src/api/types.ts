@@ -10,7 +10,15 @@ export interface User {
   email: string | null;
   firstName: string | null;
   lastName: string | null;
+  /** An admin's team role; null for everyone else. */
+  adminRole?: AdminRole | null;
+  /** The control panel areas this person may open (admins only). */
+  areas?: AdminArea[];
 }
+
+export const ADMIN_ROLES = ['admin', 'operations', 'support', 'finance'] as const;
+export type AdminRole = (typeof ADMIN_ROLES)[number];
+export type AdminArea = 'overview' | 'bookings' | 'providers' | 'plans' | 'catalogue' | 'fees' | 'zones' | 'notifications' | 'team';
 
 export type IconName = 'leaf' | 'hammer' | 'drop' | 'bolt' | 'sparkle' | 'brush' | 'wrench' | 'sun';
 export type JobSize = 'S' | 'M' | 'L';
@@ -45,6 +53,8 @@ export interface Category {
 export interface Catalogue {
   timezone: string;
   feeCents: number;
+  /** The pro's share of jobs and tips today, in percent. */
+  proSharePct: number;
   categories: Category[];
 }
 
@@ -130,6 +140,11 @@ export interface CustomerBooking extends BookingBase, Money {
   canCancel: boolean;
   canRate: boolean;
   canReportProblem: boolean;
+  /** What cancelling now would cost: set when a pro is booked and the start is less than 24 hours away. */
+  lateCancelCents: number | null;
+  lateCancel: boolean;
+  tip: { amountCents: number; proCents: number; status: 'pending' | 'captured' | 'failed' } | null;
+  canTip: boolean;
 }
 
 export interface ProJob extends BookingBase {
@@ -588,4 +603,77 @@ export interface ProPlan extends Plan {
   mySubscribers: number;
   earningsPerMonthCents: number;
   visitsPerMonth: number;
+}
+
+export type PayoutInterval = 'weekly' | 'biweekly' | 'monthly';
+
+export interface PlatformSettings {
+  serviceFeeCents: number;
+  commissionPct: number;
+  proSharePct: number;
+  payoutInterval: PayoutInterval;
+  /** "YYYY-MM-DD" */
+  nextPayoutOn: string;
+  freeCancelHours: number;
+  chargeDelayHours: number;
+}
+
+export interface Zone {
+  code: string;
+  name: string;
+  lat: number;
+  lng: number;
+  live: boolean;
+  pros: number;
+  bookingsPerWeek: number;
+  waiting: number;
+}
+
+export type MessageKind =
+  | 'booking_confirmed'
+  | 'booking_reminder'
+  | 'pro_on_the_way'
+  | 'extra_requested'
+  | 'job_completed'
+  | 'rating_request'
+  | 'job_offer'
+  | 'payout_sent';
+export type Channel = 'push' | 'sms' | 'email';
+
+export interface NotificationSettings {
+  messages: { kind: MessageKind; audience: 'customer' | 'pro'; push: boolean; sms: boolean; email: boolean }[];
+  ready: Record<Channel, boolean>;
+  me: { phone: string | null; email: string | null; push: boolean };
+}
+
+export interface TeamMember {
+  id: string;
+  username: string;
+  email: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  role: AdminRole;
+  createdAt: string;
+  invitedAt: string | null;
+  disabled: boolean;
+  pending: boolean;
+  lastActive: string | null;
+}
+
+export interface ActivityEntry {
+  id: string;
+  area: string;
+  action: string;
+  details: Record<string, unknown>;
+  createdAt: string;
+  subject: string | null;
+  adminName: string | null;
+  adminFullName: string | null;
+}
+
+export interface ProPayouts {
+  sharePct: number;
+  interval: PayoutInterval;
+  nextPayoutOn: string;
+  bankLast4: string | null;
 }

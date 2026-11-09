@@ -13,7 +13,12 @@ export default defineConfig({
   workers: 1,
   fullyParallel: false,
   timeout: 60_000,
+  // A frozen browser must not hold up the run: the whole suite normally takes a few minutes.
+  globalTimeout: 15 * 60_000,
   use: {
+    // Clicks and page loads that hang count as failures instead of waiting forever.
+    actionTimeout: 15_000,
+    navigationTimeout: 30_000,
     baseURL: `http://localhost:${PORT}`,
     trace: 'on-first-retry',
     timezoneId: 'Europe/Berlin',

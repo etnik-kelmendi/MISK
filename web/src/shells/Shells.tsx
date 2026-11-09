@@ -5,6 +5,7 @@ import { useApi } from '../api/ApiContext';
 import { useAuth, useUser } from '../auth/AuthContext';
 import { Icon, type IconKey } from '../components/Icon';
 import { usePolling } from '../lib/usePolling';
+import { canOpen, firstSettingsTab } from '../auth/AreaGuard';
 
 interface Tab {
   to: string;
@@ -110,13 +111,46 @@ export function AdminShell() {
   const user = useUser();
   const navigate = useNavigate();
   const waiting = useApplicationsWaiting();
-  const links: Tab[] = [
-    { to: '/admin', icon: 'chart', label: t('admin.nav.overview'), end: true },
-    { to: '/admin/bookings', icon: 'calendar', label: t('admin.nav.bookings') },
-    { to: '/admin/providers', icon: 'users', label: t('admin.nav.providers') },
-    { to: '/admin/plans', icon: 'repeat', label: t('admin.nav.plans') },
-    { to: '/admin/catalogue', icon: 'grid', label: t('admin.nav.catalogue') },
-    { to: '/admin/settings', icon: 'sliders', label: t('admin.nav.settings') },
+  // Each team role sees only the parts it may open (D35); the API checks the same on every request.
+  const settingsTab = firstSettingsTab(user);
+  const links: (Tab & { show: boolean })[] = [
+    {
+      to: '/admin',
+      icon: 'chart',
+      label: t('admin.nav.overview'),
+      end: true,
+      show: canOpen(user, 'overview'),
+    },
+    {
+      to: '/admin/bookings',
+      icon: 'calendar',
+      label: t('admin.nav.bookings'),
+      show: canOpen(user, 'bookings'),
+    },
+    {
+      to: '/admin/providers',
+      icon: 'users',
+      label: t('admin.nav.providers'),
+      show: canOpen(user, 'providers'),
+    },
+    {
+      to: '/admin/plans',
+      icon: 'repeat',
+      label: t('admin.nav.plans'),
+      show: canOpen(user, 'plans'),
+    },
+    {
+      to: '/admin/catalogue',
+      icon: 'grid',
+      label: t('admin.nav.catalogue'),
+      show: canOpen(user, 'catalogue'),
+    },
+    {
+      to: settingsTab ?? '/admin/settings',
+      icon: 'sliders',
+      label: t('admin.nav.settings'),
+      show: settingsTab !== null,
+    },
   ];
   return (
     <div className="admin">
@@ -127,20 +161,22 @@ export function AdminShell() {
           </span>
           <span>{t('admin.title')}</span>
         </div>
-        {links.map((link) => (
-          <NavLink key={link.to} to={link.to} end={link.end} className={({ isActive }) => (isActive ? 'on' : '')}>
-            <Icon name={link.icon} />
-            <span>{link.label}</span>
-            {link.to === '/admin/providers' && waiting > 0 && (
-              <>
-                <span className="nav-badge" aria-hidden="true">
-                  {waiting}
-                </span>
-                <span className="visually-hidden">{t('admin.pros.menuBadge', { count: waiting })}</span>
-              </>
-            )}
-          </NavLink>
-        ))}
+        {links
+          .filter((link) => link.show)
+          .map((link) => (
+            <NavLink key={link.label} to={link.to} end={link.end} className={({ isActive }) => (isActive ? 'on' : '')}>
+              <Icon name={link.icon} />
+              <span>{link.label}</span>
+              {link.to === '/admin/providers' && waiting > 0 && (
+                <>
+                  <span className="nav-badge" aria-hidden="true">
+                    {waiting}
+                  </span>
+                  <span className="visually-hidden">{t('admin.pros.menuBadge', { count: waiting })}</span>
+                </>
+              )}
+            </NavLink>
+          ))}
       </nav>
       <div className="admin-content">
         <header className="admin-top">

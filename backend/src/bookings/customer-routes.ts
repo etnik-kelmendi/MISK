@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { currentUser } from '../auth/guard.js';
-import { jobPriceCents, type JobSize } from '../catalogue/pricing.js';
+import { jobPriceCents, proShareCents, type JobSize } from '../catalogue/pricing.js';
 import { normalizePostcode } from '../catalogue/routes.js';
 import type { AppContext } from '../context.js';
 import { onlyRow, withTransaction } from '../db.js';
@@ -9,11 +9,15 @@ import { isUniqueViolation, uuidParams } from '../http.js';
 import { readSingleFile, storeUpload } from '../uploads/uploads.js';
 import { findSlots } from './availability.js';
 import { setStatus, type BookingDeps } from './events.js';
-import { cancelBooking, CHARGE_DELAY_HOURS, confirmHold } from './lifecycle.js';
+import { cancelBooking, CHARGE_DELAY_HOURS, confirmHold, settleBooking } from './lifecycle.js';
 import { loadBooking } from './views.js';
 
 export const MAX_CUSTOMER_PHOTOS = 3;
 export const RATING_TAGS = ['on_time', 'tidy', 'friendly', 'great_value', 'extra_mile'] as const;
+
+/** Tips from €1 to €200. */
+export const MIN_TIP_CENTS = 100;
+export const MAX_TIP_CENTS = 20_000;
 
 interface ServiceRow {
   id: string;
@@ -289,13 +293,111 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
     },
   );
 
-  app.post<{ Params: { id: string } }>(
+  // Less than 24 hours before the start, cancelling costs the full price: the app asks first and then sends
+  // `acceptLateCharge` (D34).
+  app.post<{ Params: { id: string }; Body: unknown }>(
     '/bookings/:id/cancel',
     { preHandler: guards.customer, schema: { params: uuidParams } },
     async (request) => {
       const customerId = currentUser(request).id;
-      await cancelBooking(deps(), request.params.id, 'customer', customerId);
+      // The body is optional (older apps send none), so it is checked here rather than by a schema.
+      const body = request.body ?? {};
+      const keys = typeof body === 'object' && body !== null && !Array.isArray(body) ? Object.keys(body) : null;
+      const accept = (body as { acceptLateCharge?: unknown }).acceptLateCharge;
+      if (!keys || keys.some((key) => key !== 'acceptLateCharge') || (accept !== undefined && typeof accept !== 'boolean')) {
+        throw badRequest('validation_failed');
+      }
+      await cancelBooking(deps(), request.params.id, 'customer', customerId, { acceptLateCharge: accept === true });
       return { booking: await ownBooking(customerId, request.params.id) };
+    },
+  );
+
+  // A tip for the pro after the job. It is split by today's commission, like a job (D34).
+  app.post<{ Params: { id: string }; Body: { amountCents: number } }>(
+    '/bookings/:id/tip',
+    {
+      preHandler: guards.customer,
+      schema: {
+        params: uuidParams,
+        body: {
+          type: 'object',
+          required: ['amountCents'],
+          additionalProperties: false,
+          properties: { amountCents: { type: 'integer', minimum: MIN_TIP_CENTS, maximum: MAX_TIP_CENTS } },
+        },
+      },
+    },
+    async (request, reply) => {
+      const customerId = currentUser(request).id;
+      const bookingId = request.params.id;
+      const { amountCents } = request.body;
+      const found = await pool.query<{
+        pro_id: string;
+        payment_intent_id: string | null;
+        stripe_customer_id: string | null;
+        share: number;
+      }>(
+        `SELECT b.pro_id, b.payment_intent_id, u.stripe_customer_id, (SELECT pro_share_pct FROM settings) AS share
+         FROM bookings b JOIN users u ON u.id = b.customer_id
+         WHERE b.id = $1 AND b.customer_id = $2 AND b.status = 'completed'`,
+        [bookingId, customerId],
+      );
+      const booking = found.rows[0];
+      if (!booking) {
+        throw conflict('not_tippable');
+      }
+      const proCents = proShareCents(amountCents, booking.share);
+      // One tip per job; a refused card can be tried again.
+      const claimed = await pool.query<{ id: string }>(
+        `INSERT INTO tips (booking_id, amount_cents, pro_share_pct, pro_cents) VALUES ($1, $2, $3, $4)
+         ON CONFLICT (booking_id) DO UPDATE SET amount_cents = EXCLUDED.amount_cents, pro_share_pct = EXCLUDED.pro_share_pct,
+           pro_cents = EXCLUDED.pro_cents, status = 'pending', payment_intent_id = NULL, created_at = now()
+         WHERE tips.status = 'failed'
+         RETURNING id`,
+        [bookingId, amountCents, booking.share, proCents],
+      );
+      const tip = claimed.rows[0];
+      if (!tip) {
+        throw conflict('already_tipped');
+      }
+      try {
+        if (!booking.payment_intent_id || !booking.stripe_customer_id) {
+          throw new Error('Booking has no saved card');
+        }
+        const hold = await gateway.holdOnSavedCard({
+          customerRef: booking.stripe_customer_id,
+          fromIntentId: booking.payment_intent_id,
+          amountCents,
+          description: 'MISK tip for your pro',
+          idempotencyKey: `tip-${tip.id}`,
+          metadata: { bookingId, tipId: tip.id },
+        });
+        if (!hold.held) {
+          // The bank wants the customer to confirm; a tip is not worth that step, so nothing is charged.
+          await gateway.release(hold.intentId).catch((error: unknown) => request.log.warn({ event: 'tip_release_failed', err: error }));
+          throw new Error('Card needs the customer to confirm');
+        }
+        const { chargeId } = await gateway.capture(hold.intentId);
+        await withTransaction(pool, async (client) => {
+          await client.query("UPDATE tips SET status = 'captured', payment_intent_id = $2 WHERE id = $1", [tip.id, hold.intentId]);
+          await client.query(
+            `INSERT INTO payouts (booking_id, pro_id, payment_intent_id, charge_id, amount_cents)
+             VALUES ($1, $2, $3, $4, $5) ON CONFLICT (payment_intent_id) DO NOTHING`,
+            [bookingId, booking.pro_id, hold.intentId, chargeId, proCents],
+          );
+        });
+      } catch (error) {
+        request.log.error({ event: 'tip_failed', bookingId, err: error });
+        await pool.query("UPDATE tips SET status = 'failed' WHERE id = $1", [tip.id]);
+        throw new ApiError(402, 'tip_failed');
+      }
+      // Paid out with the job: at once if the job is already charged, otherwise when it is.
+      try {
+        await settleBooking(deps(), bookingId);
+      } catch (error) {
+        request.log.error({ event: 'tip_payout_deferred', bookingId, err: error });
+      }
+      return reply.code(201).send({ booking: await ownBooking(customerId, bookingId) });
     },
   );
 

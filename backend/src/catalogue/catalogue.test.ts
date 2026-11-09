@@ -86,22 +86,6 @@ describe('catalogue', () => {
     expect(unknown.json()).toEqual({ error: 'category_not_found' });
   });
 
-  it('lets admins manage served postcodes and fees', async () => {
-    const admin = await signInAdmin(t);
-    const saved = await call(t, 'PUT', '/admin/postcodes/sw1a 1aa', {
-      cookie: admin,
-      body: { name: 'Westminster', lat: 51.501, lng: -0.1416 },
-    });
-    expect(saved.json().postcode).toMatchObject({ code: 'SW1A 1AA', active: true });
-    const listed = await t.app.inject({ method: 'GET', url: '/postcodes' });
-    expect(listed.json().postcodes).toEqual([{ code: 'SW1A 1AA', name: 'Westminster' }]);
-
-    const settings = await call(t, 'PATCH', '/admin/settings', { cookie: admin, body: { proSharePct: 80 } });
-    expect(settings.json().settings).toEqual({ serviceFeeCents: 290, proSharePct: 80 });
-    const tooHigh = await call(t, 'PATCH', '/admin/settings', { cookie: admin, body: { proSharePct: 99 } });
-    expect(tooHigh.statusCode).toBe(400);
-  });
-
   it('starts a new trade as a draft that customers do not see until it is published', async () => {
     const admin = await signInAdmin(t);
     const created = await call(t, 'POST', '/admin/categories', { cookie: admin, body: { name: 'Pool Care & Spa', icon: 'sun' } });

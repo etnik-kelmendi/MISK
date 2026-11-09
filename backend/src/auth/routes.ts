@@ -9,12 +9,14 @@ import { adminLogin } from './admin-sign-in.js';
 import { currentUser, sessionCookieFor, siteOf, sitesAreSeparate, type Site } from './guard.js';
 import { startPhoneSignIn, verifyPhoneSignIn } from './phone-sign-in.js';
 import { deleteSession, findUser, SESSION_MAX_AGE_SECONDS, type User } from './sessions.js';
+import { ACCESS } from './access.js';
 
 const phoneProperty = { type: 'string', minLength: 6, maxLength: 32 } as const;
 const firstNameProperty = { type: 'string', minLength: 1, maxLength: 60, pattern: '\\S' } as const;
 
-export function publicUser({ id, role, phone, username, email, firstName, lastName }: User) {
-  return { id, role, phone, username, email, firstName, lastName };
+export function publicUser({ id, role, phone, username, email, firstName, lastName, adminRole }: User) {
+  // The control panel shows only what the team role may open; the API checks it again on every request.
+  return { id, role, phone, username, email, firstName, lastName, adminRole, areas: adminRole ? ACCESS[adminRole] : [] };
 }
 
 const cookieOptionsFor = (config: Config) => ({ path: '/', httpOnly: true, secure: config.secureCookies, sameSite: 'lax' }) as const;

@@ -21,6 +21,8 @@ import { ResetPasswordPage } from './pages/admin/ResetPasswordPage';
 import { PlanEditorPage, PlansPage } from './pages/admin/PlansPage';
 import { SettingsLayout } from './pages/admin/SettingsLayout';
 import { SettingsPage } from './pages/admin/SettingsPage';
+import { NotificationsPage } from './pages/admin/NotificationsPage';
+import { AreaGuard } from './auth/AreaGuard';
 import { TeamPage } from './pages/admin/TeamPage';
 import { BookingPage } from './pages/customer/BookingPage';
 import { BookingsPage } from './pages/customer/BookingsPage';
@@ -111,22 +113,94 @@ function AdminRoutes() {
         }
       >
         <Route index element={<OverviewPage />} />
-        <Route path="bookings" element={<AdminBookingsPage />} />
+        <Route
+          path="bookings"
+          element={
+            <AreaGuard area="bookings">
+              <AdminBookingsPage />
+            </AreaGuard>
+          }
+        />
         <Route path="bookings/:id" element={<AdminBookingRedirect />} />
-        <Route path="providers" element={<AdminProsPage />} />
+        <Route
+          path="providers"
+          element={
+            <AreaGuard area="providers">
+              <AdminProsPage />
+            </AreaGuard>
+          }
+        />
         <Route path="providers/:id" element={<AdminProRedirect />} />
-        <Route path="plans" element={<PlansPage />} />
-        <Route path="plans/new" element={<PlanEditorPage />} />
-        <Route path="plans/:id" element={<PlanEditorPage />} />
-        <Route path="catalogue" element={<CataloguePage />} />
+        <Route
+          path="plans"
+          element={
+            <AreaGuard area="plans">
+              <PlansPage />
+            </AreaGuard>
+          }
+        />
+        <Route
+          path="plans/new"
+          element={
+            <AreaGuard area="plans">
+              <PlanEditorPage />
+            </AreaGuard>
+          }
+        />
+        <Route
+          path="plans/:id"
+          element={
+            <AreaGuard area="plans">
+              <PlanEditorPage />
+            </AreaGuard>
+          }
+        />
+        <Route
+          path="catalogue"
+          element={
+            <AreaGuard area="catalogue">
+              <CataloguePage />
+            </AreaGuard>
+          }
+        />
         <Route path="settings" element={<SettingsLayout />}>
-          <Route index element={<SettingsPage />} />
-          <Route path="areas" element={<AreasPage />} />
-          <Route path="team" element={<TeamPage />} />
+          <Route
+            index
+            element={
+              <AreaGuard area="fees">
+                <SettingsPage />
+              </AreaGuard>
+            }
+          />
+          <Route
+            path="area"
+            element={
+              <AreaGuard area="zones">
+                <AreasPage />
+              </AreaGuard>
+            }
+          />
+          <Route
+            path="notifications"
+            element={
+              <AreaGuard area="notifications">
+                <NotificationsPage />
+              </AreaGuard>
+            }
+          />
+          <Route
+            path="team"
+            element={
+              <AreaGuard area="team">
+                <TeamPage />
+              </AreaGuard>
+            }
+          />
+          <Route path="areas" element={<Navigate to="/admin/settings/area" replace />} />
         </Route>
         {/* Earlier addresses keep working. */}
         <Route path="pros/*" element={<Navigate to="/admin/providers" replace />} />
-        <Route path="areas" element={<Navigate to="/admin/settings/areas" replace />} />
+        <Route path="areas" element={<Navigate to="/admin/settings/area" replace />} />
         <Route path="team" element={<Navigate to="/admin/settings/team" replace />} />
       </Route>
       <Route path="*" element={<NotFoundPage />} />

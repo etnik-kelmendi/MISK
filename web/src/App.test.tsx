@@ -16,6 +16,10 @@ function booking(overrides: Partial<CustomerBooking> = {}): CustomerBooking {
     problemResolvedAt: null,
     chargeAt: null,
     canReportProblem: false,
+    lateCancelCents: null,
+    lateCancel: false,
+    tip: null,
+    canTip: false,
     status: 'accepted',
     serviceName: 'Lawn mowing',
     categoryId: 'cat-garden',
@@ -312,6 +316,18 @@ describe('booking a job', () => {
     expect(screen.getByRole('button', { name: 'Continue · €76' })).toBeEnabled();
   });
 
+  it('puts a customer whose postcode is not served on the waitlist', async () => {
+    const api = fakeApi(users.customer);
+    api.on('GET /postcodes', { body: { postcodes: [{ code: '10115', name: 'Mitte' }] } });
+    api.on('POST /waitlist', { status: 201, body: { postcode: '10178' } });
+    renderAt('/book/svc-mow');
+    await user().click(await screen.findByRole('button', { name: 'Your postcode is not listed?' }));
+    await user().type(screen.getByLabelText('Your postcode'), '10178');
+    await user().click(screen.getByRole('button', { name: 'Join the waitlist' }));
+    expect(api.bodies['POST /waitlist']).toEqual({ postcode: '10178' });
+    expect(await screen.findByText(/You are on the waitlist for 10178/)).toBeInTheDocument();
+  });
+
   it('says so when the slot was just taken', async () => {
     const api = fakeApi(users.customer);
     api.on('GET /postcodes', { body: { postcodes: [{ code: '10115', name: 'Mitte' }] } });
@@ -356,6 +372,38 @@ describe('a booking', () => {
     expect(api.calls).not.toContain('POST /bookings/b1/cancel');
     await user().click(screen.getByRole('button', { name: 'Yes, cancel' }));
     expect(await screen.findByText('Nothing was charged; the hold was released.')).toBeInTheDocument();
+  });
+
+  it('warns that a late cancellation costs the full price and confirms it', async () => {
+    const api = fakeApi(users.customer);
+    api.on('GET /bookings/b1', { body: { booking: booking({ lateCancelCents: 4840 }) } });
+    api.on('POST /bookings/b1/cancel', {
+      body: { booking: booking({ status: 'cancelled', canCancel: false, lateCancel: true, paymentStatus: 'captured' }) },
+    });
+    renderAt('/bookings/b1');
+    await user().click(await screen.findByRole('button', { name: 'Cancel this booking' }));
+    expect(screen.getByText(/cancelling now costs the full price of €48.40/)).toBeInTheDocument();
+    await user().click(screen.getByRole('button', { name: 'Cancel and pay €48.40' }));
+    expect(api.bodies['POST /bookings/b1/cancel']).toEqual({ acceptLateCharge: true });
+    expect(await screen.findByText('Cancelled less than 24 hours before: €48.40 was charged.')).toBeInTheDocument();
+  });
+
+  it('takes a tip and shows how much of it goes to the pro', async () => {
+    const api = fakeApi(users.customer);
+    const done = { status: 'completed' as const, canCancel: false, canTip: true };
+    api.on('GET /bookings/b1', { body: { booking: booking(done) } });
+    api.on('POST /bookings/b1/tip', {
+      status: 201,
+      body: { booking: booking({ ...done, canTip: false, tip: { amountCents: 1000, proCents: 820, status: 'captured' } }) },
+    });
+    renderAt('/bookings/b1');
+    expect(await screen.findByText('Add a tip for Daniel?')).toBeInTheDocument();
+    expect(screen.getByText('€4.10 goes to Daniel.')).toBeInTheDocument();
+    await user().click(screen.getByRole('radio', { name: '€10' }));
+    expect(screen.getByText('€8.20 goes to Daniel.')).toBeInTheDocument();
+    await user().click(screen.getByRole('button', { name: 'Tip €10' }));
+    expect(api.bodies['POST /bookings/b1/tip']).toEqual({ amountCents: 1000 });
+    expect(await screen.findByText('You tipped €10. €8.20 went to Daniel. Thank you!')).toBeInTheDocument();
   });
 
   it('takes a star rating with tags', async () => {
@@ -715,7 +763,19 @@ describe('admin navigation', () => {
     api.on('GET /admin/pros', { body: { pros: [] } });
     api.on('GET /admin/plans', { body: { plans: [] } });
     api.on('GET /admin/catalogue', { body: { categories: [], services: [] } });
-    api.on('GET /admin/settings', { body: { settings: { serviceFeeCents: 290, proSharePct: 82 } } });
+    api.on('GET /admin/settings', {
+      body: {
+        settings: {
+          serviceFeeCents: 290,
+          commissionPct: 18,
+          proSharePct: 82,
+          payoutInterval: 'weekly',
+          nextPayoutOn: '2026-11-13',
+          freeCancelHours: 24,
+          chargeDelayHours: 24,
+        },
+      },
+    });
   }
 
   it('shows exactly the design labels, spelled and ordered as in the design', async () => {
@@ -742,15 +802,30 @@ describe('admin navigation', () => {
     }
   });
 
-  it('keeps fees, areas and team under Settings, and sign out at the top', async () => {
+  it('has four Settings tabs, the saved label, and sign out at the top', async () => {
     const api = fakeApi(users.admin);
     stubAdminPages(api);
-    api.on('GET /admin/postcodes', { body: { postcodes: [] } });
+    api.on('GET /admin/zones', { body: { zones: [], elsewhere: [] } });
     renderAt('/admin/areas');
-    expect(await screen.findByRole('heading', { level: 2, name: 'Areas' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: 'Zones' })).toBeInTheDocument();
     const tabs = screen.getByRole('navigation', { name: 'Settings sections' });
-    expect(within(tabs).getAllByRole('link').map((l) => l.textContent)).toEqual(['Fees', 'Areas', 'Team']);
+    expect(within(tabs).getAllByRole('link').map((l) => l.textContent)).toEqual([
+      'Fees & payments',
+      'Service area',
+      'Notifications',
+      'Team & access',
+    ]);
+    expect(screen.getByText('All changes saved', { exact: false })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
+  });
+
+  it('shows each team role only its parts of the control panel', async () => {
+    const support = { ...users.admin, adminRole: 'support' as const, areas: ['overview' as const, 'bookings' as const, 'providers' as const] };
+    const api = fakeApi(support);
+    stubAdminPages(api);
+    renderAt('/admin');
+    const nav = await screen.findByRole('navigation', { name: 'Control panel' });
+    expect(within(nav).getAllByRole('link').map((link) => link.textContent)).toEqual(['Overview', 'Bookings', 'Providers']);
   });
 });
 
@@ -1088,17 +1163,27 @@ describe('admin', () => {
 
   it('lets an admin set a new password for a colleague', async () => {
     const api = fakeApi(users.admin);
-    api.on('GET /admin/team', {
-      body: {
-        admins: [
-          { id: 'u-admin', username: 'admin', createdAt: '', disabled: false },
-          { id: 'u-elion', username: 'elion', createdAt: '', disabled: false },
-        ],
-      },
+    const member = (id: string, username: string) => ({
+      id,
+      username,
+      email: null,
+      firstName: null,
+      lastName: null,
+      role: 'admin',
+      createdAt: '',
+      invitedAt: null,
+      disabled: false,
+      pending: false,
+      lastActive: null,
     });
+    api.on('GET /admin/team', { body: { admins: [] } });
+    api.on('GET /admin/team/members', {
+      body: { members: [member('u-admin', 'admin'), member('u-elion', 'elion')], access: { admin: [], operations: [], support: [], finance: [] } },
+    });
+    api.on('GET /admin/activity', { body: { activity: [] } });
     api.on('POST /admin/team/u-elion/password', { status: 204 });
     renderAt('/admin/settings/team');
-    const row = (await screen.findByText('elion')).closest('li') as HTMLElement;
+    const row = (await screen.findByText('elion', { selector: '.b' })).closest('tr') as HTMLElement;
     await user().click(within(row).getByRole('button', { name: 'Set new password' }));
     const form = within(row).getByRole('form', { name: 'New password for elion' });
     const submit = within(form).getByRole('button', { name: 'Set new password' });

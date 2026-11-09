@@ -144,6 +144,10 @@ stateDiagram-v2
   services on the right, with duration, base price (edited in the table), Small / Medium / Large prices
   or a per-hour price, what the pro earns, and a visible switch. New trades start as drafts; "See in the
   app" shows the trade as customers see it. Every change is logged and reaches the app within 30 seconds.
+- **Settings** (admin) has four tabs that save by themselves ("All changes saved"): Fees & payments
+  (service fee, commission 10–30%, payout frequency, and the charging, cancellation and tip rules), Service
+  area (zones on a map, go live / pause, waitlist), Notifications (push, SMS and email per message, test
+  messages to yourself) and Team & access (roles, invites, the activity log).
 - **Admin Bookings** lists one-off bookings and plan visits with tabs (All, Needs action, Live now,
   Upcoming, Done), search (booking number, customer, address, pro), trade and type filters, CSV export of
   the rows shown, and a side panel to assign a pro, move the time, cancel, refund or charge. Every action
@@ -163,6 +167,12 @@ files, which git ignores.
    `payment_intent.amount_capturable_updated`, `payment_intent.payment_failed`, `invoice.paid` and
    `invoice.payment_failed` (the last two bill monthly plans), and put its signing secret in
    `STRIPE_WEBHOOK_SECRET`.
+
+### Push notifications
+
+Push messages need a VAPID key pair. Create one once with `npx web-push generate-vapid-keys` and put it in
+`backend/.env` as `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` and `VAPID_SUBJECT` (a `mailto:` address). Without
+them push messages are kept as not sent and the apps say push is not set up.
 
 ### Twilio
 

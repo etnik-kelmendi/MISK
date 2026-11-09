@@ -77,13 +77,6 @@ const serviceProperties = {
   pricing: { type: 'string', enum: ['fixed', 'hourly'] },
 } as const;
 
-const postcodeProperties = {
-  name: { type: 'string', minLength: 1, maxLength: 80, pattern: '\\S' },
-  lat: { type: 'number', minimum: -90, maximum: 90 },
-  lng: { type: 'number', minimum: -180, maximum: 180 },
-  active: { type: 'boolean' },
-} as const;
-
 type CategoryBody = { slug?: string; name: string; icon: string; sortOrder?: number; active?: boolean };
 type ServiceBody = {
   categoryId: string;
@@ -140,11 +133,15 @@ export async function catalogueRoutes(app: FastifyInstance, ctx: AppContext) {
          FROM categories c WHERE c.active ORDER BY c.sort_order, c.name`,
       ),
       pool.query(`SELECT ${SERVICE_COLUMNS} FROM services s WHERE s.active ORDER BY s.sort_order, s.name`),
-      pool.query<{ feeCents: number }>('SELECT service_fee_cents AS "feeCents" FROM settings'),
+      pool.query<{ feeCents: number; proSharePct: number }>(
+        'SELECT service_fee_cents AS "feeCents", pro_share_pct AS "proSharePct" FROM settings',
+      ),
     ]);
     return {
       timezone: ctx.config.timezone,
       feeCents: onlyRow(settings).feeCents,
+      // The customer app shows how much of a tip goes to the pro (D34).
+      proSharePct: onlyRow(settings).proSharePct,
       categories: categories.rows.map((category) => ({
         ...category,
         services: services.rows.filter((service) => service.categoryId === category.id),
@@ -379,69 +376,6 @@ export async function catalogueRoutes(app: FastifyInstance, ctx: AppContext) {
         }
         throw error;
       }
-    },
-  );
-
-  app.get('/admin/postcodes', { preHandler: guards.admin }, async () => {
-    const result = await pool.query('SELECT code, name, lat, lng, active FROM postcodes ORDER BY code');
-    return { postcodes: result.rows };
-  });
-
-  app.put<{ Params: { code: string }; Body: { name: string; lat: number; lng: number; active?: boolean } }>(
-    '/admin/postcodes/:code',
-    {
-      preHandler: guards.admin,
-      schema: {
-        params: { type: 'object', properties: { code: { type: 'string', pattern: '^[A-Za-z0-9][A-Za-z0-9 -]{1,9}$' } } },
-        body: { type: 'object', required: ['name', 'lat', 'lng'], additionalProperties: false, properties: postcodeProperties },
-      },
-    },
-    async (request) => {
-      const code = normalizePostcode(request.params.code);
-      const { name, lat, lng, active = true } = request.body;
-      const result = await pool.query(
-        `INSERT INTO postcodes (code, name, lat, lng, active) VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name, lat = EXCLUDED.lat, lng = EXCLUDED.lng, active = EXCLUDED.active
-         RETURNING code, name, lat, lng, active`,
-        [code, name.trim(), lat, lng, active],
-      );
-      return { postcode: result.rows[0] };
-    },
-  );
-
-  app.get('/admin/settings', { preHandler: guards.admin }, async () => {
-    const result = await pool.query(
-      'SELECT service_fee_cents AS "serviceFeeCents", pro_share_pct AS "proSharePct" FROM settings',
-    );
-    return { settings: result.rows[0] };
-  });
-
-  app.patch<{ Body: { serviceFeeCents?: number; proSharePct?: number } }>(
-    '/admin/settings',
-    {
-      preHandler: guards.admin,
-      schema: {
-        body: {
-          type: 'object',
-          minProperties: 1,
-          additionalProperties: false,
-          properties: {
-            serviceFeeCents: { type: 'integer', minimum: 0, maximum: 10_000 },
-            proSharePct: { type: 'integer', minimum: 50, maximum: 95 },
-          },
-        },
-      },
-    },
-    async (request) => {
-      const { serviceFeeCents, proSharePct } = request.body;
-      const result = await pool.query(
-        `UPDATE settings SET service_fee_cents = COALESCE($1, service_fee_cents),
-           pro_share_pct = COALESCE($2, pro_share_pct), updated_at = now()
-         RETURNING service_fee_cents AS "serviceFeeCents", pro_share_pct AS "proSharePct"`,
-        [serviceFeeCents ?? null, proSharePct ?? null],
-      );
-      request.log.info({ event: 'settings_changed', by: request.user?.id, serviceFeeCents, proSharePct });
-      return { settings: result.rows[0] };
     },
   );
 }

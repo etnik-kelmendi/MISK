@@ -36,7 +36,12 @@ export async function logAction(
 
 export async function adminBookingRoutes(app: FastifyInstance, ctx: AppContext) {
   const { pool, guards, gateway } = ctx;
-  const deps = (): BookingDeps => ({ pool, gateway, config: ctx.config, log: app.log });
+  const deps = (): BookingDeps => ({
+    pool,
+    gateway,
+    config: ctx.config,
+    log: app.log,
+  });
 
   async function adminView(bookingId: string) {
     const booking = await loadBooking(pool, bookingId, 'admin');
@@ -145,7 +150,11 @@ export async function adminBookingRoutes(app: FastifyInstance, ctx: AppContext) 
     async (request) => {
       await cancelBooking(deps(), request.params.id, 'admin');
       await logAction(pool, request.params.id, currentUser(request).id, 'cancelled');
-      request.log.info({ event: 'admin_cancelled_booking', bookingId: request.params.id, by: currentUser(request).id });
+      request.log.info({
+        event: 'admin_cancelled_booking',
+        bookingId: request.params.id,
+        by: currentUser(request).id,
+      });
       return { booking: await adminView(request.params.id) };
     },
   );
@@ -156,7 +165,11 @@ export async function adminBookingRoutes(app: FastifyInstance, ctx: AppContext) 
       preHandler: guards.admin,
       schema: {
         params: uuidParams,
-        body: { type: 'object', additionalProperties: false, properties: { proId: { type: 'string', format: 'uuid' } } },
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          properties: { proId: { type: 'string', format: 'uuid' } },
+        },
       },
     },
     async (request) => {
@@ -171,10 +184,7 @@ export async function adminBookingRoutes(app: FastifyInstance, ctx: AppContext) 
           customer_id: string;
           service_name: string;
           starts_at: Date;
-        }>(
-          'SELECT status, pro_id, category_id, customer_id, service_name, starts_at FROM bookings WHERE id = $1 FOR UPDATE',
-          [bookingId],
-        );
+        }>('SELECT status, pro_id, category_id, customer_id, service_name, starts_at FROM bookings WHERE id = $1 FOR UPDATE', [bookingId]);
         const booking = found.rows[0];
         if (!booking) {
           throw notFound();
@@ -195,7 +205,9 @@ export async function adminBookingRoutes(app: FastifyInstance, ctx: AppContext) 
           // Start the search again; pros who passed before may be asked again.
           await client.query("DELETE FROM booking_offers WHERE booking_id = $1 AND status <> 'withdrawn'", [bookingId]);
           await setStatus(client, bookingId, 'searching', ', pro_id = NULL');
-          await logAction(client, bookingId, adminId, 'restarted_search', { previousPro: booking.pro_id });
+          await logAction(client, bookingId, adminId, 'restarted_search', {
+            previousPro: booking.pro_id,
+          });
           return true;
         }
 
@@ -237,7 +249,12 @@ export async function adminBookingRoutes(app: FastifyInstance, ctx: AppContext) 
         });
         return false;
       });
-      request.log.info({ event: 'admin_reassigned_booking', bookingId, proId: targetPro, by: currentUser(request).id });
+      request.log.info({
+        event: 'admin_reassigned_booking',
+        bookingId,
+        proId: targetPro,
+        by: currentUser(request).id,
+      });
       if (restart) {
         await offerNext(deps(), bookingId);
       }
@@ -251,10 +268,11 @@ export async function adminBookingRoutes(app: FastifyInstance, ctx: AppContext) 
     { preHandler: guards.admin, schema: { params: uuidParams } },
     async (request) => {
       const bookingId = request.params.id;
-      const found = await pool.query<{ status: string; payment_intent_id: string | null; payment_status: string }>(
-        'SELECT status, payment_intent_id, payment_status FROM bookings WHERE id = $1',
-        [bookingId],
-      );
+      const found = await pool.query<{
+        status: string;
+        payment_intent_id: string | null;
+        payment_status: string;
+      }>('SELECT status, payment_intent_id, payment_status FROM bookings WHERE id = $1', [bookingId]);
       const booking = found.rows[0];
       if (!booking) {
         throw notFound();
@@ -281,23 +299,28 @@ export async function adminBookingRoutes(app: FastifyInstance, ctx: AppContext) 
           await gateway.release(booking.payment_intent_id);
         } else {
           const transfers = await pool.query<{ transfer_id: string }>(
-            "SELECT transfer_id FROM payouts WHERE booking_id = $1 AND status = 'sent' AND transfer_id IS NOT NULL",
+            // Tips stay with the pro: a refund gives back what the job cost, not what the customer gave.
+            `SELECT transfer_id FROM payouts WHERE booking_id = $1 AND status = 'sent' AND transfer_id IS NOT NULL
+               AND payment_intent_id NOT IN (SELECT payment_intent_id FROM tips WHERE booking_id = $1 AND payment_intent_id IS NOT NULL)`,
             [bookingId],
           );
           for (const { transfer_id } of transfers.rows) {
             await gateway.reverseTransfer(transfer_id);
-            await pool.query("UPDATE payouts SET status = 'reversed', updated_at = now() WHERE transfer_id = $1", [
-              transfer_id,
-            ]);
+            await pool.query("UPDATE payouts SET status = 'reversed', updated_at = now() WHERE transfer_id = $1", [transfer_id]);
           }
           // Payouts not sent yet must never be sent now.
-          await pool.query("UPDATE payouts SET status = 'reversed', updated_at = now() WHERE booking_id = $1 AND status IN ('pending', 'failed')", [
-            bookingId,
-          ]);
+          await pool.query(
+            `UPDATE payouts SET status = 'reversed', updated_at = now() WHERE booking_id = $1 AND status IN ('pending', 'failed')
+               AND payment_intent_id NOT IN (SELECT payment_intent_id FROM tips WHERE booking_id = $1 AND payment_intent_id IS NOT NULL)`,
+            [bookingId],
+          );
           await gateway.refund(booking.payment_intent_id);
           await pool.query("UPDATE bookings SET payment_status = 'refunded', updated_at = now() WHERE id = $1", [bookingId]);
         }
-        const extras = await pool.query<{ payment_intent_id: string; payment_status: string }>(
+        const extras = await pool.query<{
+          payment_intent_id: string;
+          payment_status: string;
+        }>(
           "SELECT payment_intent_id, payment_status FROM extra_requests WHERE booking_id = $1 AND payment_status IN ('held', 'captured')",
           [bookingId],
         );
@@ -322,14 +345,18 @@ export async function adminBookingRoutes(app: FastifyInstance, ctx: AppContext) 
         throw new ApiError(502, 'payment_unavailable');
       }
       await pool.query(
-        "UPDATE bookings SET problem_resolved_at = now() WHERE id = $1 AND problem_reported_at IS NOT NULL AND problem_resolved_at IS NULL",
+        'UPDATE bookings SET problem_resolved_at = now() WHERE id = $1 AND problem_reported_at IS NOT NULL AND problem_resolved_at IS NULL',
         [bookingId],
       );
       await logAction(pool, bookingId, currentUser(request).id, 'refunded', {
         amountCents: onlyRow(totals).cents,
         wasCharged: booking.payment_status === 'captured',
       });
-      request.log.info({ event: 'admin_refunded_booking', bookingId, by: currentUser(request).id });
+      request.log.info({
+        event: 'admin_refunded_booking',
+        bookingId,
+        by: currentUser(request).id,
+      });
       return { booking: await adminView(bookingId) };
     },
   );
@@ -392,7 +419,11 @@ export async function adminBookingRoutes(app: FastifyInstance, ctx: AppContext) 
           to: startsAt.toISOString(),
         });
       });
-      request.log.info({ event: 'admin_rescheduled_booking', bookingId, by: currentUser(request).id });
+      request.log.info({
+        event: 'admin_rescheduled_booking',
+        bookingId,
+        by: currentUser(request).id,
+      });
       return { booking: await adminView(bookingId) };
     },
   );

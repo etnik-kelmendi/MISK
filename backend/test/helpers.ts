@@ -88,7 +88,13 @@ export async function resetDatabase(pool: pg.Pool) {
   await pool.query(
     `TRUNCATE users, categories, postcodes, stripe_events, login_attempts, sign_in_codes RESTART IDENTITY CASCADE`,
   );
-  await pool.query('UPDATE settings SET service_fee_cents = 290, pro_share_pct = 82');
+  await pool.query("UPDATE settings SET service_fee_cents = 290, pro_share_pct = 82, payout_interval = 'weekly'");
+  // The channel defaults from migration 0014.
+  await pool.query(
+    `UPDATE notification_settings SET push = true, sms = true,
+       email = kind IN ('booking_confirmed', 'job_completed', 'rating_request', 'payout_sent')`,
+  );
+  await pool.query('TRUNCATE admin_activity');
 }
 
 type Method = 'GET' | 'POST' | 'PATCH' | 'PUT';

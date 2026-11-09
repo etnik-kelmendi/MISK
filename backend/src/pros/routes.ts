@@ -5,6 +5,7 @@ import type { AppContext } from '../context.js';
 import { withTransaction } from '../db.js';
 import { badRequest, conflict, notFound } from '../errors.js';
 import { readNamedFile, storeUpload } from '../uploads/uploads.js';
+import { nextPayoutDate, type PayoutInterval } from '../payments/payouts.js';
 import { DOCUMENT_KINDS, EXPIRING_KINDS, checkOf, marketToday, DOCUMENT_COLUMNS, type DocumentKind, type DocumentRow } from './checks.js';
 
 export { DOCUMENT_KINDS };
@@ -236,6 +237,35 @@ export async function proRoutes(app: FastifyInstance, ctx: AppContext) {
       refreshUrl: `${base}?payouts=refresh`,
     });
     return { url };
+  });
+
+  // What the pro earns per job now, and when and where their money goes, from the Settings page.
+  app.get('/pro/payouts', { preHandler: guards.pro }, async (request) => {
+    const found = await pool.query<{ share: number; interval: PayoutInterval; account: string | null }>(
+      `SELECT s.pro_share_pct AS share, s.payout_interval AS interval, p.stripe_account_id AS account
+       FROM settings s, pro_profiles p WHERE p.user_id = $1`,
+      [currentUser(request).id],
+    );
+    const row = found.rows[0];
+    if (!row) {
+      throw notFound('profile_not_found');
+    }
+    let bankLast4: string | null = null;
+    if (row.account) {
+      try {
+        bankLast4 = (await ctx.gateway.payoutDetails(row.account)).bankLast4;
+      } catch (error) {
+        request.log.error({ event: 'payout_details_failed', err: error });
+      }
+    }
+    return {
+      payouts: {
+        sharePct: row.share,
+        interval: row.interval,
+        nextPayoutOn: nextPayoutDate(row.interval, marketToday(ctx.config.timezone)),
+        bankLast4,
+      },
+    };
   });
 
   app.post('/pro/payouts/refresh', { preHandler: guards.pro }, async (request) => {

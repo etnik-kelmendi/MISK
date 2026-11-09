@@ -15,6 +15,7 @@ export const config: AppConfig = { site: 'app', apiBaseUrl: BASE, termsUrl: null
 export const catalogue: Catalogue = {
   timezone: 'Europe/Berlin',
   feeCents: 290,
+  proSharePct: 82,
   categories: [
     {
       id: 'cat-garden',
@@ -46,7 +47,17 @@ export const catalogue: Catalogue = {
 export const users: Record<'customer' | 'pro' | 'admin' | 'new', User> = {
   customer: { id: 'u-customer', role: 'customer', phone: '+4915100000001', username: null, email: null, firstName: 'Sara', lastName: null },
   pro: { id: 'u-pro', role: 'pro', phone: '+4915100000002', username: null, email: null, firstName: 'Daniel', lastName: null },
-  admin: { id: 'u-admin', role: 'admin', phone: null, username: 'admin', email: null, firstName: null, lastName: null },
+  admin: {
+    id: 'u-admin',
+    role: 'admin',
+    phone: null,
+    username: 'admin',
+    email: null,
+    firstName: null,
+    lastName: null,
+    adminRole: 'admin',
+    areas: ['overview', 'bookings', 'providers', 'plans', 'catalogue', 'fees', 'zones', 'notifications', 'team'],
+  },
   new: { id: 'u-new', role: null, phone: '+4915100000003', username: null, email: null, firstName: null, lastName: null },
 };
 

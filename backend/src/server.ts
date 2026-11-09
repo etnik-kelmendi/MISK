@@ -2,6 +2,7 @@ import pg from 'pg';
 import { buildApp } from './app.js';
 import { loadConfig } from './config.js';
 import { createSmtpSender } from './notifications/email.js';
+import { createPushSender } from './notifications/push.js';
 import { createTwilioSender } from './notifications/sms.js';
 import { createStripeGateway } from './payments/stripe-gateway.js';
 import { startWorkers } from './workers.js';
@@ -23,10 +24,15 @@ if (!sms) {
   app.log.warn('SMS is not set up: sign-in codes are written to this log and other texts are kept as not sent');
 }
 if (!email) {
-  app.log.warn('Email is not set up: admin password recovery emails cannot be sent');
+  app.log.warn('Email is not set up: password recovery and email messages cannot be sent');
 }
 
-const stopWorkers = startWorkers({ pool, gateway, config, log: app.log }, sms, app.log);
+const push = config.push ? createPushSender(config.push) : null;
+if (!push) {
+  app.log.warn('Push is not set up: push messages are kept as not sent. Add the VAPID keys to .env.');
+}
+
+const stopWorkers = startWorkers({ pool, gateway, config, log: app.log }, { sms, email, push }, app.log);
 
 async function shutdown() {
   stopWorkers();

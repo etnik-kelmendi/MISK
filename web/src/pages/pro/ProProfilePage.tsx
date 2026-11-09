@@ -2,13 +2,33 @@ import { useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useSearchParams } from 'react-router';
 import { useApi } from '../../api/ApiContext';
-import type { ProProfile } from '../../api/types';
+import type { ProPayouts, ProProfile } from '../../api/types';
+import { longDate } from '../../lib/format';
 import { useResource } from '../../api/useResource';
 import { ErrorText } from '../../components/ErrorText';
 import { Icon } from '../../components/Icon';
 import { ResourceState } from '../../components/ResourceState';
 import { useAction } from '../../lib/useAction';
 import { ApplicationForm } from './ApplicationForm';
+
+/** The pro's share and next payout day, from the team's Settings, and the bank account it goes to. */
+function PayoutSchedule() {
+  const { t } = useTranslation();
+  const api = useApi();
+  const load = useCallback(() => api.get<{ payouts: ProPayouts }>('/pro/payouts'), [api]);
+  const { state } = useResource(load);
+  if (state.status !== 'ready') return null;
+  const { payouts } = state.data;
+  return (
+    <div className="stack tight small">
+      <p>{t('payouts.share', { pct: payouts.sharePct })}</p>
+      <p className="b">
+        {t('payouts.next', { date: longDate(payouts.nextPayoutOn, 'UTC'), interval: t(`payouts.interval.${payouts.interval}`) })}
+      </p>
+      {payouts.bankLast4 && <p className="muted">{t('payouts.bank', { last4: payouts.bankLast4 })}</p>}
+    </div>
+  );
+}
 
 function Payouts({ profile, onChange }: { profile: ProProfile; onChange: (p: ProProfile) => void }) {
   const { t } = useTranslation();
@@ -42,9 +62,12 @@ function Payouts({ profile, onChange }: { profile: ProProfile; onChange: (p: Pro
         {t('payouts.title')}
       </h2>
       {profile.payoutsEnabled ? (
-        <p className="row small">
-          <Icon name="check" /> {t('payouts.ready')}
-        </p>
+        <>
+          <p className="row small">
+            <Icon name="check" /> {t('payouts.ready')}
+          </p>
+          <PayoutSchedule />
+        </>
       ) : (
         <>
           <p className="small muted">{profile.hasPayoutAccount ? t('payouts.unfinished') : t('payouts.explain')}</p>

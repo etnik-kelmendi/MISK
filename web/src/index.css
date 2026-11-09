@@ -430,3 +430,30 @@ button.link { background: none; padding: 0; font: inherit; font-weight: 700; cur
 .size-card { border: 1px solid var(--line); border-radius: 12px; padding: 12px; display: grid; gap: 6px; }
 .phone-preview { max-width: 380px; border-radius: 22px; overflow: hidden; background: var(--screen); box-shadow: 0 0 0 8px #1b2a22, 0 10px 30px rgba(15, 26, 21, 0.25); margin: 8px auto; pointer-events: none; }
 .phone-preview .cta-bar { position: static; }
+
+/* Settings page */
+.save-status { min-height: 24px; display: flex; align-items: center; }
+.rule-list { margin: 0; padding-left: 18px; display: grid; gap: 6px; font-size: 14px; }
+.choice-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; border: 0; padding: 0; margin: 0; }
+@media (max-width: 700px) { .choice-row { grid-template-columns: 1fr; } }
+.choice { display: flex; gap: 10px; align-items: flex-start; border: 1.5px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+.choice.on { border-color: var(--brand); background: var(--brand-soft); }
+.choice input { margin-top: 3px; accent-color: var(--brand); }
+.choice label { cursor: pointer; }
+.split-commission div:first-child { background: var(--brand); }
+.split-commission div:last-child { background: var(--accent); }
+.zone-map { margin: 0; display: grid; gap: 6px; }
+.zone-map svg { width: 100%; height: auto; max-height: 360px; }
+.zone-map .map-bg { fill: #eef3f0; }
+.zone-map .zone circle { stroke: #fff; stroke-width: 3; }
+.zone-map .zone.live circle { fill: #2e9e6b; }
+.zone-map .zone.waiting circle { fill: #f2c14e; }
+.zone-map .zone text { font-size: 11px; font-weight: 800; fill: #10241b; }
+.legend { display: inline-block; width: 12px; height: 12px; border-radius: 50%; }
+.legend.live { background: #2e9e6b; }
+.legend.waiting { background: #f2c14e; }
+.zone-list { list-style: none; padding: 0; display: grid; gap: 8px; }
+.zone-row { border: 1px solid var(--line); border-left: 5px solid #2e9e6b; border-radius: 10px; padding: 10px 12px; display: grid; gap: 8px; }
+.zone-row.waiting { border-left-color: #f2c14e; }
+input.check { width: 18px; height: 18px; accent-color: var(--brand); }
+.tip-chips { display: flex; gap: 8px; flex-wrap: wrap; }

@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import type { Pool } from 'pg';
 import type { Queryable } from '../db.js';
+import type { AdminRole } from './access.js';
 
 export type Role = 'customer' | 'pro' | 'admin';
 
@@ -13,6 +14,8 @@ export interface User {
   email: string | null;
   firstName: string | null;
   lastName: string | null;
+  /** The team role of an admin (D35); null for everyone else. */
+  adminRole: AdminRole | null;
 }
 
 export const SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
@@ -70,7 +73,8 @@ export async function createSession(pool: Queryable, userId: string): Promise<st
   return token;
 }
 
-export const USER_COLUMNS = `users.id, users.role, users.phone, users.username, users.email, users.first_name AS "firstName", users.last_name AS "lastName"`;
+export const USER_COLUMNS = `users.id, users.role, users.phone, users.username, users.email, users.first_name AS "firstName",
+  users.last_name AS "lastName", users.admin_role AS "adminRole"`;
 
 export async function findSessionUser(pool: Queryable, token: string): Promise<User | null> {
   const result = await pool.query<User>(

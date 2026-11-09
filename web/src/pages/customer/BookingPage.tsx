@@ -10,7 +10,7 @@ import { Icon } from '../../components/Icon';
 import { FileButton, IMAGE_TYPES, PhotoGrid } from '../../components/Photos';
 import { ResourceState } from '../../components/ResourceState';
 import { Stars, StatusBadge } from '../../components/StatusBadge';
-import { dateTime, euro, time } from '../../lib/format';
+import { dateTime, euro, parseEuroToCents, proShare, time } from '../../lib/format';
 import { useAction } from '../../lib/useAction';
 import { usePolling } from '../../lib/usePolling';
 import { CardPayment, confirmSavedCard } from '../../payments/CardPayment';
@@ -192,6 +192,62 @@ function ProblemForm({ booking, onReported }: { booking: CustomerBooking; onRepo
   );
 }
 
+const TIP_CHOICES = [200, 500, 1000];
+const MIN_TIP_CENTS = 100;
+const MAX_TIP_CENTS = 20_000;
+
+/** A tip for the pro after the job, with how much of it reaches them at today's commission. */
+function TipForm({ booking, onTipped }: { booking: CustomerBooking; onTipped: (b: CustomerBooking) => void }) {
+  const { t } = useTranslation();
+  const api = useApi();
+  const { proSharePct } = useMarket();
+  const [choice, setChoice] = useState<number | 'other'>(500);
+  const [other, setOther] = useState('');
+  const { run, busy, error } = useAction();
+  const cents = choice === 'other' ? parseEuroToCents(other) : choice;
+  const valid = cents !== null && cents >= MIN_TIP_CENTS && cents <= MAX_TIP_CENTS;
+  const name = booking.pro?.firstName ?? '';
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!valid || cents === null) return;
+    const result = await run(() => api.post<{ booking: CustomerBooking }>(`/bookings/${booking.id}/tip`, { amountCents: cents }));
+    if (result) onTipped(result.booking);
+  }
+
+  return (
+    <form className="card stack" onSubmit={submit}>
+      <fieldset>
+        <legend className="b">{t('tip.title', { name })}</legend>
+        <div className="tip-chips">
+          {TIP_CHOICES.map((amount) => (
+            <label key={amount} className={`chip ${choice === amount ? 'on' : ''}`}>
+              <input type="radio" name="tip" className="visually-hidden" checked={choice === amount} onChange={() => setChoice(amount)} />
+              {euro(amount)}
+            </label>
+          ))}
+          <label className={`chip ${choice === 'other' ? 'on' : ''}`}>
+            <input type="radio" name="tip" className="visually-hidden" checked={choice === 'other'} onChange={() => setChoice('other')} />
+            {t('tip.other')}
+          </label>
+        </div>
+      </fieldset>
+      {choice === 'other' && (
+        <div className="field">
+          <label htmlFor="tip-other">{t('tip.other')}</label>
+          <input id="tip-other" inputMode="decimal" value={other} onChange={(e) => setOther(e.target.value)} />
+          {other.trim() !== '' && !valid && <span className="error-text small">{t('tip.invalid')}</span>}
+        </div>
+      )}
+      {valid && cents !== null && <p className="small brand-text">{t('tip.split', { pro: euro(proShare(cents, proSharePct)), name })}</p>}
+      <ErrorText error={error} />
+      <button className="btn btn-primary" type="submit" disabled={busy || !valid}>
+        {t('tip.send', { amount: valid && cents !== null ? euro(cents) : '' })}
+      </button>
+    </form>
+  );
+}
+
 function PaymentSection({ booking, onConfirmed }: { booking: CustomerBooking; onConfirmed: () => void }) {
   const { t } = useTranslation();
   const api = useApi();
@@ -277,6 +333,15 @@ function BookingView({ booking, onChanged, reload }: { booking: CustomerBooking;
       <PhotoGrid ids={proPhotos} label={t('booking.proPhotos')} />
 
       {booking.canRate && <RatingForm booking={booking} onRated={onChanged} />}
+      {booking.canTip && <TipForm booking={booking} onTipped={onChanged} />}
+      {booking.tip?.status === 'captured' && (
+        <p className="card" role="status">
+          {t('tip.thanks', { amount: euro(booking.tip.amountCents), pro: euro(booking.tip.proCents), name: booking.pro?.firstName ?? '' })}
+        </p>
+      )}
+      {booking.lateCancel && (
+        <p className="card">{t('booking.lateCancelled', { price: euro(booking.totalCents) })}</p>
+      )}
       {booking.canReportProblem && <ProblemForm booking={booking} onReported={onChanged} />}
       {booking.problemReportedAt && (
         <p className="card" role="status">
@@ -336,7 +401,11 @@ function BookingView({ booking, onChanged, reload }: { booking: CustomerBooking;
         <section className="stack">
           {confirmCancel ? (
             <div className="card" role="alertdialog" aria-labelledby="cancel-question">
-              <p id="cancel-question">{t('booking.cancelQuestion')}</p>
+              <p id="cancel-question">
+                {booking.lateCancelCents === null
+                  ? t('booking.cancelQuestion')
+                  : t('booking.lateCancelQuestion', { price: euro(booking.lateCancelCents) })}
+              </p>
               <div className="row gap8">
                 <button type="button" className="btn btn-ghost" onClick={() => setConfirmCancel(false)}>
                   {t('booking.keep')}
@@ -347,11 +416,18 @@ function BookingView({ booking, onChanged, reload }: { booking: CustomerBooking;
                   disabled={cancel.busy}
                   onClick={() =>
                     void cancel
-                      .run(() => api.post<{ booking: CustomerBooking }>(`/bookings/${booking.id}/cancel`))
+                      .run(() =>
+                        api.post<{ booking: CustomerBooking }>(
+                          `/bookings/${booking.id}/cancel`,
+                          booking.lateCancelCents === null ? undefined : { acceptLateCharge: true },
+                        ),
+                      )
                       .then((result) => result && onChanged(result.booking))
                   }
                 >
-                  {t('booking.cancelConfirm')}
+                  {booking.lateCancelCents === null
+                    ? t('booking.cancelConfirm')
+                    : t('booking.lateCancelConfirm', { price: euro(booking.lateCancelCents) })}
                 </button>
               </div>
             </div>

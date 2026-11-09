@@ -8,6 +8,7 @@ import { hashPassword } from '../src/auth/passwords.js';
 import { loadConfig } from '../src/config.js';
 import { runMigrations } from '../src/migrate.js';
 import { createSmtpSender, type EmailMessage } from '../src/notifications/email.js';
+import { createPushSender } from '../src/notifications/push.js';
 import { startWorkers } from '../src/workers.js';
 import { startTemporaryDatabase } from './embedded-db.js';
 import { createFakeGateway } from './fake-gateway.js';
@@ -37,6 +38,10 @@ const config = loadConfig({
   SMTP_USER: process.env.SMTP_USER ?? process.env.SMTP_USERNAME,
   SMTP_PASSWORD: process.env.SMTP_PASSWORD,
   MAIL_FROM: process.env.MAIL_FROM,
+  // Push keys too, so the preview can show real notifications on a phone or desktop.
+  VAPID_PUBLIC_KEY: process.env.VAPID_PUBLIC_KEY,
+  VAPID_PRIVATE_KEY: process.env.VAPID_PRIVATE_KEY,
+  VAPID_SUBJECT: process.env.VAPID_SUBJECT,
 });
 const smtp = config.smtp ? createSmtpSender(config.smtp) : null;
 const pool = new pg.Pool({ connectionString: config.databaseUrl });
@@ -130,7 +135,24 @@ app.post('/test/pass-charge-delay', async () => {
   return { charged: await settleTick({ pool, gateway: fake.gateway, config, log: app.log }) };
 });
 
-const stopWorkers = startWorkers({ pool, gateway: fake.gateway, config, log: app.log }, null, app.log);
+// Text messages stay in memory (above); emails go through the same handler as the API's own emails.
+const stopWorkers = startWorkers(
+  { pool, gateway: fake.gateway, config, log: app.log },
+  {
+    sms: async (to, body) => {
+      texts.push({ to, body });
+      return { providerId: `e2e-${texts.length}` };
+    },
+    email: async (message) => {
+      emails.push(message);
+      if (smtp) {
+        await smtp(message);
+      }
+    },
+    push: config.push ? createPushSender(config.push) : null,
+  },
+  app.log,
+);
 
 async function shutdown() {
   stopWorkers();

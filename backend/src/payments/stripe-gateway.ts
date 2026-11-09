@@ -196,6 +196,26 @@ export function createStripeGateway(config: StripeConfig): PaymentGateway {
       return { payoutsEnabled: Boolean(account.payouts_enabled) };
     },
 
+    async setPayoutSchedule(accountId, schedule) {
+      const settings =
+        schedule === 'weekly'
+          ? { interval: 'weekly' as const, weekly_anchor: 'friday' as const }
+          : schedule === 'monthly'
+            ? { interval: 'monthly' as const, monthly_anchor: 1 }
+            : { interval: 'manual' as const };
+      await stripe.accounts.update(accountId, { settings: { payouts: { schedule: settings } } });
+    },
+
+    async payOutBalance(accountId, idempotencyKey) {
+      const balance = await stripe.balance.retrieve({}, { stripeAccount: accountId });
+      const available = balance.available.find((b) => b.currency === 'eur')?.amount ?? 0;
+      if (available <= 0) {
+        return 0;
+      }
+      await stripe.payouts.create({ amount: available, currency: 'eur' }, { stripeAccount: accountId, idempotencyKey });
+      return available;
+    },
+
     async payoutDetails(accountId) {
       const [account, payouts] = await Promise.all([
         stripe.accounts.retrieve(accountId),

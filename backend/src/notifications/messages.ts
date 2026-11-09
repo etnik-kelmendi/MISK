@@ -27,6 +27,16 @@ export const messages = {
   proAssigned: (service: string, when: string, proName: string) =>
     `MISK: ${proName} will do your ${service} on ${when}.`,
   proOnTheWay: (proName: string) => `MISK: ${proName} is on the way to you.`,
+  bookingReminder: (service: string, when: string) =>
+    `MISK: reminder, your ${service} is tomorrow, ${when}. Please make sure your pro can get in.`,
+  ratingRequest: (proName: string) => `MISK: how did ${proName} do? Rate the job in the app; it takes 10 seconds.`,
+  payoutSent: (amountCents: number, service: string, bankDay: string) =>
+    `MISK: we sent you ${formatEuro(amountCents)} for ${service}. It reaches your bank with the payout on ${bankDay}.`,
+  waitlistOpen: (postcode: string) => `MISK: good news, MISK now serves ${postcode}. Open the app to book a pro.`,
+  lateCancelCharged: (service: string, priceCents: number) =>
+    `MISK: your ${service} was cancelled less than 24 hours before, so ${formatEuro(priceCents)} was charged.`,
+  lateCancelForPro: (service: string, earnCents: number) =>
+    `MISK: the customer cancelled the ${service} job late. You still earn ${formatEuro(earnCents)}.`,
   jobCompleted: (service: string) =>
     `MISK: your ${service} is done. We charge your card in 24 hours. Something wrong? Report it in the app before then.`,
   extraRequested: (description: string, priceCents: number) =>
