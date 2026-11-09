@@ -70,17 +70,24 @@ Two ways to work with a full, realistic marketplace without typing data in:
 
 The demo data (`backend/src/seed/demo-data.ts`) is the same every time, with dates relative to today:
 
-- 8 Berlin postcodes, the demo's 6 categories and 18 services, 4 monthly plans (3 live, 1 draft)
-- 9 pros: 6 approved with payouts, plus one each submitted (to review), rejected (with a note) and draft, all with documents
-- 9 customers: 5 sign in by phone, 4 by email
-- About 74 bookings: eight weeks of finished jobs with ratings, photos, extra work, payouts, cancellations and refunds,
-  plus one job of each live state today: working, on the way (with extra work waiting for approval), accepted,
-  searching (with a 15-minute offer), unassigned and awaiting payment
+- 8 live Berlin postcodes and 2 on the waitlist (with 4 and 1 people waiting, plus 1 waiting outside any zone)
+- 6 live categories with 19 services (one paid per hour), a draft category, 4 monthly plans (3 live, 1 draft)
+- 13 pros in every Providers tab: 6 active (one with a quality warning and on the watch list, one with insurance running
+  out), 3 applications (one ready, one with open checks, one asked for more information), one waiting for a new
+  insurance to be checked, one suspended, one rejected and one draft
+- 9 customers (5 by phone, 4 by email) and 5 more who are only on a waitlist
+- About 77 bookings: eight weeks of finished jobs with ratings, photos, extra work, payouts, tips, cancellations and
+  refunds; one of each live state today (working, on the way with extra work waiting, accepted, searching with a
+  15-minute offer, unassigned, awaiting payment); a job done this morning that is charged tomorrow; a job with a reported
+  problem; and a late cancellation charged in full
+- A team with one member per role (Admin, Operations, Support, Finance, plus an invited one), and weeks of activity in the
+  log: fee, payout, zone, notification and team changes, price changes, booking and provider actions
 
 | Sign in as | Where | With |
 | ---------- | ----- | ---- |
 | Admin | the control panel's `/admin/login` | `admin` / `demo admin password` |
-| Customer by email | `/signin` | `anna@example.com` (or `ben@`, `clara@`, `emil@example.com`) / `garden42` |
+| Operations, Support or Finance | the control panel's `/admin/login` | `olivia.ops@example.com`, `sam.support@example.com` or `fiona.finance@example.com` / `demo admin password` |
+| Customer by email | `/signin` | `anna@example.com` (has a job done this morning to tip or report) (or `ben@`, `clara@`, `emil@example.com`) / `garden42` |
 | Customer by phone | `/signin?method=phone` | `+4915100000001` (Sara, has a job in progress) |
 | Pro by phone | `/signin?method=phone` | `+4915200000001` (Daniel, gardener) |
 

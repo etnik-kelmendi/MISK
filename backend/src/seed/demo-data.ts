@@ -662,6 +662,164 @@ async function fill(
     ],
   );
 
+  // ---------- Something to see in every section of the control panel ----------
+
+  // Done a few hours ago: the card is charged tomorrow, and the customer can still report a problem or tip.
+  const justDone = await addBooking({
+    tag: 'justdone', customer: customer('anna'), service: find('Home cleaning'), size: 'M', pro: pro('ina'), status: 'completed',
+    paymentStatus: 'held', startsAt: { minutesFromNow: -330 }, events: COMPLETED_EVENTS,
+  });
+  await db.query("INSERT INTO booking_photos (upload_id, booking_id, kind) VALUES ($1, $2, 'completion')", [
+    await upload(proIds.get('ina') ?? '', 'photo', makePhoto([120, 170, 200]), 'image/png'),
+    justDone.id,
+  ]);
+
+  // A problem the customer reported before the charge: the charge waits under Bookings → Needs action.
+  const problem = await addBooking({
+    tag: 'problem', customer: customer('clara'), service: find('Hedge trimming'), size: 'L', pro: pro('jonas'), status: 'completed',
+    paymentStatus: 'held', startsAt: { minutesFromNow: -720 }, events: COMPLETED_EVENTS,
+  });
+  await db.query(
+    `UPDATE bookings SET problem_reported_at = now() - interval '2 hours',
+       problem_note = 'The hedge at the back of the garden was not trimmed at all.' WHERE id = $1`,
+    [problem.id],
+  );
+
+  // Cancelled by the customer six hours before the start: the full price was charged and the pro paid.
+  const lateCancel = await addBooking({
+    tag: 'latecancel', customer: customer('tom'), service: find('Window cleaning'), size: 'M', pro: pro('jonas'), status: 'cancelled',
+    paymentStatus: 'captured', cancelledBy: 'customer', startsAt: { day: -2, hour: 14 }, events: [...LIVE, 'cancelled'],
+  });
+  await db.query('UPDATE bookings SET late_cancel = true WHERE id = $1', [lateCancel.id]);
+  await db.query(
+    `INSERT INTO payouts (booking_id, pro_id, payment_intent_id, charge_id, amount_cents, transfer_id, status, created_at)
+     SELECT id, pro_id, payment_intent_id, 'ch_seed_latecancel', $2, 'tr_seed_latecancel', 'sent', starts_at - interval '6 hours'
+     FROM bookings WHERE id = $1`,
+    [lateCancel.id, proShareCents(lateCancel.price, 82)],
+  );
+
+  // Tips on three finished jobs, split 82 / 18 like the jobs.
+  const tipped = await db.query<{ id: string; pro_key: string; amount: number }>(
+    `SELECT b.id, b.pro_id AS pro_key, (ARRAY[300, 500, 1000])[row_number() OVER (ORDER BY b.completed_at DESC)] AS amount
+     FROM bookings b WHERE b.status = 'completed' AND b.payment_status = 'captured' AND b.pro_id IS NOT NULL
+     ORDER BY b.completed_at DESC LIMIT 3`,
+  );
+  for (const [index, tip] of tipped.rows.entries()) {
+    const intent = `pi_seed_tip${index}`;
+    await db.query(
+      `INSERT INTO tips (booking_id, amount_cents, pro_share_pct, pro_cents, payment_intent_id, status, created_at)
+       SELECT $1, $2, 82, $3, $4, 'captured', completed_at + interval '1 hour' FROM bookings WHERE id = $1`,
+      [tip.id, tip.amount, proShareCents(tip.amount, 82), intent],
+    );
+    await db.query(
+      `INSERT INTO payouts (booking_id, pro_id, payment_intent_id, charge_id, amount_cents, transfer_id, status, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, 'sent', now() - interval '1 day')`,
+      [tip.id, tip.pro_key, intent, `ch_seed_tip${index}`, proShareCents(tip.amount, 82), `tr_seed_tip${index}`],
+    );
+    intents.push({ id: intent, amountCents: tip.amount, status: 'captured' });
+  }
+
+  // ---------- The team, with one member per role ----------
+  const teamHash = adminHash;
+  const adminId = (await db.query<{ id: string }>("SELECT id FROM users WHERE username = 'admin'")).rows[0]?.id ?? '';
+  await db.query("UPDATE users SET first_name = 'Demo', last_name = 'Admin', contact_phone = '+4915199900000' WHERE id = $1", [adminId]);
+  const team: [string, string, string | null, 'operations' | 'support' | 'finance', number | null][] = [
+    ['olivia.ops@example.com', 'Olivia', 'Brandt', 'operations', 2],
+    ['sam.support@example.com', 'Sam', 'Okafor', 'support', 26],
+    ['fiona.finance@example.com', 'Fiona', 'Weiss', 'finance', 75],
+    ['new.hire@example.com', 'Nora', null, 'operations', null],
+  ];
+  const teamIds = new Map<string, string>();
+  for (const [email, first, last, role, hoursAgo] of team) {
+    const member = await db.query<{ id: string }>(
+      `INSERT INTO users (username, email, first_name, last_name, password_hash, role, admin_role, invited_at, created_at)
+       VALUES ($1, $1, $2, $3, $4, 'admin', $5, CASE WHEN $6::int IS NULL THEN now() - interval '1 day' END, now() - interval '40 days')
+       RETURNING id`,
+      [email, first, last, teamHash, role, hoursAgo],
+    );
+    const id = member.rows[0]?.id ?? '';
+    teamIds.set(role === 'operations' && hoursAgo === null ? 'invited' : role, id);
+    if (hoursAgo !== null) {
+      // An ended session, so the team list can show when they were last active.
+      await db.query(
+        `INSERT INTO sessions (token_hash, user_id, created_at, last_seen_at, expires_at)
+         VALUES (decode(md5(random()::text), 'hex'), $1, now() - make_interval(hours => $2 + 1), now() - make_interval(hours => $2), now() - interval '1 minute')`,
+        [id, hoursAgo],
+      );
+    }
+  }
+
+  // ---------- Service area: two zones on the waitlist and people waiting ----------
+  await db.query(
+    `INSERT INTO postcodes (code, name, lat, lng, active) VALUES
+       ('12047', 'Neukölln North', 52.4895, 13.4255, false),
+       ('13347', 'Wedding', 52.5491, 13.3586, false)`,
+  );
+  const waiting: [string, string, string][] = [
+    ['+4915100000101', 'Jana', '12047'],
+    ['+4915100000102', 'Malik', '12047'],
+    ['+4915100000103', 'Petra', '12047'],
+    ['+4915100000104', 'Yusuf', '13347'],
+    ['+4915100000105', 'Greta', '14193'],
+  ];
+  for (const [phone, name, postcode] of waiting) {
+    const person = await db.query<{ id: string }>(
+      "INSERT INTO users (phone, role, first_name) VALUES ($1, 'customer', $2) RETURNING id",
+      [phone, name],
+    );
+    await db.query("INSERT INTO waitlist (postcode, user_id, created_at) VALUES ($1, $2, now() - interval '9 days')", [
+      postcode,
+      person.rows[0]?.id,
+    ]);
+  }
+  await db.query("INSERT INTO waitlist (postcode, user_id) VALUES ('12047', $1)", [customerIds.get('mila')]);
+
+  // ---------- The activity log: changes the team made in the last weeks ----------
+  const at = (days: number) => `now() - interval '${days} days'`;
+  const ops = teamIds.get('operations') ?? adminId;
+  const finance = teamIds.get('finance') ?? adminId;
+  const support = teamIds.get('support') ?? adminId;
+  const activity: [string, string, string, string, Record<string, unknown>][] = [
+    [adminId, at(30), 'fees', 'service_fee', { from: 250, to: 290 }],
+    [finance, at(21), 'fees', 'payout_interval', { from: 'monthly', to: 'weekly' }],
+    [ops, at(14), 'zones', 'zone_added', { code: '12047', name: 'Neukölln North' }],
+    [ops, at(12), 'zones', 'zone_added', { code: '13347', name: 'Wedding' }],
+    [ops, at(6), 'notifications', 'channel_on', { message: 'booking_confirmed', channel: 'email' }],
+    [adminId, at(3), 'team', 'invited', { email: 'new.hire@example.com', role: 'operations' }],
+    [adminId, at(2), 'team', 'role_changed', { memberId: support, from: 'operations', to: 'support' }],
+  ];
+  for (const [who, when, area, action, details] of activity) {
+    await db.query(`INSERT INTO admin_activity (admin_id, area, action, details, created_at) VALUES ($1, $2, $3, $4, ${when})`, [
+      who,
+      area,
+      action,
+      JSON.stringify(details),
+    ]);
+  }
+  // The team's actions on pros; moving a pro to Pending approval was MISK's own doing.
+  await db.query("UPDATE pro_admin_actions SET admin_id = $1 WHERE action <> 'moved_to_pending' AND admin_id IS NULL", [ops]);
+  const mowing = find('Lawn mowing');
+  await db.query(
+    `INSERT INTO catalogue_changes (admin_id, category_id, service_id, action, details, created_at) VALUES
+       ($1, $2, $3, 'price_changed', '{"from": 3200, "to": 3500}', now() - interval '20 days'),
+       ($1, $4, $5, 'service_added', '{"name": "Handyman by the hour", "priceCents": 3800, "pricing": "hourly"}', now() - interval '10 days'),
+       ($1, (SELECT id FROM categories WHERE slug = 'pool-care'), NULL, 'trade_added', '{"name": "Pool care"}', now() - interval '4 days')`,
+    [ops, mowing.categoryId, mowing.id, find('Handyman by the hour').categoryId, find('Handyman by the hour').id],
+  );
+  const upcomingJob = await db.query<{ id: string }>("SELECT id FROM bookings WHERE payment_intent_id = 'pi_seed_next2'");
+  await db.query(
+    `INSERT INTO booking_admin_actions (booking_id, admin_id, action, details, created_at)
+     SELECT id, $2, 'rescheduled', json_build_object('from', starts_at - interval '1 day', 'to', starts_at), now() - interval '1 day'
+     FROM bookings WHERE id = $1`,
+    [upcomingJob.rows[0]?.id, support],
+  );
+  await db.query(
+    `INSERT INTO booking_admin_actions (booking_id, admin_id, action, details, created_at)
+     SELECT id, $1, 'refunded', json_build_object('amountCents', price_cents + fee_cents, 'wasCharged', true), completed_at + interval '1 day'
+     FROM bookings WHERE payment_status = 'refunded'`,
+    [finance],
+  );
+
   // Booked a moment ago, card not confirmed yet.
   await addBooking({
     tag: 'unpaid', customer: customer('tom'), service: find('Socket install'), size: 'S', pro: null, status: 'awaiting_payment',

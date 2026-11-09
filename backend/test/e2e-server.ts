@@ -143,11 +143,11 @@ const stopWorkers = startWorkers(
       texts.push({ to, body });
       return { providerId: `e2e-${texts.length}` };
     },
+    // Messages to demo customers and pros (made-up addresses) are printed, never sent: real email from the
+    // preview would bounce. Only the team's own emails (password reset, invites, approvals) use SMTP above.
     email: async (message) => {
       emails.push(message);
-      if (smtp) {
-        await smtp(message);
-      }
+      console.log(`[message email to ${message.to}, not sent] ${message.subject}: ${message.text}`);
     },
     push: config.push ? createPushSender(config.push) : null,
   },

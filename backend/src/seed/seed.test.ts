@@ -110,6 +110,34 @@ describe('demo data', () => {
     expect(detail.checks.find((c: { kind: string }) => c.kind === 'insurance')).toMatchObject({ state: 'waiting_review' });
   });
 
+  it('fills the Settings tabs, the activity log, tips, problems and late cancellations', async () => {
+    const admin = await adminCookie();
+    const zones = (await call(t, 'GET', '/admin/zones', { cookie: admin })).json();
+    expect(zones.zones.filter((z: { live: boolean }) => !z.live).map((z: { code: string; waiting: number }) => [z.code, z.waiting])).toEqual([
+      ['12047', 4],
+      ['13347', 1],
+    ]);
+    expect(zones.elsewhere).toEqual([{ postcode: '14193', waiting: 1 }]);
+    const team = (await call(t, 'GET', '/admin/team/members', { cookie: admin })).json().members;
+    expect(team.map((m: { role: string }) => m.role).sort()).toEqual(['admin', 'finance', 'operations', 'operations', 'support']);
+    const activity = (await call(t, 'GET', '/admin/activity', { cookie: admin })).json().activity;
+    expect(new Set(activity.map((a: { area: string }) => a.area))).toEqual(
+      new Set(['fees', 'zones', 'notifications', 'team', 'catalogue', 'bookings', 'providers']),
+    );
+    const needsAction = (await call(t, 'GET', '/admin/bookings?tab=needs_action', { cookie: admin })).json().bookings;
+    expect(needsAction.some((b: { problem: boolean }) => b.problem)).toBe(true);
+    const tips = await t.pool.query("SELECT count(*)::int AS n FROM tips WHERE status = 'captured'");
+    expect(tips.rows[0]?.n).toBe(3);
+    const late = await t.pool.query('SELECT count(*)::int AS n FROM bookings WHERE late_cancel');
+    expect(late.rows[0]?.n).toBe(1);
+    // A team member of each role can sign in with the demo password and sees only their part.
+    const finance = sessionCookie(
+      await call(t, 'POST', '/auth/admin/login', { body: { username: 'fiona.finance@example.com', password: DEMO_ADMIN.password } }),
+    );
+    expect((await call(t, 'GET', '/admin/settings', { cookie: finance })).statusCode).toBe(200);
+    expect((await call(t, 'GET', '/admin/catalogue', { cookie: finance })).statusCode).toBe(403);
+  });
+
   it('lists plan visits next to one-off bookings for admins, with their details', async () => {
     const admin = await adminCookie();
     const visits = (await call(t, 'GET', '/admin/bookings?type=visit', { cookie: admin })).json();
