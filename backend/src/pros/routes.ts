@@ -4,15 +4,13 @@ import { normalizePostcode } from '../catalogue/routes.js';
 import type { AppContext } from '../context.js';
 import { withTransaction } from '../db.js';
 import { badRequest, conflict, notFound } from '../errors.js';
-import { uuidParams } from '../http.js';
-import { messages } from '../notifications/messages.js';
-import { enqueue } from '../notifications/outbox.js';
-import { readSingleFile, storeUpload } from '../uploads/uploads.js';
+import { readNamedFile, storeUpload } from '../uploads/uploads.js';
+import { DOCUMENT_KINDS, EXPIRING_KINDS, checkOf, marketToday, DOCUMENT_COLUMNS, type DocumentKind, type DocumentRow } from './checks.js';
 
-export const DOCUMENT_KINDS = ['id', 'certificate', 'insurance'] as const;
-type DocumentKind = (typeof DOCUMENT_KINDS)[number];
+export { DOCUMENT_KINDS };
 
-const EDITABLE_TRADES = new Set(['draft', 'rejected']);
+/** States in which the pro can still change their application and send it (again). */
+const EDITABLE_TRADES = new Set(['draft', 'rejected', 'info_requested']);
 
 /** Average stars and count per pro, used in profiles, admin lists and dispatch order. */
 export const RATING_SQL = `(SELECT round(avg(stars)::numeric, 2)::float FROM ratings r WHERE r.pro_id = p.user_id) AS "ratingAverage",
@@ -22,6 +20,7 @@ async function loadProfile(ctx: AppContext, userId: string) {
   const profile = await ctx.pool.query(
     `SELECT p.status, p.home_postcode AS "homePostcode", p.radius_km AS "radiusKm",
        p.working_days AS "workingDays", p.review_note AS "reviewNote", p.payouts_enabled AS "payoutsEnabled",
+       p.jobs_paused_at IS NOT NULL AS "jobsPaused", p.suspended_reason AS "suspendedReason",
        p.stripe_account_id IS NOT NULL AS "hasPayoutAccount", ${RATING_SQL},
        COALESCE((SELECT array_agg(category_id) FROM pro_trades WHERE pro_id = p.user_id), '{}') AS trades
      FROM pro_profiles p WHERE p.user_id = $1`,
@@ -31,14 +30,25 @@ async function loadProfile(ctx: AppContext, userId: string) {
   if (!row) {
     throw notFound('profile_not_found');
   }
-  const docs = await ctx.pool.query<{ kind: DocumentKind; uploadedAt: Date; uploadId: string }>(
-    'SELECT kind, uploaded_at AS "uploadedAt", upload_id AS "uploadId" FROM pro_documents WHERE pro_id = $1',
-    [userId],
-  );
+  const docs = await ctx.pool.query<DocumentRow>(`SELECT ${DOCUMENT_COLUMNS} FROM pro_documents WHERE pro_id = $1`, [userId]);
+  const today = marketToday(ctx.config.timezone);
   const documents = Object.fromEntries(
     DOCUMENT_KINDS.map((kind) => {
-      const doc = docs.rows.find((d) => d.kind === kind);
-      return [kind, doc ? { uploadId: doc.uploadId, uploadedAt: doc.uploadedAt } : null];
+      const doc = docs.rows.find((d) => d.kind === kind) ?? null;
+      return [
+        kind,
+        doc
+          ? {
+              uploadId: doc.uploadId,
+              fileName: doc.fileName,
+              uploadedAt: doc.uploadedAt,
+              expiresOn: doc.expiresOn,
+              reviewStatus: doc.reviewStatus,
+              reviewNote: doc.reviewNote,
+              state: checkOf(kind, doc, today).state,
+            }
+          : null,
+      ];
     }),
   );
   return { ...row, documents };
@@ -119,15 +129,31 @@ export async function proRoutes(app: FastifyInstance, ctx: AppContext) {
     },
   );
 
-  app.post<{ Params: { kind: DocumentKind } }>(
+  // A new copy always waits for the team's check. An accepted earlier copy keeps covering the pro until it
+  // runs out, so renewing in good time never stops their jobs.
+  app.post<{ Params: { kind: DocumentKind }; Querystring: { expiresOn?: string } }>(
     '/pro/documents/:kind',
     {
       preHandler: guards.pro,
-      schema: { params: { type: 'object', properties: { kind: { type: 'string', enum: DOCUMENT_KINDS } } } },
+      schema: {
+        params: { type: 'object', properties: { kind: { type: 'string', enum: DOCUMENT_KINDS } } },
+        querystring: {
+          type: 'object',
+          additionalProperties: false,
+          properties: { expiresOn: { type: 'string', format: 'date' } },
+        },
+      },
     },
     async (request, reply) => {
       const userId = currentUser(request).id;
-      const content = await readSingleFile(request);
+      const expiresOn = request.query.expiresOn ?? null;
+      if (!expiresOn && EXPIRING_KINDS.has(request.params.kind)) {
+        throw badRequest('expiry_required');
+      }
+      if (expiresOn && expiresOn < marketToday(ctx.config.timezone)) {
+        throw badRequest('document_expired');
+      }
+      const { content, fileName } = await readNamedFile(request);
       const replaced = await withTransaction(pool, async (client) => {
         const upload = await storeUpload(client, ctx.storage, { ownerId: userId, kind: 'document', content });
         const previous = await client.query<{ storage_key: string; id: string }>(
@@ -136,9 +162,11 @@ export async function proRoutes(app: FastifyInstance, ctx: AppContext) {
           [userId, request.params.kind],
         );
         await client.query(
-          `INSERT INTO pro_documents (pro_id, kind, upload_id) VALUES ($1, $2, $3)
-           ON CONFLICT (pro_id, kind) DO UPDATE SET upload_id = EXCLUDED.upload_id, uploaded_at = now()`,
-          [userId, request.params.kind, upload.id],
+          `INSERT INTO pro_documents (pro_id, kind, upload_id, file_name, expires_on) VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (pro_id, kind) DO UPDATE SET upload_id = EXCLUDED.upload_id, uploaded_at = now(),
+             file_name = EXCLUDED.file_name, expires_on = EXCLUDED.expires_on, review_status = 'pending',
+             review_note = NULL, reviewed_at = NULL, reviewed_by = NULL`,
+          [userId, request.params.kind, upload.id, fileName, expiresOn],
         );
         const old = previous.rows[0];
         if (old) {
@@ -171,7 +199,7 @@ export async function proRoutes(app: FastifyInstance, ctx: AppContext) {
     }
     await pool.query(
       `UPDATE pro_profiles SET status = 'submitted', submitted_at = now(), review_note = NULL, updated_at = now()
-       WHERE user_id = $1 AND status IN ('draft', 'rejected')`,
+       WHERE user_id = $1 AND status IN ('draft', 'rejected', 'info_requested')`,
       [userId],
     );
     request.log.info({ event: 'pro_application_submitted', userId });
@@ -226,95 +254,4 @@ export async function proRoutes(app: FastifyInstance, ctx: AppContext) {
     }
     return { profile: await loadProfile(ctx, userId) };
   });
-
-  // ---------- Admin review ----------
-
-  app.get<{ Querystring: { status?: string } }>(
-    '/admin/pros',
-    {
-      preHandler: guards.admin,
-      schema: {
-        querystring: {
-          type: 'object',
-          additionalProperties: false,
-          properties: { status: { type: 'string', enum: ['draft', 'submitted', 'approved', 'rejected', 'suspended'] } },
-        },
-      },
-    },
-    async (request) => {
-      const result = await pool.query(
-        `SELECT p.user_id AS id, u.first_name AS "firstName", u.phone, p.status, p.home_postcode AS "homePostcode",
-           p.radius_km AS "radiusKm", p.working_days AS "workingDays", p.submitted_at AS "submittedAt",
-           p.payouts_enabled AS "payoutsEnabled", ${RATING_SQL},
-           COALESCE((SELECT array_agg(c.name ORDER BY c.name) FROM pro_trades t JOIN categories c ON c.id = t.category_id
-                     WHERE t.pro_id = p.user_id), '{}') AS trades,
-           (SELECT count(*)::int FROM pro_documents d WHERE d.pro_id = p.user_id) AS "documentCount"
-         FROM pro_profiles p JOIN users u ON u.id = p.user_id
-         WHERE ($1::text IS NULL OR p.status = $1)
-         ORDER BY (p.status = 'submitted') DESC, p.submitted_at NULLS LAST, u.first_name
-         LIMIT 500`,
-        [request.query.status ?? null],
-      );
-      return { pros: result.rows };
-    },
-  );
-
-  app.get<{ Params: { id: string } }>(
-    '/admin/pros/:id',
-    { preHandler: guards.admin, schema: { params: uuidParams } },
-    async (request) => {
-      const user = await pool.query<{ firstName: string | null; phone: string | null }>(
-        `SELECT first_name AS "firstName", phone FROM users WHERE id = $1 AND role = 'pro'`,
-        [request.params.id],
-      );
-      if (!user.rowCount) {
-        throw notFound();
-      }
-      return { pro: { id: request.params.id, ...user.rows[0], ...(await loadProfile(ctx, request.params.id)) } };
-    },
-  );
-
-  app.post<{ Params: { id: string }; Body: { decision: 'approve' | 'reject' | 'suspend'; note?: string } }>(
-    '/admin/pros/:id/review',
-    {
-      preHandler: guards.admin,
-      schema: {
-        params: uuidParams,
-        body: {
-          type: 'object',
-          required: ['decision'],
-          additionalProperties: false,
-          properties: {
-            decision: { type: 'string', enum: ['approve', 'reject', 'suspend'] },
-            note: { type: 'string', maxLength: 500 },
-          },
-        },
-      },
-    },
-    async (request) => {
-      const { decision } = request.body;
-      const note = request.body.note?.trim() || null;
-      if (decision === 'reject' && !note) {
-        throw badRequest('note_required');
-      }
-      const rules = {
-        approve: { from: ['submitted', 'suspended'], to: 'approved', text: messages.applicationApproved() },
-        reject: { from: ['submitted'], to: 'rejected', text: messages.applicationRejected() },
-        suspend: { from: ['approved'], to: 'suspended', text: messages.accountSuspended() },
-      }[decision];
-      await withTransaction(pool, async (client) => {
-        const updated = await client.query(
-          `UPDATE pro_profiles SET status = $2, review_note = $3, reviewed_at = now(), reviewed_by = $4, updated_at = now()
-           WHERE user_id = $1 AND status = ANY($5)`,
-          [request.params.id, rules.to, note, currentUser(request).id, rules.from],
-        );
-        if (!updated.rowCount) {
-          throw conflict('invalid_status');
-        }
-        await enqueue(client, request.params.id, 'application_reviewed', rules.text);
-      });
-      request.log.info({ event: 'pro_reviewed', proId: request.params.id, decision, by: currentUser(request).id });
-      return { pro: { id: request.params.id, ...(await loadProfile(ctx, request.params.id)) } };
-    },
-  );
 }

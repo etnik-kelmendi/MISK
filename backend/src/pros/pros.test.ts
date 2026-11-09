@@ -29,9 +29,10 @@ async function completeApplication(cookie: string) {
     cookie,
     body: { trades: [market.gardening], homePostcode: '10115', radiusKm: 15, workingDays: [1, 2, 3] },
   });
-  await upload(t, '/pro/documents/id', cookie, FILES.jpeg, 'id.jpg');
+  await upload(t, '/pro/documents/id?expiresOn=2031-05-01', cookie, FILES.jpeg, 'id.jpg');
   await upload(t, '/pro/documents/certificate', cookie, FILES.pdf, 'cert.pdf');
-  await upload(t, '/pro/documents/insurance', cookie, FILES.png, 'insurance.png');
+  await upload(t, '/pro/documents/insurance?expiresOn=2030-01-31', cookie, FILES.png, 'insurance.png');
+  await upload(t, '/pro/documents/background', cookie, FILES.pdf, 'good-conduct.pdf');
 }
 
 describe('pro application', () => {
@@ -64,12 +65,12 @@ describe('pro application', () => {
 
   it('accepts documents only as PDF, JPEG or PNG, judged by content', async () => {
     const cookie = await signIn(t, PRO_PHONE, 'pro');
-    const text = await upload(t, '/pro/documents/id', cookie, FILES.text, 'id.png');
+    const text = await upload(t, '/pro/documents/id?expiresOn=2031-01-01', cookie, FILES.text, 'id.png');
     expect(text.json()).toEqual({ error: 'file_type_not_allowed' });
-    const pdf = await upload(t, '/pro/documents/id', cookie, FILES.pdf, 'id.pdf');
+    const pdf = await upload(t, '/pro/documents/id?expiresOn=2031-01-01', cookie, FILES.pdf, 'id.pdf');
     expect(pdf.statusCode).toBe(201);
     expect(pdf.json().profile.documents.id).not.toBeNull();
-    const replaced = await upload(t, '/pro/documents/id', cookie, FILES.png);
+    const replaced = await upload(t, '/pro/documents/id?expiresOn=2031-01-01', cookie, FILES.png);
     expect(replaced.json().profile.documents.id.uploadId).not.toBe(pdf.json().profile.documents.id.uploadId);
     const count = await t.pool.query("SELECT count(*)::int AS n FROM uploads WHERE kind = 'document'");
     expect(count.rows[0].n).toBe(1);
@@ -78,7 +79,7 @@ describe('pro application', () => {
   it('refuses files over 8 MB', async () => {
     const cookie = await signIn(t, PRO_PHONE, 'pro');
     const big = Buffer.concat([FILES.pdf, Buffer.alloc(8 * 1024 * 1024)]);
-    const response = await upload(t, '/pro/documents/id', cookie, big);
+    const response = await upload(t, '/pro/documents/certificate', cookie, big);
     expect(response.statusCode).toBe(413);
   });
 
@@ -96,51 +97,43 @@ describe('pro application', () => {
   });
 });
 
-describe('admin review', () => {
-  it('approves, rejects with a note, and suspends, and texts the pro', async () => {
-    const cookie = await signIn(t, PRO_PHONE, 'pro', 'Daniel');
-    await completeApplication(cookie);
-    await call(t, 'POST', '/pro/submit', { cookie });
-    const admin = await signInAdmin(t);
+describe('pro documents', () => {
+  it('needs the expiry date of an ID and insurance, refuses ones already expired, and keeps a safe file name', async () => {
+    const cookie = await signIn(t, PRO_PHONE, 'pro');
+    const noDate = await upload(t, '/pro/documents/insurance', cookie, FILES.pdf, 'insurance.pdf');
+    expect(noDate.json()).toEqual({ error: 'expiry_required' });
+    const old = await upload(t, '/pro/documents/insurance?expiresOn=2020-01-01', cookie, FILES.pdf);
+    expect(old.json()).toEqual({ error: 'document_expired' });
+    const bad = await upload(t, '/pro/documents/insurance?expiresOn=tomorrow', cookie, FILES.pdf);
+    expect(bad.statusCode).toBe(400);
 
-    const list = await call(t, 'GET', '/admin/pros?status=submitted', { cookie: admin });
-    expect(list.json().pros).toHaveLength(1);
-    const pro = list.json().pros[0];
-    expect(pro).toMatchObject({ firstName: 'Daniel', trades: ['Gardening'], documentCount: 3 });
-
-    const noNote = await call(t, 'POST', `/admin/pros/${pro.id}/review`, { cookie: admin, body: { decision: 'reject' } });
-    expect(noNote.json()).toEqual({ error: 'note_required' });
-
-    const approved = await call(t, 'POST', `/admin/pros/${pro.id}/review`, { cookie: admin, body: { decision: 'approve' } });
-    expect(approved.json().pro.status).toBe('approved');
-    const twice = await call(t, 'POST', `/admin/pros/${pro.id}/review`, { cookie: admin, body: { decision: 'approve' } });
-    expect(twice.json()).toEqual({ error: 'invalid_status' });
-
-    const suspended = await call(t, 'POST', `/admin/pros/${pro.id}/review`, { cookie: admin, body: { decision: 'suspend' } });
-    expect(suspended.json().pro.status).toBe('suspended');
-
-    const texts = await t.pool.query("SELECT body FROM notifications WHERE kind = 'application_reviewed' ORDER BY created_at");
-    expect(texts.rows).toHaveLength(2);
+    const ok = await upload(t, '/pro/documents/insurance?expiresOn=2030-06-30', cookie, FILES.pdf, '../../Allianz policy 2026.pdf');
+    expect(ok.statusCode).toBe(201);
+    expect(ok.json().profile.documents.insurance).toMatchObject({
+      fileName: 'Allianz policy 2026.pdf',
+      expiresOn: '2030-06-30',
+      reviewStatus: 'pending',
+      state: 'waiting_review',
+    });
+    const noExpiryNeeded = await upload(t, '/pro/documents/background', cookie, FILES.pdf, 'conduct.pdf');
+    expect(noExpiryNeeded.json().profile.documents.background).toMatchObject({ expiresOn: null, fileName: 'conduct.pdf' });
   });
 
-  it('lets a rejected pro fix and resubmit', async () => {
+  it('lets a pro asked for more information change and send the application again', async () => {
     const cookie = await signIn(t, PRO_PHONE, 'pro');
     await completeApplication(cookie);
     await call(t, 'POST', '/pro/submit', { cookie });
-    const admin = await signInAdmin(t);
-    const { id } = (await call(t, 'GET', '/auth/me', { cookie })).json().user;
-    await call(t, 'POST', `/admin/pros/${id}/review`, {
-      cookie: admin,
-      body: { decision: 'reject', note: 'Insurance certificate has expired' },
-    });
+    await t.pool.query("UPDATE pro_profiles SET status = 'info_requested', review_note = 'Which hedge trimmer do you use?'");
     const profile = (await call(t, 'GET', '/pro/profile', { cookie })).json().profile;
-    expect(profile).toMatchObject({ status: 'rejected', reviewNote: 'Insurance certificate has expired' });
-    expect((await call(t, 'POST', '/pro/submit', { cookie })).json().profile.status).toBe('submitted');
+    expect(profile).toMatchObject({ status: 'info_requested', reviewNote: 'Which hedge trimmer do you use?' });
+    const trades = await call(t, 'PATCH', '/pro/profile', { cookie, body: { trades: [market.gardening, market.plumbing] } });
+    expect(trades.statusCode).toBe(200);
+    expect((await call(t, 'POST', '/pro/submit', { cookie })).json().profile).toMatchObject({ status: 'submitted', reviewNote: null });
   });
 
   it('shows documents only to their owner and admins', async () => {
     const cookie = await signIn(t, PRO_PHONE, 'pro');
-    const uploaded = await upload(t, '/pro/documents/id', cookie, FILES.pdf);
+    const uploaded = await upload(t, '/pro/documents/id?expiresOn=2031-01-01', cookie, FILES.pdf);
     const fileId = uploaded.json().profile.documents.id.uploadId;
     const own = await call(t, 'GET', `/files/${fileId}`, { cookie });
     expect(own.statusCode).toBe(200);

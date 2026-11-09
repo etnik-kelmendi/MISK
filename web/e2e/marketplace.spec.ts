@@ -196,7 +196,15 @@ test.describe.serial('MISK marketplace', () => {
     await expect(page.getByText('No bookings match these filters')).toBeVisible();
 
     await nav.getByRole('link', { name: 'Providers', exact: true }).click();
-    await expect(page.getByRole('link', { name: 'Daniel' })).toBeVisible();
+    await expect(page.getByText('Active pros')).toBeVisible();
+    await page.getByRole('button', { name: 'Active (1)' }).click();
+    await page.getByRole('button', { name: 'Open Daniel' }).click();
+    const proPanel = page.getByRole('dialog', { name: 'Daniel' });
+    await expect(proPanel.getByText('ID verified')).toBeVisible();
+    await expect(proPanel.getByRole('button', { name: 'Pause jobs' })).toBeVisible();
+    await expectAccessible(page);
+    await page.keyboard.press('Escape');
+    await expect(proPanel).toBeHidden();
     await nav.getByRole('link', { name: 'Plans', exact: true }).click();
     await page.getByRole('link', { name: 'New plan' }).click();
     await page.getByLabel('Plan name').fill('Weekly lawn care');

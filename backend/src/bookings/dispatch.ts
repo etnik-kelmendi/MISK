@@ -144,7 +144,7 @@ export async function acceptOffer(deps: BookingDeps, proId: string, offerId: str
     }
     const pro = await client.query<{ firstName: string | null }>(
       `SELECT u.first_name AS "firstName" FROM pro_profiles p JOIN users u ON u.id = p.user_id
-       WHERE p.user_id = $1 AND p.status = 'approved' AND p.payouts_enabled AND u.disabled_at IS NULL`,
+       WHERE p.user_id = $1 AND p.status = 'approved' AND p.payouts_enabled AND p.jobs_paused_at IS NULL AND u.disabled_at IS NULL`,
       [proId],
     );
     if (!pro.rowCount) {

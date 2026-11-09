@@ -72,6 +72,8 @@ export interface PaymentGateway {
   setBillingPaused(subscriptionId: string, paused: boolean): Promise<void>;
   onboardingLink(input: { accountId: string; returnUrl: string; refreshUrl: string }): Promise<string>;
   accountStatus(accountId: string): Promise<{ payoutsEnabled: boolean }>;
+  /** The pro's bank account (last 4 digits only) and their next payout, as their Stripe account shows it. */
+  payoutDetails(accountId: string): Promise<PayoutDetails>;
   /** Verifies a webhook's signature and reads it. Throws when the signature is wrong. */
   parseWebhook(rawBody: Buffer, signature: string): { eventId: string; event: GatewayEvent };
 }
@@ -82,4 +84,9 @@ export interface HoldInput {
   description: string;
   idempotencyKey: string;
   metadata: Record<string, string>;
+}
+
+export interface PayoutDetails {
+  bankLast4: string | null;
+  nextPayout: { amountCents: number; arrivesOn: Date } | null;
 }

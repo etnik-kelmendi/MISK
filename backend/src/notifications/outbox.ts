@@ -13,7 +13,10 @@ export type NotificationKind =
   | 'booking_cancelled'
   | 'booking_rescheduled'
   | 'booking_unassigned'
-  | 'application_reviewed';
+  | 'application_reviewed'
+  | 'pro_documents'
+  | 'pro_account'
+  | 'plan_pro_changed';
 
 export const MAX_ATTEMPTS = 3;
 const BATCH_SIZE = 20;

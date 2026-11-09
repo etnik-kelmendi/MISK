@@ -5,6 +5,7 @@ import type { BookingDeps } from './bookings/events.js';
 import { expireUnpaid, settleTick } from './bookings/lifecycle.js';
 import { dispatchOnce } from './notifications/outbox.js';
 import { subscriptionTick } from './subscriptions/service.js';
+import { documentExpiryTick } from './pros/management.js';
 import type { SmsSender } from './notifications/sms.js';
 
 interface Job {
@@ -24,6 +25,7 @@ export function startWorkers(deps: BookingDeps, sender: SmsSender | null, log: F
     { name: 'Dropping unpaid bookings', everyMs: 60_000, run: () => expireUnpaid(deps) },
     { name: 'Settling completed jobs', everyMs: 60_000, run: () => settleTick(deps) },
     { name: 'Planning monthly plan visits and billing', everyMs: 5 * 60_000, run: () => subscriptionTick(deps) },
+    { name: 'Moving pros with expired documents to Pending approval', everyMs: 15 * 60_000, run: () => documentExpiryTick(deps) },
     { name: 'Removing expired sign-in data', everyMs: 15 * 60_000, run: () => deleteExpiredRows(deps.pool) },
   ];
   const timers = jobs.map((job) => {

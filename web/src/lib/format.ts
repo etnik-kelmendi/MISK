@@ -106,3 +106,14 @@ export function zonedToIso(date: string, time: string, timeZone: string): string
   const check = zonedParts(new Date(guess).toISOString(), timeZone);
   return check.date === date && check.time === time ? new Date(guess).toISOString() : null;
 }
+
+/** "5 Nov 2026", for an instant (in the market time zone) or a calendar date such as "2026-11-05". */
+export function longDate(value: string, timeZone: string): string {
+  const calendarDay = /^\d{4}-\d{2}-\d{2}$/.test(value);
+  return new Intl.DateTimeFormat(LOCALE, {
+    timeZone: calendarDay ? 'UTC' : timeZone,
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  }).format(new Date(calendarDay ? `${value}T12:00:00Z` : value));
+}

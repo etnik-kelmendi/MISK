@@ -1,8 +1,10 @@
-import type { ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link, NavLink, Outlet, useNavigate } from 'react-router';
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router';
+import { useApi } from '../api/ApiContext';
 import { useAuth, useUser } from '../auth/AuthContext';
 import { Icon, type IconKey } from '../components/Icon';
+import { usePolling } from '../lib/usePolling';
 
 interface Tab {
   to: string;
@@ -80,12 +82,34 @@ export function AppHeader({ title, back, right }: { title: string; back?: string
   );
 }
 
+/** How often the menu checks for new pro applications. */
+const BADGE_REFRESH_MS = 60_000;
+
+/** Pro applications waiting for the team, for the red badge in the menu; 0 when it cannot be loaded. */
+function useApplicationsWaiting() {
+  const api = useApi();
+  const location = useLocation();
+  const [count, setCount] = useState(0);
+  const refresh = useCallback(() => {
+    api.get<{ applications: number }>('/admin/badges').then(
+      (result) => setCount(result.applications),
+      // The badge is a hint; the Providers page shows the real list, so a failed check is only logged.
+      (error: unknown) => console.warn('Could not load the applications badge', error),
+    );
+  }, [api]);
+  // Check again after every page change, so approving an application updates the badge.
+  useEffect(refresh, [refresh, location.pathname, location.search]);
+  usePolling(refresh, BADGE_REFRESH_MS);
+  return count;
+}
+
 /** The desktop control panel for the MISK team. */
 export function AdminShell() {
   const { t } = useTranslation();
   const { logout } = useAuth();
   const user = useUser();
   const navigate = useNavigate();
+  const waiting = useApplicationsWaiting();
   const links: Tab[] = [
     { to: '/admin', icon: 'chart', label: t('admin.nav.overview'), end: true },
     { to: '/admin/bookings', icon: 'calendar', label: t('admin.nav.bookings') },
@@ -107,6 +131,14 @@ export function AdminShell() {
           <NavLink key={link.to} to={link.to} end={link.end} className={({ isActive }) => (isActive ? 'on' : '')}>
             <Icon name={link.icon} />
             <span>{link.label}</span>
+            {link.to === '/admin/providers' && waiting > 0 && (
+              <>
+                <span className="nav-badge" aria-hidden="true">
+                  {waiting}
+                </span>
+                <span className="visually-hidden">{t('admin.pros.menuBadge', { count: waiting })}</span>
+              </>
+            )}
           </NavLink>
         ))}
       </nav>

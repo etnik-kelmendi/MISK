@@ -210,6 +210,14 @@ function ApplicationStatus({ profile, onChange }: { profile: ProProfile; onChang
   }
   return (
     <div className="body">
+      {profile.status === 'info_requested' && (
+        <div className="info amber" role="alert">
+          <Icon name="chat" />
+          <p>
+            {t('apply.infoRequested')} <b>{profile.reviewNote}</b> {t('apply.infoRequestedHint')}
+          </p>
+        </div>
+      )}
       {profile.status === 'rejected' && (
         <div className="info amber" role="alert">
           <Icon name="file" />
@@ -235,7 +243,7 @@ export function ProHomePage() {
     <>
       <header className="prohead">
         <div className="row between">
-          <h1>{state.status === 'ready' && state.data.profile.status === 'approved' ? t('pro.jobsTitle') : t('apply.title')}</h1>
+          <h1>{state.status === 'ready' && ['approved', 'pending_approval'].includes(state.data.profile.status) ? t('pro.jobsTitle') : t('apply.title')}</h1>
           {state.status === 'ready' && state.data.profile.status === 'approved' && (
             <span className="online">
               <span className="lamp" aria-hidden="true" /> {t('pro.online')}
@@ -250,8 +258,28 @@ export function ProHomePage() {
       </header>
       <ResourceState state={state} reload={reload}>
         {({ profile }) =>
-          profile.status === 'approved' ? (
-            <ApprovedHome profile={profile} />
+          profile.status === 'approved' || profile.status === 'pending_approval' ? (
+            <>
+              {profile.status === 'pending_approval' && (
+                <div className="body">
+                  <div className="info amber" role="alert">
+                    <Icon name="file" />
+                    <p>
+                      <b>{t('apply.pendingApproval')}</b> {t('apply.pendingApprovalHint')}{' '}
+                      <Link to="/pro/profile">{t('apply.uploadNow')}</Link>
+                    </p>
+                  </div>
+                </div>
+              )}
+              {profile.jobsPaused && (
+                <div className="body">
+                  <p className="info amber" role="status">
+                    {t('apply.jobsPaused')}
+                  </p>
+                </div>
+              )}
+              <ApprovedHome profile={profile} />
+            </>
           ) : (
             <ApplicationStatus profile={profile} onChange={(next) => update(() => ({ profile: next }))} />
           )

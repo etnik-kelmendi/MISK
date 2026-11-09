@@ -86,7 +86,7 @@ interface ProSeed {
   key: string;
   firstName: string;
   phone: string;
-  status: 'approved' | 'submitted' | 'rejected' | 'draft';
+  status: 'approved' | 'submitted' | 'info_requested' | 'pending_approval' | 'suspended' | 'rejected' | 'draft';
   trades: string[];
   home: string;
   radius: number;
@@ -94,6 +94,9 @@ interface ProSeed {
   /** Stars this pro's customers usually give, cycled through. */
   stars: number[];
   note?: string;
+  /** How the team's checks stand, for the Providers page; by default every document is accepted. */
+  docs?: Partial<Record<'id' | 'certificate' | 'insurance' | 'background', 'pending' | 'rejected' | 'missing' | 'expiring' | 'renewal'>>;
+  watchList?: boolean;
 }
 
 const EVERY_DAY = [1, 2, 3, 4, 5, 6, 7];
@@ -101,11 +104,15 @@ const PROS: ProSeed[] = [
   { key: 'daniel', firstName: 'Daniel', phone: '+4915200000001', status: 'approved', trades: ['gardening'], home: '10115', radius: 15, days: EVERY_DAY, stars: [5, 5, 5, 4, 5] },
   { key: 'arben', firstName: 'Arben', phone: '+4915200000002', status: 'approved', trades: ['plumbing'], home: '10961', radius: 15, days: EVERY_DAY, stars: [5, 4, 5, 5] },
   { key: 'marta', firstName: 'Marta', phone: '+4915200000003', status: 'approved', trades: ['handyman', 'painting'], home: '10405', radius: 12, days: [1, 2, 3, 4, 5, 6], stars: [5, 4, 4, 5] },
-  { key: 'ina', firstName: 'Ina', phone: '+4915200000004', status: 'approved', trades: ['cleaning'], home: '10557', radius: 12, days: EVERY_DAY, stars: [5, 5, 4] },
-  { key: 'faton', firstName: 'Faton', phone: '+4915200000005', status: 'approved', trades: ['electrical', 'handyman'], home: '12043', radius: 15, days: [1, 2, 3, 4, 5], stars: [4, 5, 4, 3, 5] },
+  { key: 'ina', firstName: 'Ina', phone: '+4915200000004', status: 'approved', trades: ['cleaning'], home: '10557', radius: 12, days: EVERY_DAY, stars: [5, 5, 4], docs: { insurance: 'expiring' } },
+  { key: 'faton', firstName: 'Faton', phone: '+4915200000005', status: 'approved', trades: ['electrical', 'handyman'], home: '12043', radius: 15, days: [1, 2, 3, 4, 5], stars: [4, 5, 4, 3, 5], watchList: true },
   { key: 'jonas', firstName: 'Jonas', phone: '+4915200000006', status: 'approved', trades: ['gardening', 'cleaning'], home: '10785', radius: 10, days: [2, 4, 6, 7], stars: [4, 4, 5] },
-  { key: 'luan', firstName: 'Luan', phone: '+4915200000007', status: 'submitted', trades: ['painting'], home: '10117', radius: 12, days: [1, 2, 3, 4, 5], stars: [] },
-  { key: 'besa', firstName: 'Besa', phone: '+4915200000008', status: 'rejected', trades: ['electrical'], home: '12043', radius: 8, days: [1, 3, 5], stars: [], note: 'The trade certificate is not readable. Please upload a clearer scan.' },
+  { key: 'luan', firstName: 'Luan', phone: '+4915200000007', status: 'submitted', trades: ['painting'], home: '10117', radius: 12, days: [1, 2, 3, 4, 5], stars: [], docs: { insurance: 'pending', background: 'pending' } },
+  { key: 'erion', firstName: 'Erion', phone: '+4915200000010', status: 'submitted', trades: ['gardening'], home: '10961', radius: 12, days: [1, 2, 3, 4, 5, 6], stars: [] },
+  { key: 'kujtim', firstName: 'Kujtim', phone: '+4915200000011', status: 'info_requested', trades: ['cleaning'], home: '10557', radius: 10, days: [1, 2, 3, 4, 5], stars: [], note: 'Your ID photo is cut off. Please upload a photo of the whole card.', docs: { id: 'rejected', insurance: 'pending', background: 'pending' } },
+  { key: 'valon', firstName: 'Valon', phone: '+4915200000012', status: 'pending_approval', trades: ['plumbing'], home: '10405', radius: 12, days: [1, 2, 3, 4, 5], stars: [5, 4], docs: { insurance: 'renewal' } },
+  { key: 'gent', firstName: 'Gent', phone: '+4915200000013', status: 'suspended', trades: ['handyman'], home: '12043', radius: 10, days: [1, 2, 3, 4, 5], stars: [3, 2], note: 'Two customers reported damage to their furniture; under investigation.' },
+  { key: 'besa', firstName: 'Besa', phone: '+4915200000008', status: 'rejected', trades: ['electrical'], home: '12043', radius: 8, days: [1, 3, 5], stars: [], note: 'The trade certificate is not readable. Please upload a clearer scan.', docs: { id: 'pending', certificate: 'rejected', insurance: 'pending', background: 'missing' } },
   { key: 'dren', firstName: 'Dren', phone: '+4915200000009', status: 'draft', trades: ['handyman'], home: '10405', radius: 10, days: [6, 7], stars: [] },
 ];
 
@@ -272,25 +279,59 @@ async function fill(
     );
     const id = user.rows[0]?.id ?? '';
     proIds.set(pro.key, id);
-    const approved = pro.status === 'approved';
+    // Pros who have worked for MISK have a payout account, whatever their state now.
+    const worked = ['approved', 'pending_approval', 'suspended'].includes(pro.status);
+    const applying = pro.status === 'submitted' || pro.status === 'info_requested';
     await db.query(
       `INSERT INTO pro_profiles (user_id, status, home_postcode, radius_km, working_days, submitted_at, reviewed_at,
-         review_note, stripe_account_id, payouts_enabled)
-       VALUES ($1, $2, $3, $4, $5, CASE WHEN $2 <> 'draft' THEN now() - interval '60 days' END,
-         CASE WHEN $2 IN ('approved', 'rejected') THEN now() - interval '58 days' END, $6, $7, $8)`,
-      [id, pro.status, pro.home, pro.radius, pro.days, pro.note ?? null, approved ? `acct_seed_${pro.key}` : null, approved],
+         review_note, stripe_account_id, payouts_enabled, watch_list_at, suspended_at, suspended_reason)
+       VALUES ($1, $2, $3, $4, $5,
+         CASE WHEN $2 = 'draft' THEN NULL WHEN $9 THEN now() - make_interval(days => 1 + $10::int) ELSE now() - interval '60 days' END,
+         CASE WHEN $2 IN ('approved', 'rejected', 'pending_approval', 'suspended', 'info_requested') THEN now() - interval '58 days' END,
+         CASE WHEN $2 = 'suspended' THEN NULL ELSE $6 END, $7, $8,
+         CASE WHEN $11 THEN now() - interval '6 days' END,
+         CASE WHEN $2 = 'suspended' THEN now() - interval '5 days' END,
+         CASE WHEN $2 = 'suspended' THEN $6 END)`,
+      [id, pro.status, pro.home, pro.radius, pro.days, pro.note ?? null, worked ? `acct_seed_${pro.key}` : null, worked, applying, index % 3, pro.watchList ?? false],
     );
     for (const trade of pro.trades) {
       await db.query('INSERT INTO pro_trades (pro_id, category_id) VALUES ($1, $2)', [id, categoryIds.get(trade)]);
     }
     if (pro.status !== 'draft') {
-      for (const [kind, title] of [
-        ['id', 'Identity card'],
-        ['certificate', 'Trade certificate'],
-        ['insurance', 'Liability insurance'],
+      for (const [kind, title, file, years] of [
+        ['id', 'Identity card', 'id-card.pdf', 4],
+        ['certificate', 'Trade certificate', 'trade-certificate.pdf', null],
+        ['insurance', 'Liability insurance', 'liability-insurance-2026.pdf', 1],
+        ['background', 'Certificate of good conduct', 'certificate-of-good-conduct.pdf', null],
       ] as const) {
+        const state = pro.docs?.[kind] ?? 'accepted';
+        if (state === 'missing') {
+          continue;
+        }
         const uploadId = await upload(id, 'document', makeDocument(`${title}: ${pro.firstName} (demo)`), 'application/pdf');
-        await db.query('INSERT INTO pro_documents (pro_id, kind, upload_id) VALUES ($1, $2, $3)', [id, kind, uploadId]);
+        // Expiry: as printed on the document; cover: until when an accepted copy lets the pro work.
+        const expiresDays = state === 'expiring' ? 12 : years === null ? null : years * 365 - index * 20;
+        const coverDays = state === 'renewal' ? -2 : state === 'accepted' || state === 'expiring' ? (expiresDays ?? null) : undefined;
+        await db.query(
+          `INSERT INTO pro_documents (pro_id, kind, upload_id, file_name, uploaded_at, expires_on, review_status, review_note,
+             reviewed_at, valid_until)
+           VALUES ($1, $2, $3, $4, now() - make_interval(days => $5::int),
+             CASE WHEN $6::int IS NULL THEN NULL ELSE (now() + make_interval(days => $6::int))::date END,
+             $7, $8, CASE WHEN $7 <> 'pending' THEN now() - interval '1 day' END,
+             CASE WHEN $9::text = 'none' THEN NULL WHEN $9::text = 'infinity' THEN 'infinity'::date
+                  ELSE (now() + make_interval(days => $9::int))::date END)`,
+          [
+            id,
+            kind,
+            uploadId,
+            state === 'renewal' ? 'liability-insurance-2027.pdf' : file,
+            state === 'renewal' ? 1 : 30 + index,
+            state === 'renewal' ? 365 : expiresDays,
+            state === 'accepted' || state === 'expiring' ? 'accepted' : state === 'rejected' ? 'rejected' : 'pending',
+            state === 'rejected' ? 'Please upload a clear photo of the whole document.' : null,
+            coverDays === undefined ? 'none' : coverDays === null ? 'infinity' : String(coverDays),
+          ],
+        );
       }
     }
   }
@@ -572,6 +613,39 @@ async function fill(
     );
     await planVisits(db, row.rows[0], tz, 'planned');
   }
+
+  // Every job a pro took was offered to them first; Faton turned down several, so his acceptance is low.
+  await db.query(
+    `INSERT INTO booking_offers (booking_id, pro_id, status, offered_at, expires_at, responded_at)
+     SELECT b.id, b.pro_id, 'accepted', b.created_at, b.created_at + interval '15 minutes', b.created_at + interval '4 minutes'
+     FROM bookings b WHERE b.pro_id IS NOT NULL
+     ON CONFLICT (booking_id, pro_id) DO NOTHING`,
+  );
+  await db.query(
+    `INSERT INTO booking_offers (booking_id, pro_id, status, offered_at, expires_at, responded_at)
+     SELECT b.id, $1, 'declined', b.created_at - interval '20 minutes', b.created_at - interval '5 minutes', b.created_at - interval '15 minutes'
+     FROM bookings b
+     WHERE b.pro_id IS NOT NULL AND b.pro_id <> $1 AND b.created_at > now() - interval '30 days'
+       AND b.category_id IN (SELECT category_id FROM pro_trades WHERE pro_id = $1)
+     ORDER BY b.created_at DESC LIMIT 8
+     ON CONFLICT (booking_id, pro_id) DO NOTHING`,
+    [proIds.get('faton')],
+  );
+  await db.query(
+    `INSERT INTO pro_admin_actions (pro_id, action, details, created_at) VALUES
+       ($1, 'watch_list_on', '{}', now() - interval '6 days'),
+       ($2, 'moved_to_pending', '{"documents": ["insurance"]}', now() - interval '2 days'),
+       ($3, 'suspended', $4, now() - interval '5 days'),
+       ($5, 'info_requested', $6, now() - interval '1 day')`,
+    [
+      proIds.get('faton'),
+      proIds.get('valon'),
+      proIds.get('gent'),
+      JSON.stringify({ reason: (byKey(PROS, 'gent') as ProSeed).note }),
+      proIds.get('kujtim'),
+      JSON.stringify({ message: (byKey(PROS, 'kujtim') as ProSeed).note }),
+    ],
+  );
 
   // Booked a moment ago, card not confirmed yet.
   await addBooking({

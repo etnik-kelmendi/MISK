@@ -16,7 +16,7 @@ export interface FakeIntent {
 export function createFakeGateway(options: { instantHolds?: boolean } = {}) {
   const intents = new Map<string, FakeIntent>();
   const transfers: { id: string; accountId: string; amountCents: number; reversed: boolean }[] = [];
-  const failures = new Set<'hold' | 'capture' | 'transfer' | 'subscription'>();
+  const failures = new Set<'hold' | 'capture' | 'transfer' | 'subscription' | 'payoutDetails'>();
   const subscriptions = new Map<string, { id: string; amountCents: number; status: 'incomplete' | 'active' | 'cancelled'; cancelAtPeriodEnd: boolean; paused: boolean; metadata: Record<string, string> }>();
   let instantHolds = options.instantHolds ?? true;
 
@@ -113,6 +113,12 @@ export function createFakeGateway(options: { instantHolds?: boolean } = {}) {
     },
     onboardingLink: async ({ returnUrl }) => returnUrl,
     accountStatus: async () => ({ payoutsEnabled: true }),
+    payoutDetails: async () => {
+      if (failures.has('payoutDetails')) {
+        throw new Error('fake payout details failure');
+      }
+      return { bankLast4: '3000', nextPayout: { amountCents: 12_450, arrivesOn: new Date('2026-11-13T00:00:00Z') } };
+    },
     parseWebhook(rawBody, signature) {
       if (signature !== 'fake-signature') {
         throw new Error('bad signature');

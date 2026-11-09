@@ -30,7 +30,7 @@ export interface Slot {
  * for `pro_profiles` and the four expressions.
  */
 export function eligibleProFilter(cat: string, pc: string, s: string, e: string, tz: string): string {
-  return `p.status = 'approved' AND p.payouts_enabled
+  return `p.status = 'approved' AND p.payouts_enabled AND p.jobs_paused_at IS NULL
     AND EXISTS (SELECT 1 FROM users u WHERE u.id = p.user_id AND u.disabled_at IS NULL)
     AND EXISTS (SELECT 1 FROM pro_trades t WHERE t.pro_id = p.user_id AND t.category_id = ${cat})
     AND EXISTS (

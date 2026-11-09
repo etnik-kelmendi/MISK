@@ -1,12 +1,12 @@
-import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { useApi } from '../../api/ApiContext';
 import { useMarket } from '../../api/MarketContext';
 import type { AdminAction, AdminBooking, AdminVisit, BookingStatus } from '../../api/types';
 import { useResource } from '../../api/useResource';
+import { Drawer } from '../../components/Drawer';
 import { ErrorText } from '../../components/ErrorText';
-import { Icon } from '../../components/Icon';
 import { PhotoGrid } from '../../components/Photos';
 import { ResourceState } from '../../components/ResourceState';
 import { StatusBadge } from '../../components/StatusBadge';
@@ -59,44 +59,6 @@ function Progress({ step }: { step: number }) {
         );
       })}
     </ol>
-  );
-}
-
-/** A side panel over the list, closed with ×, Esc or a click outside. */
-function Drawer({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
-  const { t } = useTranslation();
-  const titleId = useId();
-  const closeButton = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    closeButton.current?.focus();
-    function onKey(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
-        onClose();
-      }
-    }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
-
-  return (
-    <div
-      className="drawer-backdrop"
-      role="presentation"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
-    >
-      <div className="drawer" role="dialog" aria-modal="true" aria-labelledby={titleId}>
-        <div className="row between drawer-head">
-          <h2 id={titleId}>{title}</h2>
-          <button ref={closeButton} type="button" className="icon-btn" aria-label={t('admin.booking.close')} onClick={onClose}>
-            <Icon name="x" />
-          </button>
-        </div>
-        <div className="drawer-body stack">{children}</div>
-      </div>
-    </div>
   );
 }
 
@@ -588,7 +550,7 @@ export function AdminBookingDrawer({ item, onClose, onChanged }: { item: OpenIte
   );
 
   return (
-    <Drawer title={title} onClose={onClose}>
+    <Drawer title={title} closeLabel={t('admin.booking.close')} onClose={onClose}>
       <ResourceState state={state} reload={reload}>
         {({ booking, visit }) =>
           booking ? <BookingDetails booking={booking} onChanged={changed} /> : visit ? <VisitDetails visit={visit} /> : null

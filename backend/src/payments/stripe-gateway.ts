@@ -196,6 +196,19 @@ export function createStripeGateway(config: StripeConfig): PaymentGateway {
       return { payoutsEnabled: Boolean(account.payouts_enabled) };
     },
 
+    async payoutDetails(accountId) {
+      const [account, payouts] = await Promise.all([
+        stripe.accounts.retrieve(accountId),
+        stripe.payouts.list({ limit: 1, status: 'pending' }, { stripeAccount: accountId }),
+      ]);
+      const bank = account.external_accounts?.data.find((external) => external.object === 'bank_account');
+      const next = payouts.data[0];
+      return {
+        bankLast4: bank?.last4 ?? null,
+        nextPayout: next ? { amountCents: next.amount, arrivesOn: new Date(next.arrival_date * 1000) } : null,
+      };
+    },
+
     parseWebhook(rawBody, signature) {
       const event = stripe.webhooks.constructEvent(rawBody, signature, config.webhookSecret);
       let parsed: GatewayEvent = { kind: 'ignored' };

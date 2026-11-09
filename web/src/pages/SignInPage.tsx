@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Navigate, useNavigate, useSearchParams } from 'react-router';
 import { useApi, useAppConfig } from '../api/ApiContext';
@@ -8,6 +8,7 @@ import { HOME_OF } from '../auth/RequireRole';
 import { ErrorText } from '../components/ErrorText';
 import { Icon } from '../components/Icon';
 import { useAction } from '../lib/useAction';
+import { invitedAsPro, rememberInvite } from '../lib/invite';
 
 export type Method = 'email' | 'phone';
 
@@ -228,7 +229,7 @@ function RoleStep() {
   const { t } = useTranslation();
   const api = useApi();
   const { state, setUser } = useAuth();
-  const [role, setRole] = useState<'customer' | 'pro'>('customer');
+  const [role, setRole] = useState<'customer' | 'pro'>(() => (invitedAsPro() ? 'pro' : 'customer'));
   // People who signed up with email already gave their name.
   const [firstName, setFirstName] = useState(state.status === 'signedIn' ? (state.user.firstName ?? '') : '');
   const { run, busy, error } = useAction();
@@ -296,6 +297,8 @@ export function SignInPage() {
   const { state } = useAuth();
   const [phone, setPhone] = useState<string | null>(null);
   const [params, setParams] = useSearchParams();
+  // Remembered before the sign-in steps change the address (see lib/invite).
+  useEffect(() => rememberInvite(params), [params]);
   const method: Method = params.get('method') === 'phone' ? 'phone' : 'email';
   const setMethod = (next: Method) => setParams(next === 'phone' ? { method: 'phone' } : {}, { replace: true });
 

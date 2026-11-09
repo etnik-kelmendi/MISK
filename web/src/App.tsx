@@ -13,7 +13,7 @@ import { AdminBookingsPage } from './pages/admin/AdminBookingsPage';
 import { AdminLoginPage } from './pages/admin/AdminLoginPage';
 import { AdminSignUpPage } from './pages/admin/AdminSignUpPage';
 import { ApproveRequestPage } from './pages/admin/ApproveRequestPage';
-import { AdminProPage, AdminProsPage } from './pages/admin/AdminProsPage';
+import { AdminProRedirect, AdminProsPage } from './pages/admin/AdminProsPage';
 import { AreasPage } from './pages/admin/AreasPage';
 import { CataloguePage } from './pages/admin/CataloguePage';
 import { OverviewPage } from './pages/admin/OverviewPage';
@@ -114,7 +114,7 @@ function AdminRoutes() {
         <Route path="bookings" element={<AdminBookingsPage />} />
         <Route path="bookings/:id" element={<AdminBookingRedirect />} />
         <Route path="providers" element={<AdminProsPage />} />
-        <Route path="providers/:id" element={<AdminProPage />} />
+        <Route path="providers/:id" element={<AdminProRedirect />} />
         <Route path="plans" element={<PlansPage />} />
         <Route path="plans/new" element={<PlanEditorPage />} />
         <Route path="plans/:id" element={<PlanEditorPage />} />

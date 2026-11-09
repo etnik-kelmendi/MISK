@@ -125,7 +125,7 @@ export async function adminBookingRoutes(app: FastifyInstance, ctx: AppContext) 
          JOIN users u ON u.id = p.user_id
          JOIN postcodes home ON home.code = p.home_postcode
          JOIN postcodes dest ON dest.code = b.postcode
-         WHERE b.id = $1 AND p.status = 'approved' AND p.payouts_enabled AND u.disabled_at IS NULL
+         WHERE b.id = $1 AND p.status = 'approved' AND p.payouts_enabled AND p.jobs_paused_at IS NULL AND u.disabled_at IS NULL
            AND p.user_id IS DISTINCT FROM b.pro_id
            AND NOT EXISTS (
              SELECT 1 FROM bookings busy WHERE busy.pro_id = p.user_id AND busy.id <> b.id
@@ -202,7 +202,7 @@ export async function adminBookingRoutes(app: FastifyInstance, ctx: AppContext) 
         const pro = await client.query<{ firstName: string | null }>(
           `SELECT u.first_name AS "firstName" FROM pro_profiles p JOIN users u ON u.id = p.user_id
            JOIN pro_trades t ON t.pro_id = p.user_id AND t.category_id = $2
-           WHERE p.user_id = $1 AND p.status = 'approved' AND p.payouts_enabled AND u.disabled_at IS NULL`,
+           WHERE p.user_id = $1 AND p.status = 'approved' AND p.payouts_enabled AND p.jobs_paused_at IS NULL AND u.disabled_at IS NULL`,
           [targetPro, booking.category_id],
         );
         if (!pro.rowCount) {

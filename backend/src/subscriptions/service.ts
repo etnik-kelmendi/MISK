@@ -76,7 +76,7 @@ export async function chooseRegularPro(
      JOIN users u ON u.id = p.user_id AND u.disabled_at IS NULL
      JOIN postcodes home ON home.code = p.home_postcode
      JOIN postcodes dest ON dest.code = $2
-     WHERE p.status = 'approved' AND p.payouts_enabled
+     WHERE p.status = 'approved' AND p.payouts_enabled AND p.jobs_paused_at IS NULL
        AND EXISTS (SELECT 1 FROM pro_trades t WHERE t.pro_id = p.user_id AND t.category_id = $1)
        AND distance_km(home.lat, home.lng, dest.lat, dest.lng) <= p.radius_km
        AND p.working_days @> $3::smallint[]
@@ -97,7 +97,7 @@ export async function chooseRegularPro(
   return result.rows[0]?.user_id ?? null;
 }
 
-interface SubscriptionRow {
+export interface SubscriptionRow {
   id: string;
   pro_id: string | null;
   days: number[];
@@ -112,7 +112,7 @@ interface SubscriptionRow {
   ends_at: Date | null;
 }
 
-const SUBSCRIPTION_PATTERN = `id, pro_id, days, frequency, time_window, visit_minutes, seasonal, season_from, season_to,
+export const SUBSCRIPTION_PATTERN = `id, pro_id, days, frequency, time_window, visit_minutes, seasonal, season_from, season_to,
   started_at, created_at, ends_at`;
 
 export const patternOf = (row: SubscriptionRow): VisitPattern => ({

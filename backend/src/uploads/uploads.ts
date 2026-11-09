@@ -13,6 +13,18 @@ export interface StoredUpload {
 
 /** Reads the one file in a multipart request. Oversized files are refused by the multipart limits. */
 export async function readSingleFile(request: FastifyRequest): Promise<Buffer> {
+  return (await readNamedFile(request)).content;
+}
+
+/** Keeps a file name safe to show: no folders, no control characters, at most 120 characters. */
+export function cleanFileName(name: string | undefined): string {
+  const base = (name ?? '').split(/[\\/]/).pop() ?? '';
+  // eslint-disable-next-line no-control-regex
+  return base.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(-120);
+}
+
+/** The one file in a multipart request, with the name it had on the sender's device. */
+export async function readNamedFile(request: FastifyRequest): Promise<{ content: Buffer; fileName: string }> {
   const file = await request.file();
   if (!file) {
     throw badRequest('file_missing');
@@ -21,7 +33,7 @@ export async function readSingleFile(request: FastifyRequest): Promise<Buffer> {
   if (content.length === 0) {
     throw badRequest('file_missing');
   }
-  return content;
+  return { content, fileName: cleanFileName(file.filename) };
 }
 
 export async function storeUpload(

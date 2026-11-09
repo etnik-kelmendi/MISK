@@ -134,6 +134,12 @@ stateDiagram-v2
   trades and their plan visits, and tick off the tasks on each visit.
 - **Cancelling** is free until a pro is assigned and then until 24 hours before; after that only admins
   can cancel. Admins can also refund a finished job, which takes the pro's payout back.
+- **Providers** (admin) shows active pros, who is online, average acceptance and expiring documents,
+  with tabs for Applications, Active, Pending approval and Suspended. Each pro passes four checks (ID,
+  trade certificate, liability insurance, certificate of good conduct). Pros whose document runs out move
+  to Pending approval by themselves until a new copy is accepted. The team can approve, ask for more
+  information, reject, pause jobs, put on a watch list, book a coaching call, suspend (their jobs go to
+  other pros) and reinstate; every action is logged.
 - **Admin Bookings** lists one-off bookings and plan visits with tabs (All, Needs action, Live now,
   Upcoming, Done), search (booking number, customer, address, pro), trade and type filters, CSV export of
   the rows shown, and a side panel to assign a pro, move the time, cancel, refund or charge. Every action

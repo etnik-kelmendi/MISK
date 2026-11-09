@@ -224,8 +224,23 @@ export interface JobListItem {
   earningsCents: number;
 }
 
-export type DocumentKind = 'id' | 'certificate' | 'insurance';
-export type ProStatus = 'draft' | 'submitted' | 'approved' | 'rejected' | 'suspended';
+export type DocumentKind = 'id' | 'certificate' | 'insurance' | 'background';
+export const DOCUMENT_KINDS: DocumentKind[] = ['id', 'certificate', 'insurance', 'background'];
+/** Documents that run out, so the pro gives their expiry date. */
+export const EXPIRING_KINDS: DocumentKind[] = ['id', 'insurance'];
+
+export type ProStatus = 'draft' | 'submitted' | 'info_requested' | 'approved' | 'pending_approval' | 'rejected' | 'suspended';
+export type CheckState = 'missing' | 'waiting_review' | 'rejected' | 'expired' | 'expiring' | 'valid';
+
+export interface ProDocument {
+  uploadId: string;
+  fileName: string;
+  uploadedAt: string;
+  /** "YYYY-MM-DD" */
+  expiresOn: string | null;
+  reviewStatus: 'pending' | 'accepted' | 'rejected';
+  reviewNote: string | null;
+}
 
 export interface ProProfile {
   status: ProStatus;
@@ -235,26 +250,126 @@ export interface ProProfile {
   reviewNote: string | null;
   payoutsEnabled: boolean;
   hasPayoutAccount: boolean;
+  jobsPaused: boolean;
+  suspendedReason: string | null;
   ratingAverage: number | null;
   ratingCount: number;
   trades: string[];
-  documents: Record<DocumentKind, { uploadId: string; uploadedAt: string } | null>;
+  documents: Record<DocumentKind, (ProDocument & { state: CheckState }) | null>;
 }
 
-export interface AdminProListItem {
-  id: string;
-  firstName: string | null;
-  phone: string | null;
-  status: ProStatus;
-  homePostcode: string | null;
-  radiusKm: number;
-  workingDays: number[];
-  submittedAt: string | null;
-  payoutsEnabled: boolean;
+export const PRO_TABS = ['applications', 'active', 'pending_approval', 'suspended'] as const;
+export type ProTab = (typeof PRO_TABS)[number];
+export type QualityReason = 'low_acceptance' | 'late' | 'low_rating';
+
+export interface ProNumbers {
+  jobs30: number;
+  acceptancePct: number | null;
+  onTimePct: number | null;
+  regularCustomers: number;
   ratingAverage: number | null;
   ratingCount: number;
+  qualityReasons: QualityReason[];
+}
+
+export interface AdminProListItem extends ProNumbers {
+  id: string;
+  firstName: string | null;
+  lastName: string | null;
+  status: ProStatus;
   trades: string[];
-  documentCount: number;
+  submittedAt: string | null;
+  suspendedAt: string | null;
+  suspendedReason: string | null;
+  reviewNote: string | null;
+  jobsPaused: boolean;
+  watchList: boolean;
+  checksDone: number;
+  checksTotal: number;
+  ready: boolean;
+  expiringDocument: boolean;
+  expiredDocument: boolean;
+  waitingDocuments: number;
+}
+
+export interface AdminProSummary {
+  kpis: { activePros: number; onlineNow: number; avgAcceptancePct: number | null; documentsExpiring: number };
+  counts: Record<ProTab, number>;
+  inviteUrl: string;
+}
+
+export interface ProCheck {
+  kind: DocumentKind;
+  ok: boolean;
+  state: CheckState;
+  document: (ProDocument & { reviewedAt: string | null; validUntil: string | null }) | null;
+}
+
+export type ProActionKind =
+  | 'approved'
+  | 'info_requested'
+  | 'rejected'
+  | 'document_accepted'
+  | 'document_rejected'
+  | 'reminder_sent'
+  | 'watch_list_on'
+  | 'watch_list_off'
+  | 'coaching_booked'
+  | 'jobs_paused'
+  | 'jobs_resumed'
+  | 'suspended'
+  | 'reinstated'
+  | 'moved_to_pending'
+  | 'back_to_active';
+
+export interface ProActionEntry {
+  id: string;
+  action: ProActionKind;
+  details: {
+    document?: DocumentKind;
+    documents?: DocumentKind[];
+    note?: string;
+    message?: string;
+    reason?: string;
+    at?: string;
+    to?: string;
+    bookings?: number;
+    plans?: number;
+    plansWithoutPro?: number;
+  };
+  createdAt: string;
+  adminName: string | null;
+}
+
+export interface AdminProDetail extends ProNumbers {
+  id: string;
+  firstName: string | null;
+  lastName: string | null;
+  phone: string | null;
+  email: string | null;
+  status: ProStatus;
+  homePostcode: string | null;
+  postcodeName: string | null;
+  radiusKm: number;
+  workingDays: number[];
+  trades: string[];
+  submittedAt: string | null;
+  reviewNote: string | null;
+  suspendedAt: string | null;
+  suspendedReason: string | null;
+  jobsPausedAt: string | null;
+  watchListAt: string | null;
+  coachingCallAt: string | null;
+  payoutsEnabled: boolean;
+  hasPayoutAccount: boolean;
+  earnedThisMonthCents: number;
+  checks: ProCheck[];
+  allChecksOk: boolean;
+  regulars: { id: string; firstName: string | null; planName: string; since: string | null }[];
+  reviews: { stars: number; tags: string[]; createdAt: string; customerName: string | null; service: string }[];
+  payouts: { amountCents: number; status: string; createdAt: string; source: 'job' | 'plan' }[];
+  bank: { bankLast4: string | null; nextPayout: { amountCents: number; arrivesOn: string } | null } | null;
+  actions: ProActionEntry[];
 }
 
 export interface Overview {

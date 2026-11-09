@@ -26,7 +26,7 @@ async function phoneCookie(phone: string) {
 
 describe('demo data', () => {
   it('fills every part of the marketplace', async () => {
-    expect(summary).toMatchObject({ postcodes: 8, categories: 6, services: 18, plans: 4, pros: 9, customers: 9 });
+    expect(summary).toMatchObject({ postcodes: 8, categories: 6, services: 18, plans: 4, pros: 13, customers: 9 });
     expect(summary.bookings).toBeGreaterThan(60);
     expect(summary.ratings).toBeGreaterThan(40);
     const statuses = await t.pool.query<{ status: string }>('SELECT DISTINCT status FROM bookings ORDER BY status');
@@ -41,7 +41,15 @@ describe('demo data', () => {
       'working',
     ]);
     const proStates = await t.pool.query<{ status: string }>('SELECT DISTINCT status FROM pro_profiles ORDER BY status');
-    expect(proStates.rows.map((r) => r.status)).toEqual(['approved', 'draft', 'rejected', 'submitted']);
+    expect(proStates.rows.map((r) => r.status)).toEqual([
+      'approved',
+      'draft',
+      'info_requested',
+      'pending_approval',
+      'rejected',
+      'submitted',
+      'suspended',
+    ]);
   });
 
   it('gives the admin overview real numbers and things needing attention', async () => {
@@ -50,7 +58,7 @@ describe('demo data', () => {
     expect(overview.kpis.grossCents).toBeGreaterThan(overview.kpis.payoutCents);
     expect(overview.kpis.ratingAverage).toBeGreaterThan(4);
     expect(overview.weekly.filter((w: { bookings: number }) => w.bookings > 0).length).toBeGreaterThan(4);
-    expect(overview.attention).toMatchObject({ pendingApplications: 1, unassigned: 1 });
+    expect(overview.attention).toMatchObject({ pendingApplications: 2, unassigned: 1 });
   });
 
   it('signs in the demo customers by email and by phone, with their bookings', async () => {
@@ -84,6 +92,22 @@ describe('demo data', () => {
     await settleTick(t.deps);
     const paid = await t.pool.query('SELECT payment_status FROM bookings WHERE id = $1', [id]);
     expect(paid.rows[0].payment_status).toBe('captured');
+  });
+
+  it('fills every Providers tab, with a ready application, an expiring document and a quality warning', async () => {
+    const admin = await adminCookie();
+    const summary = (await call(t, 'GET', '/admin/pros/summary', { cookie: admin })).json();
+    expect(summary.counts).toEqual({ applications: 3, active: 6, pending_approval: 1, suspended: 1 });
+    expect(summary.kpis.documentsExpiring).toBeGreaterThan(0);
+    const applications = (await call(t, 'GET', '/admin/pros?tab=applications', { cookie: admin })).json().pros;
+    expect(applications.filter((p: { ready: boolean }) => p.ready).map((p: { firstName: string }) => p.firstName)).toEqual(['Erion']);
+    const active = (await call(t, 'GET', '/admin/pros?tab=active', { cookie: admin })).json().pros;
+    const faton = active.find((p: { firstName: string }) => p.firstName === 'Faton');
+    expect(faton.qualityReasons).toContain('low_acceptance');
+    expect(active.find((p: { firstName: string }) => p.firstName === 'Ina').expiringDocument).toBe(true);
+    const valon = (await call(t, 'GET', '/admin/pros?tab=pending_approval', { cookie: admin })).json().pros[0];
+    const detail = (await call(t, 'GET', `/admin/pros/${valon.id}`, { cookie: admin })).json().pro;
+    expect(detail.checks.find((c: { kind: string }) => c.kind === 'insurance')).toMatchObject({ state: 'waiting_review' });
   });
 
   it('lists plan visits next to one-off bookings for admins, with their details', async () => {

@@ -40,5 +40,24 @@ export const messages = {
     `MISK: we have not found a pro for your ${service} on ${when} yet. Our team is on it and will contact you.`,
   applicationApproved: () => 'MISK: you are approved! Set up payouts in the app to start getting jobs.',
   applicationRejected: () => 'MISK: we could not approve your application yet. See the app for what to change.',
-  accountSuspended: () => 'MISK: your pro account is paused. Please contact the MISK team.',
+  accountSuspended: () => 'MISK: your pro account is suspended, so you get no new jobs. Please contact the MISK team.',
+  accountReinstated: () => 'MISK: your pro account is active again. New jobs will reach you as before.',
+  reinstatedNeedsDocuments: () =>
+    'MISK: your pro account is no longer suspended. A document ran out meanwhile: upload the new one in the app to get jobs again.',
+  infoRequested: (message: string) => `MISK: we need more for your application: ${message} Please update it in the app.`,
+  documentRejected: (document: string, note: string) => `MISK: please upload a new copy of your ${document}. ${note}`,
+  documentReminder: (document: string) => `MISK: please upload your ${document} in the app, so you keep getting jobs.`,
+  documentExpiringReminder: (document: string, date: string) =>
+    `MISK: your ${document} runs out on ${date}. Please upload the new one in the app before then.`,
+  documentsExpired: (documents: string) =>
+    `MISK: your ${documents} ran out, so you get no new jobs for now. Upload the new one in the app and we check it quickly.`,
+  backToActive: () => 'MISK: your documents are checked. You get new jobs again.',
+  jobsPaused: () => 'MISK: the team has paused new jobs for you for now. Your booked jobs stay. We will contact you.',
+  jobsResumed: () => 'MISK: new jobs are switched on again for you.',
+  coachingCall: (when: string) => `MISK: we booked a short call with you on ${when} to help with your jobs. We will phone you then.`,
+  proReplaced: (service: string, when: string) =>
+    `MISK: your pro can no longer do your ${service} on ${when}. We are finding you another pro now.`,
+  planProReplaced: (plan: string, proName: string) => `MISK: ${proName} is your new regular pro for ${plan}.`,
+  planProMissing: (plan: string) => `MISK: your regular pro for ${plan} has changed. We are finding a new one and will contact you.`,
+  newRegularCustomer: (plan: string) => `MISK: you are the new regular pro for a ${plan} customer. See My week.`,
 };

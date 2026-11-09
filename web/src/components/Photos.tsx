@@ -36,8 +36,11 @@ export function FileButton({
   disabled,
   className = 'mini-btn',
   icon = 'upload',
+  target,
 }: {
   label: string;
+  /** What the file is for, read out after the label, e.g. "Upload" + "Liability insurance". */
+  target?: string;
   accept: string;
   onFile: (file: File) => Promise<void>;
   disabled?: boolean;
@@ -75,6 +78,7 @@ export function FileButton({
       <input id={id} type="file" accept={accept} className="visually-hidden" onChange={onChange} disabled={disabled || busy} />
       <label htmlFor={id} className={`${className} ${disabled || busy ? 'disabled' : ''}`}>
         <Icon name={icon} /> {busy ? t('common.uploading') : label}
+        {target && <span className="visually-hidden"> {target}</span>}
       </label>
       {tooBig && (
         <span className="error-text" role="alert">

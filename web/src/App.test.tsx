@@ -383,11 +383,62 @@ describe('pro app', () => {
     reviewNote: null,
     payoutsEnabled: false,
     hasPayoutAccount: false,
+    jobsPaused: false,
+    suspendedReason: null,
     ratingAverage: null,
     ratingCount: 0,
     trades: [],
-    documents: { id: null, certificate: null, insurance: null },
+    documents: { id: null, certificate: null, insurance: null, background: null },
   };
+
+  it('asks for four documents, with the expiry date of the ID and insurance', async () => {
+    const api = fakeApi(users.pro);
+    api.on('GET /pro/profile', { body: { profile: draft } });
+    api.on('GET /postcodes', { body: { postcodes: [] } });
+    const uploaded = {
+      ...draft,
+      documents: {
+        ...draft.documents,
+        insurance: {
+          uploadId: 'f1',
+          fileName: 'policy.pdf',
+          uploadedAt: '2026-11-09T09:00:00.000Z',
+          expiresOn: '2027-06-30',
+          reviewStatus: 'pending' as const,
+          reviewNote: null,
+          state: 'waiting_review' as const,
+        },
+      },
+    };
+    let uploadUrl = '';
+    api.on('POST /pro/documents/insurance', ({ url }) => {
+      uploadUrl = url.search;
+      return { status: 201, body: { profile: uploaded } };
+    });
+    renderAt('/pro');
+    expect(await screen.findByText('Documents (0/4)')).toBeInTheDocument();
+    expect(screen.getByLabelText('Upload Certificate of good conduct')).toBeEnabled();
+    const insurance = screen.getByLabelText('Upload Liability insurance');
+    expect(insurance).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('Valid until', { selector: '#expiry-insurance' }), { target: { value: '2027-06-30' } });
+    expect(insurance).toBeEnabled();
+    await user().upload(insurance, new File(['%PDF'], 'policy.pdf', { type: 'application/pdf' }));
+    expect(await screen.findByText('policy.pdf')).toBeInTheDocument();
+    expect(screen.getByText('Uploaded 9 Nov 2026. The MISK team checks it soon.')).toBeInTheDocument();
+    expect(uploadUrl).toBe('?expiresOn=2027-06-30');
+  });
+
+  it('shows what the team asked for and lets the pro send the application again', async () => {
+    const api = fakeApi(users.pro);
+    const asked = { ...draft, status: 'info_requested' as const, reviewNote: 'Please send the back of your ID card.' };
+    api.on('GET /pro/profile', { body: { profile: asked } });
+    api.on('GET /postcodes', { body: { postcodes: [] } });
+    api.on('POST /pro/submit', { body: { profile: { ...asked, status: 'submitted', reviewNote: null } } });
+    renderAt('/pro');
+    expect(await screen.findByText('Please send the back of your ID card.')).toBeInTheDocument();
+    await user().click(screen.getByRole('button', { name: 'Send application again' }));
+    expect(await screen.findByText('Under review')).toBeInTheDocument();
+  });
 
   it('shows a new pro the application and saves trades straight away', async () => {
     const api = fakeApi(users.pro);
@@ -1038,33 +1089,5 @@ describe('admin', () => {
     await user().click(submit);
     expect(await screen.findByRole('status')).toHaveTextContent('Password changed for elion.');
     expect(api.bodies['POST /admin/team/u-elion/password']).toEqual({ password: 'a brand new long password' });
-  });
-
-  it('approves a pro application', async () => {
-    const api = fakeApi(users.admin);
-    const pro = {
-      id: 'u-pro',
-      firstName: 'Daniel',
-      phone: '+4915100000002',
-      status: 'submitted',
-      homePostcode: '10115',
-      radiusKm: 12,
-      workingDays: [1, 2],
-      reviewNote: null,
-      payoutsEnabled: false,
-      hasPayoutAccount: false,
-      ratingAverage: null,
-      ratingCount: 0,
-      trades: ['cat-garden'],
-      documents: { id: { uploadId: 'f1', uploadedAt: '' }, certificate: { uploadId: 'f2', uploadedAt: '' }, insurance: null },
-    };
-    api.on('GET /admin/pros/u-pro', { body: { pro } });
-    api.on('POST /admin/pros/u-pro/review', { body: { pro: { ...pro, status: 'approved' } } });
-    renderAt('/admin/providers/u-pro');
-    expect(await screen.findByText('Missing')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Ask for changes' })).toBeDisabled();
-    await user().click(screen.getByRole('button', { name: 'Approve' }));
-    expect(await screen.findByRole('button', { name: 'Pause account' })).toBeInTheDocument();
-    expect(api.bodies['POST /admin/pros/u-pro/review']).toEqual({ decision: 'approve' });
   });
 });
