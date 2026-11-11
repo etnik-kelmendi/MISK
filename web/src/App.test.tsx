@@ -754,11 +754,29 @@ describe('admin navigation', () => {
     api.on('GET /admin/overview', {
       body: {
         days: 7,
-        kpis: { bookings: 0, completed: 0, grossCents: 0, payoutCents: 0, miskShareCents: 0, ratingAverage: null, ratingCount: 0 },
+        city: 'Berlin',
+        timezone: 'Europe/Berlin',
+        kpis: {
+          bookings: 0,
+          previousBookings: 0,
+          bookingsChangePct: null,
+          completed: 0,
+          activeSubscriptions: 0,
+          newSubscriptions: 0,
+          grossCents: 0,
+          previousGrossCents: 0,
+          grossChangePct: null,
+          payoutCents: 0,
+          miskShareCents: 0,
+          ratingAverage: null,
+          ratingCount: 0,
+          onTimePct: null,
+        },
         weekly: [],
         attention: { pendingApplications: 0, unassigned: 0, unreleasedHolds: 0, failedPayouts: 0 },
       },
     });
+    api.on('GET /admin/overview/live', { body: { bookings: [], applications: { waiting: 0, pros: [] } } });
     api.on('GET /admin/bookings', { body: { bookings: [], counts: { all: 0, needs_action: 0, live: 0, upcoming: 0, done: 0 }, truncated: false } });
     api.on('GET /admin/pros', { body: { pros: [] } });
     api.on('GET /admin/plans', { body: { plans: [] } });

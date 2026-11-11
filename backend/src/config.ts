@@ -22,6 +22,8 @@ export interface Config {
   logLevel: string;
   /** IANA time zone of the city MISK serves. Slots and working days are counted in it. */
   timezone: string;
+  /** Name of the city MISK serves, shown on the control panel's overview. */
+  city: string;
   uploadDir: string;
   /** SMS sending; null until all three Twilio settings are given. Required in production. */
   twilio: TwilioConfig | null;
@@ -62,6 +64,15 @@ function parseOrigin(value: string, name = 'WEB_ORIGIN'): string {
     throw new Error(`${name} must be an exact http or https origin with no path`);
   }
   return value;
+}
+
+/** MARKET_CITY, or the city in the time zone's name ("Europe/Berlin" → "Berlin"). */
+export function parseCity(value: string | undefined, timezone: string): string {
+  const city = value?.trim() || (timezone.split('/').pop() ?? '').replaceAll('_', ' ');
+  if (!city || city.length > 60) {
+    throw new Error('MARKET_CITY must be the name of the city MISK serves, at most 60 characters');
+  }
+  return city;
 }
 
 function parseTimezone(value: string): string {
@@ -176,6 +187,7 @@ export function loadConfig(env: RawEnv): Config {
     secureCookies: production,
     logLevel: env.LOG_LEVEL ?? 'info',
     timezone: parseTimezone(required(env, 'MARKET_TIMEZONE')),
+    city: parseCity(env.MARKET_CITY, required(env, 'MARKET_TIMEZONE')),
     uploadDir: resolve(env.UPLOAD_DIR?.trim() || '.uploads'),
     twilio,
     stripe: parseStripe(env, production),

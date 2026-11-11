@@ -27,6 +27,13 @@ describe('loadConfig', () => {
     expect(() => loadConfig({ ...base, MARKET_TIMEZONE: undefined })).toThrow('MARKET_TIMEZONE is required');
   });
 
+  it('names the city from MARKET_CITY or the time zone', () => {
+    expect(loadConfig(base).city).toBe('Berlin');
+    expect(loadConfig({ ...base, MARKET_TIMEZONE: 'America/Los_Angeles' }).city).toBe('Los Angeles');
+    expect(loadConfig({ ...base, MARKET_CITY: '  Potsdam ' }).city).toBe('Potsdam');
+    expect(() => loadConfig({ ...base, MARKET_CITY: 'x'.repeat(61) })).toThrow('MARKET_CITY');
+  });
+
   it('refuses a malformed origin, port or time zone', () => {
     expect(() => loadConfig({ ...base, WEB_ORIGIN: 'http://localhost:5173/app' })).toThrow('exact http or https origin');
     expect(() => loadConfig({ ...base, PORT: '70000' })).toThrow('PORT must be a port number');

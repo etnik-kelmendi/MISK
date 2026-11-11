@@ -51,64 +51,6 @@ export async function adminBookingRoutes(app: FastifyInstance, ctx: AppContext) 
     return booking;
   }
 
-  app.get<{ Querystring: { days?: '1' | '7' | '30' } }>(
-    '/admin/overview',
-    {
-      preHandler: guards.admin,
-      schema: {
-        querystring: {
-          type: 'object',
-          additionalProperties: false,
-          properties: { days: { type: 'string', enum: ['1', '7', '30'] } },
-        },
-      },
-    },
-    async (request) => {
-      const days = Number(request.query.days ?? 7);
-      const [kpis, weekly, attention] = await Promise.all([
-        pool.query(
-          `WITH period AS (SELECT now() - make_interval(days => $1) AS since)
-           SELECT
-             (SELECT count(*)::int FROM bookings, period WHERE created_at >= since
-                AND status <> 'awaiting_payment' AND cancelled_by IS DISTINCT FROM 'system') AS bookings,
-             (SELECT count(*)::int FROM bookings, period WHERE completed_at >= since) AS completed,
-             (SELECT COALESCE(sum(price_cents + fee_cents), 0)::int FROM bookings, period
-                WHERE completed_at >= since AND payment_status = 'captured')
-             + (SELECT COALESCE(sum(e.price_cents), 0)::int FROM extra_requests e JOIN bookings b ON b.id = e.booking_id, period
-                WHERE b.completed_at >= since AND e.payment_status = 'captured') AS "grossCents",
-             (SELECT COALESCE(sum(p.amount_cents), 0)::int FROM payouts p JOIN bookings b ON b.id = p.booking_id, period
-                WHERE b.completed_at >= since) AS "payoutCents",
-             (SELECT round(avg(stars)::numeric, 2)::float FROM ratings, period WHERE created_at >= since) AS "ratingAverage",
-             (SELECT count(*)::int FROM ratings, period WHERE created_at >= since) AS "ratingCount",
-             (SELECT count(*)::int FROM subscriptions WHERE status = 'active') AS "activeSubscriptions",
-             (SELECT count(*)::int FROM subscriptions, period WHERE started_at >= since) AS "newSubscriptions"`,
-          [days],
-        ),
-        pool.query(
-          `SELECT to_char(w, 'YYYY-MM-DD') AS week,
-             (SELECT count(*)::int FROM bookings b WHERE b.created_at >= w AND b.created_at < w + interval '7 days'
-                AND b.status <> 'awaiting_payment' AND b.cancelled_by IS DISTINCT FROM 'system') AS bookings
-           FROM generate_series(date_trunc('week', now()) - interval '7 weeks', date_trunc('week', now()), interval '1 week') AS w
-           ORDER BY w`,
-        ),
-        pool.query(
-          `SELECT
-             (SELECT count(*)::int FROM pro_profiles WHERE status = 'submitted') AS "pendingApplications",
-             (SELECT count(*)::int FROM bookings WHERE status = 'unassigned') AS unassigned,
-             (SELECT count(*)::int FROM bookings WHERE status = 'cancelled' AND payment_status = 'held') AS "unreleasedHolds",
-             (SELECT count(*)::int FROM payouts WHERE status = 'failed') AS "failedPayouts"`,
-        ),
-      ]);
-      const k = kpis.rows[0];
-      return {
-        days,
-        kpis: { ...k, miskShareCents: k.grossCents - k.payoutCents },
-        weekly: weekly.rows,
-        attention: attention.rows[0],
-      };
-    },
-  );
-
   app.get<{ Params: { id: string } }>(
     '/admin/bookings/:id',
     { preHandler: guards.admin, schema: { params: uuidParams } },

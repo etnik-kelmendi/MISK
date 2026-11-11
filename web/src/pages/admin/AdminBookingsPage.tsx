@@ -40,7 +40,7 @@ export function parseOpen(value: string | null): OpenItem | null {
   return { kind: match[1] === 'b' ? 'booking' : 'visit', id: match[2] };
 }
 
-function ItemStatus({ item }: { item: AdminBookingListItem }) {
+export function ItemStatus({ item }: { item: Pick<AdminBookingListItem, 'kind' | 'status'> }) {
   const { t } = useTranslation();
   if (item.kind === 'visit') {
     const status = item.status as VisitStatus;

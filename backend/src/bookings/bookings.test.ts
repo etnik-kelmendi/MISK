@@ -162,7 +162,7 @@ describe('booking and dispatch', () => {
     const offer = await pendingOffer(best.cookie);
     expect(offer).toMatchObject({ bookingId: created.id, earningsCents: Math.floor(4550 * 0.82) });
     expect(await pendingOffer(good.cookie)).toBeUndefined();
-    const texts = await t.pool.query("SELECT kind FROM notifications ORDER BY created_at");
+    const texts = await t.pool.query('SELECT kind FROM notifications ORDER BY created_at');
     expect(texts.rows.map((r) => r.kind)).toEqual(['booking_confirmed', 'job_offer']);
   });
 
@@ -450,7 +450,9 @@ describe('cancelling', () => {
     expect(cancelled.json().booking).toMatchObject({ status: 'cancelled', paymentStatus: 'captured', lateCancel: true });
     // The pro gets 82% of the job price; MISK keeps the rest and the service fee.
     expect(t.fake.transfers).toEqual([expect.objectContaining({ amountCents: 3731 })]);
-    const texts = await t.pool.query<{ body: string }>("SELECT body FROM notifications WHERE kind = 'booking_cancelled' ORDER BY created_at");
+    const texts = await t.pool.query<{ body: string }>(
+      "SELECT body FROM notifications WHERE kind = 'booking_cancelled' ORDER BY created_at",
+    );
     expect(texts.rows.map((r) => r.body).join(' ')).toContain('€48.40 was charged');
     expect(texts.rows.map((r) => r.body).join(' ')).toContain('You still earn €37.31');
   });
@@ -459,7 +461,9 @@ describe('cancelling', () => {
     const pro = await approvedPro(t, '+4915100000101', { trades: [market.gardening] });
     await bookFirst();
     const bookingId = await acceptFirstOffer(pro.cookie);
-    expect(errorOf(await call(t, 'POST', `/bookings/${bookingId}/tip`, { cookie: customer, body: { amountCents: 500 } }))).toBe('not_tippable');
+    expect(errorOf(await call(t, 'POST', `/bookings/${bookingId}/tip`, { cookie: customer, body: { amountCents: 500 } }))).toBe(
+      'not_tippable',
+    );
     await walkToWorking(pro.cookie, bookingId);
     await upload(t, `/pro/jobs/${bookingId}/photos`, pro.cookie, FILES.png);
     await call(t, 'POST', `/pro/jobs/${bookingId}/complete`, { cookie: pro.cookie });
@@ -469,7 +473,9 @@ describe('cancelling', () => {
     const tipped = await call(t, 'POST', `/bookings/${bookingId}/tip`, { cookie: customer, body: { amountCents: 500 } });
     expect(tipped.statusCode).toBe(201);
     expect(tipped.json().booking).toMatchObject({ tip: { amountCents: 500, proCents: 400, status: 'captured' }, canTip: false });
-    expect(errorOf(await call(t, 'POST', `/bookings/${bookingId}/tip`, { cookie: customer, body: { amountCents: 500 } }))).toBe('already_tipped');
+    expect(errorOf(await call(t, 'POST', `/bookings/${bookingId}/tip`, { cookie: customer, body: { amountCents: 500 } }))).toBe(
+      'already_tipped',
+    );
     expect((await call(t, 'POST', `/bookings/${bookingId}/tip`, { cookie: customer, body: { amountCents: 50 } })).statusCode).toBe(400);
 
     // Paid with the job, a day later; a refund of the job leaves the tip with the pro.
@@ -580,12 +586,60 @@ describe('admin booking actions', () => {
       miskShareCents: 1109,
       ratingAverage: 4,
     });
+    expect(overview).toMatchObject({ days: 7, city: 'Berlin' });
+    expect(overview.kpis).toMatchObject({ previousBookings: 0, bookingsChangePct: null, onTimePct: expect.any(Number) });
     expect(overview.weekly).toHaveLength(8);
+    expect(overview.weekly.at(-1)).toMatchObject({ oneOff: 1, visits: 0, bookings: 1 });
     const detail = (await call(t, 'GET', `/admin/bookings/${bookingId}`, { cookie: admin })).json().booking;
     expect(detail.customer.phone).toBe('+4915100000001');
     expect(detail.payouts).toEqual([expect.objectContaining({ amountCents: 3731, status: 'sent' })]);
     expect(detail.split).toEqual({ proCents: 3731, miskCents: 4840 - 3731 });
     expect(detail.number).toMatch(/^B-\d+$/);
+  });
+
+  it('compares each period with the one before it and shows more weeks for longer periods', async () => {
+    const { bookingId } = await chargedJob();
+    const admin = await signInAdmin(t);
+    const overview = async (days: string) => (await call(t, 'GET', `/admin/overview?days=${days}`, { cookie: admin })).json();
+    expect((await overview('1')).weekly).toHaveLength(4);
+    expect((await overview('30')).weekly).toHaveLength(13);
+    expect((await call(t, 'GET', '/admin/overview?days=14', { cookie: admin })).statusCode).toBe(400);
+
+    // Booked and finished ten days ago: outside the last 7 days, inside the 7 days before them.
+    await t.pool.query(
+      `UPDATE bookings SET created_at = now() - interval '10 days', completed_at = now() - interval '10 days' WHERE id = $1`,
+      [bookingId],
+    );
+    const week = (await overview('7')).kpis;
+    expect(week).toMatchObject({ bookings: 0, previousBookings: 1, bookingsChangePct: -100, grossCents: 0, previousGrossCents: 4840 });
+    expect(week.grossChangePct).toBe(-100);
+    expect((await overview('30')).kpis).toMatchObject({ bookings: 1, previousBookings: 0, grossCents: 4840, miskShareCents: 1109 });
+  });
+
+  it('counts a job as on time when work started within the grace minutes', async () => {
+    const { bookingId } = await chargedJob();
+    const admin = await signInAdmin(t);
+    const onTime = async () => (await call(t, 'GET', '/admin/overview?days=7', { cookie: admin })).json().kpis.onTimePct;
+    await t.pool.query(
+      "UPDATE booking_events SET created_at = (SELECT starts_at FROM bookings WHERE id = $1) + interval '9 minutes' WHERE booking_id = $1 AND status = 'working'",
+      [bookingId],
+    );
+    expect(await onTime()).toBe(100);
+    await t.pool.query(
+      "UPDATE booking_events SET created_at = (SELECT starts_at FROM bookings WHERE id = $1) + interval '25 minutes' WHERE booking_id = $1 AND status = 'working'",
+      [bookingId],
+    );
+    expect(await onTime()).toBe(0);
+  });
+
+  it('lists the bookings around now with their status for the live table', async () => {
+    const { bookingId } = await chargedJob();
+    const admin = await signInAdmin(t);
+    const live = (await call(t, 'GET', '/admin/overview/live', { cookie: admin })).json();
+    expect(live.bookings).toEqual([
+      expect.objectContaining({ kind: 'booking', id: bookingId, status: 'completed', valueCents: 4840, customer: expect.any(String) }),
+    ]);
+    expect(live.applications).toEqual({ waiting: 0, pros: [] });
   });
 
   it('refunds a finished job and takes the payout back', async () => {

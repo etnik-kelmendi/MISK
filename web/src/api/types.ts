@@ -71,14 +71,7 @@ export interface Slot {
 }
 
 export type BookingStatus =
-  | 'awaiting_payment'
-  | 'searching'
-  | 'unassigned'
-  | 'accepted'
-  | 'on_the_way'
-  | 'working'
-  | 'completed'
-  | 'cancelled';
+  'awaiting_payment' | 'searching' | 'unassigned' | 'accepted' | 'on_the_way' | 'working' | 'completed' | 'cancelled';
 
 export type ExtraStatus = 'pending' | 'awaiting_payment' | 'approved' | 'declined' | 'cancelled';
 
@@ -391,19 +384,70 @@ export interface AdminProDetail extends ProNumbers {
   actions: ProActionEntry[];
 }
 
+export const OVERVIEW_PERIODS = ['1', '7', '30'] as const;
+export type OverviewPeriod = (typeof OVERVIEW_PERIODS)[number];
+
 export interface Overview {
   days: number;
+  /** The city MISK serves, and its time zone. */
+  city: string;
+  timezone: string;
   kpis: {
     bookings: number;
+    previousBookings: number;
+    /** Change against the previous period in percent; null when that period had none. */
+    bookingsChangePct: number | null;
     completed: number;
+    activeSubscriptions: number;
+    newSubscriptions: number;
     grossCents: number;
+    previousGrossCents: number;
+    grossChangePct: number | null;
     payoutCents: number;
     miskShareCents: number;
     ratingAverage: number | null;
     ratingCount: number;
+    /** Share of jobs finished in the period whose work started on time; null without finished jobs. */
+    onTimePct: number | null;
   };
-  weekly: { week: string; bookings: number }[];
+  /** Monday of each week, oldest first; the last one is the current week. */
+  weekly: { week: string; oneOff: number; visits: number; bookings: number }[];
   attention: { pendingApplications: number; unassigned: number; unreleasedHolds: number; failedPayouts: number };
+}
+
+/** A booking or plan visit in the overview's live table. */
+export interface LiveBooking {
+  kind: 'booking' | 'visit';
+  id: string;
+  number: string;
+  startsAt: string;
+  endsAt: string;
+  service: string;
+  customer: string | null;
+  address: string;
+  postcode: string;
+  pro: string | null;
+  status: BookingStatus | VisitStatus;
+  valueCents: number;
+  problem: boolean;
+  tab: 'needs_action' | 'live' | 'upcoming' | 'done';
+}
+
+export interface OverviewApplication {
+  id: string;
+  firstName: string | null;
+  lastName: string | null;
+  trades: string[];
+  documentsUploaded: number;
+  documentsTotal: number;
+  /** All four checks are OK, so the pro can be approved from the overview. */
+  ready: boolean;
+}
+
+export interface OverviewLive {
+  bookings: LiveBooking[];
+  /** Null for team members who may not open Providers. */
+  applications: { waiting: number; pros: OverviewApplication[] } | null;
 }
 
 export const ADMIN_TABS = ['all', 'needs_action', 'live', 'upcoming', 'done'] as const;

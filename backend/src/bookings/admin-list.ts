@@ -20,7 +20,7 @@ const PER_MONTH_CASES = Object.entries(VISITS_PER_MONTH)
   .map(([frequency, visits]) => `WHEN '${frequency}' THEN ${visits}`)
   .join(' ');
 
-const ITEMS = `
+export const ITEMS = `
   WITH items AS (
     SELECT 'booking' AS kind, b.id, 'B-' || b.number AS number, b.starts_at, b.ends_at, b.service_name AS service,
       b.category_id, cat.name AS trade, cu.first_name AS customer, b.address, b.postcode, pu.first_name AS pro,

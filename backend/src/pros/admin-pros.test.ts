@@ -6,12 +6,14 @@ import {
   giveRating,
   resetDatabase,
   seedMarket,
+  sessionCookie,
   signIn,
   signInAdmin,
   upload,
   type Market,
   type TestContext,
 } from '../../test/helpers.js';
+import { hashPassword } from '../auth/passwords.js';
 import { addDays, marketToday, proNumbers } from './checks.js';
 import { documentExpiryTick } from './management.js';
 
@@ -61,6 +63,51 @@ async function acceptAll(id: string) {
     expect((await post(`/admin/pros/${id}/documents/${kind}/accept`, {})).statusCode).toBe(200);
   }
 }
+
+describe('applications on the overview', () => {
+  const live = async (cookie = admin) => (await call(t, 'GET', '/admin/overview/live', { cookie })).json();
+
+  it('counts waiting applications and lists documents uploaded and who can be approved straight away', async () => {
+    const ready = await applicant(PRO_PHONE, 'Daniel');
+    await acceptAll(ready.id);
+    const open = await applicant('+4915111111112', 'Erion');
+    await t.pool.query("DELETE FROM pro_documents WHERE pro_id = $1 AND kind = 'background'", [open.id]);
+
+    const before = (await live()).applications;
+    expect(before.waiting).toBe(2);
+    expect(before.pros).toEqual([
+      expect.objectContaining({
+        id: ready.id,
+        firstName: 'Daniel',
+        trades: ['Gardening'],
+        documentsUploaded: 4,
+        documentsTotal: 4,
+        ready: true,
+      }),
+      expect.objectContaining({ id: open.id, firstName: 'Erion', documentsUploaded: 3, documentsTotal: 4, ready: false }),
+    ]);
+
+    expect((await post(`/admin/pros/${ready.id}/approve`)).statusCode).toBe(200);
+    expect((await texts(ready.id)).at(-1)).toContain('you are approved');
+    const after = (await live()).applications;
+    expect(after.waiting).toBe(1);
+    expect(after.pros.map((p: { id: string }) => p.id)).toEqual([open.id]);
+  });
+
+  it('leaves applications out for team members who may not open Providers', async () => {
+    await applicant();
+    await t.pool.query(`INSERT INTO users (username, password_hash, role, admin_role) VALUES ('fiona', $1, 'admin', 'finance')`, [
+      await hashPassword('a long teammate password'),
+    ]);
+    const finance = sessionCookie(
+      await call(t, 'POST', '/auth/admin/login', { body: { username: 'fiona', password: 'a long teammate password' } }),
+    );
+    const seen = await live(finance);
+    expect(seen.applications).toBeNull();
+    expect(seen.bookings).toEqual([]);
+    expect((await call(t, 'GET', '/admin/pros?tab=applications', { cookie: finance })).statusCode).toBe(403);
+  });
+});
 
 describe('applications', () => {
   it('lists name, trade, when they applied and checks done, and marks complete ones Ready', async () => {
@@ -332,10 +379,7 @@ describe('documents that run out', () => {
     const { id, cookie } = await applicant();
     await acceptAll(id);
     await post(`/admin/pros/${id}/approve`);
-    await t.pool.query(
-      "UPDATE pro_profiles SET payouts_enabled = true, stripe_account_id = 'acct_test' WHERE user_id = $1",
-      [id],
-    );
+    await t.pool.query("UPDATE pro_profiles SET payouts_enabled = true, stripe_account_id = 'acct_test' WHERE user_id = $1", [id]);
     await t.pool.query("UPDATE pro_documents SET expires_on = $2, valid_until = $2 WHERE pro_id = $1 AND kind = 'insurance'", [
       id,
       validUntil,
