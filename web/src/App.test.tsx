@@ -1145,7 +1145,7 @@ describe('admin', () => {
     await user().click(forgot);
     expect(forgot).toHaveAttribute('aria-expanded', 'true');
     const panel = screen.getByRole('region', { name: 'Reset your password' });
-    expect(panel).toHaveTextContent('npm run user:reset-password');
+    expect(panel).not.toHaveTextContent('No email on your account');
     await user().type(within(panel).getByLabelText('Username or email'), 'elion.thaqi@canera.ch');
     await user().click(within(panel).getByRole('button', { name: 'Email me a reset link' }));
     expect(await within(panel).findByRole('status')).toHaveTextContent('a link is on its way');

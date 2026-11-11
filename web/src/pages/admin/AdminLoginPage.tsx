@@ -9,9 +9,6 @@ import { ErrorText } from '../../components/ErrorText';
 import { Icon } from '../../components/Icon';
 import { useAction } from '../../lib/useAction';
 
-/** Server command for when no admin can sign in; a command, so never translated. */
-const RESET_COMMAND = 'npm run user:reset-password';
-
 /** Emails a reset link to the admin's address. The answer never says whether the account exists. */
 function ForgotPassword({ initial }: { initial: string }) {
   const { t } = useTranslation();
@@ -54,9 +51,6 @@ function ForgotPassword({ initial }: { initial: string }) {
           </button>
         </form>
       )}
-      <p className="small muted">
-        {t('admin.login.forgotNoEmail')} <code>{RESET_COMMAND}</code>
-      </p>
     </section>
   );
 }

@@ -140,7 +140,7 @@
     "tagline": "Trusted help for your home and garden",
     "phone": "Mobile number",
     "phonePlaceholder": "+49 151 1234 5678",
-    "phoneHint": "We text you a code. A new number gets a new account.",
+    "phoneHint": "This is a development environment. Sign-in codes cannot be sent by text message yet, until further notice.",
     "agree": "By continuing you agree to the",
     "terms": "Terms",
     "privacy": "Privacy Policy",
@@ -540,7 +540,6 @@
       "forgotIdentifier": "Username or email",
       "forgotSend": "Email me a reset link",
       "forgotSent": "If an admin account matches and has an email address, a link is on its way. It works once, for 30 minutes. Check your spam folder too.",
-      "forgotNoEmail": "No email on your account? Ask another admin to set a new password under Team, or whoever runs the server can use",
       "identifier": "Username or email",
       "newToTeam": "New to the MISK team?",
       "requestAccount": "Request an account"
