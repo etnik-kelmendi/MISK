@@ -193,9 +193,17 @@ export async function overviewRoutes(app: FastifyInstance, ctx: AppContext) {
     let applicationList = null;
     if (applications) {
       const pros = await Promise.all(
-        applications.rows.map(async ({ waiting: _waiting, ...row }) => {
+        applications.rows.map(async (row) => {
           const checks = await loadChecks(pool, row.id, timezone);
-          return { ...row, documentsTotal: DOCUMENT_KINDS.length, ready: checks.every((c) => c.ok) };
+          return {
+            id: row.id,
+            firstName: row.firstName,
+            lastName: row.lastName,
+            trades: row.trades,
+            documentsUploaded: row.documentsUploaded,
+            documentsTotal: DOCUMENT_KINDS.length,
+            ready: checks.every((c) => c.ok),
+          };
         }),
       );
       applicationList = { waiting: applications.rows[0]?.waiting ?? 0, pros };

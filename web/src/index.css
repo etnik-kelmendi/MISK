@@ -145,7 +145,11 @@ code { font-family: ui-monospace, Consolas, monospace; font-size: 0.92em; backgr
 .rules li { display: flex; align-items: center; gap: 6px; }
 .rules li.ok { color: var(--brand); }
 .rules li.bad { color: var(--danger); }
-.terms { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; }
+.terms { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: flex-start; font-size: 14px; }
+.terms > .link { flex-basis: 100%; text-align: left; padding-left: 30px; }
+.terms-text h2, .terms-text h3 { font-size: 15px; margin-bottom: 4px; }
+.terms-text p { line-height: 1.55; }
+.terms-back { display: inline-flex; align-items: center; gap: 4px; justify-self: start; }
 .terms input { width: 20px; height: 20px; margin-top: 1px; accent-color: var(--brand); flex: none; }
 .switch-account { display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; padding-top: 6px; border-top: 1px solid var(--line); }
 

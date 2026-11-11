@@ -62,7 +62,9 @@ export function PlansPage() {
                       <td>{plan.priceCents === null ? '–' : t('admin.plans.perMonth', { price: euro(plan.priceCents) })}</td>
                       <td>{t(`admin.plans.frequency.${plan.frequency}`)}</td>
                       <td>
-                        <span className={`badge ${plan.status === 'published' ? 'g' : 'grey'}`}>{t(`admin.plans.state.${plan.status}`)}</span>
+                        <span className={`badge ${plan.status === 'published' ? 'g' : 'grey'}`}>
+                          {t(`admin.plans.state.${plan.status}`)}
+                        </span>
                       </td>
                     </tr>
                   ))}
@@ -76,19 +78,39 @@ export function PlansPage() {
   );
 }
 
+type NumberField = 'visitMinutes' | 'skipsPerMonth' | 'minTermMonths';
+
+/** The limits the API accepts for each number, so the editor can explain them before saving. */
+export const NUMBER_LIMITS: Record<NumberField, { min: number; max: number; step: number }> = {
+  visitMinutes: { min: 15, max: 600, step: 15 },
+  skipsPerMonth: { min: 0, max: 8, step: 1 },
+  minTermMonths: { min: 0, max: 12, step: 1 },
+};
+
+/** A whole number within the field's limits, or null while the field is empty or out of range. */
+export function parseNumberField(key: NumberField, value: string): number | null {
+  const text = value.trim();
+  if (!/^\d+$/.test(text)) {
+    return null;
+  }
+  const number = Number(text);
+  const { min, max, step } = NUMBER_LIMITS[key];
+  return number >= min && number <= max && number % step === 0 ? number : null;
+}
+
 interface Draft {
   name: string;
   categoryId: string;
   price: string;
   frequency: Frequency;
-  visitMinutes: number;
+  visitMinutes: string;
   tasks: string[];
   newTask: string;
   addonName: string;
   addonPrice: string;
   seasonal: boolean;
-  skipsPerMonth: number;
-  minTermMonths: number;
+  skipsPerMonth: string;
+  minTermMonths: string;
   proSharePct: number;
 }
 
@@ -99,14 +121,14 @@ function toDraft(plan: Plan | null): Draft {
       categoryId: '',
       price: '',
       frequency: 'weekly',
-      visitMinutes: 60,
+      visitMinutes: '60',
       tasks: [],
       newTask: '',
       addonName: '',
       addonPrice: '',
       seasonal: false,
-      skipsPerMonth: 2,
-      minTermMonths: 3,
+      skipsPerMonth: '2',
+      minTermMonths: '3',
       proSharePct: 70,
     };
   }
@@ -115,14 +137,14 @@ function toDraft(plan: Plan | null): Draft {
     categoryId: plan.categoryId ?? '',
     price: plan.priceCents === null ? '' : (plan.priceCents / 100).toFixed(2),
     frequency: plan.frequency,
-    visitMinutes: plan.visitMinutes,
+    visitMinutes: String(plan.visitMinutes),
     tasks: plan.tasks,
     newTask: '',
     addonName: plan.addonName ?? '',
     addonPrice: plan.addonPriceCents === null ? '' : (plan.addonPriceCents / 100).toFixed(2),
     seasonal: plan.seasonal,
-    skipsPerMonth: plan.skipsPerMonth,
-    minTermMonths: plan.minTermMonths,
+    skipsPerMonth: String(plan.skipsPerMonth),
+    minTermMonths: String(plan.minTermMonths),
     proSharePct: plan.proSharePct,
   };
 }
@@ -134,13 +156,13 @@ function inputOf(draft: Draft): PlanInput {
     categoryId: draft.categoryId || null,
     priceCents: parseEuroToCents(draft.price),
     frequency: draft.frequency,
-    visitMinutes: draft.visitMinutes,
+    visitMinutes: parseNumberField('visitMinutes', draft.visitMinutes) ?? Number.NaN,
     tasks: draft.tasks,
     addonName,
     addonPriceCents: addonName ? parseEuroToCents(draft.addonPrice) : null,
     seasonal: draft.seasonal,
-    skipsPerMonth: draft.skipsPerMonth,
-    minTermMonths: draft.minTermMonths,
+    skipsPerMonth: parseNumberField('skipsPerMonth', draft.skipsPerMonth) ?? Number.NaN,
+    minTermMonths: parseNumberField('minTermMonths', draft.minTermMonths) ?? Number.NaN,
     proSharePct: draft.proSharePct,
   };
 }
@@ -178,7 +200,9 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
     draft.tasks.length === 0 && t('admin.plans.missing.tasks'),
     addonInvalid && t('admin.plans.missing.addonPrice'),
   ].filter((item): item is string => Boolean(item));
-  const valid = missing.length === 0;
+  // Numbers the API would refuse: shown at the field, and nothing is saved until they are fixed.
+  const badNumbers = (Object.keys(NUMBER_LIMITS) as NumberField[]).filter((key) => parseNumberField(key, draft[key]) === null);
+  const valid = missing.length === 0 && badNumbers.length === 0;
 
   function addTask() {
     const task = draft.newTask.trim();
@@ -218,6 +242,10 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
 
   async function saveDraft(event?: FormEvent): Promise<Plan | null> {
     event?.preventDefault();
+    if (badNumbers.length > 0) {
+      document.getElementById(`plan-${badNumbers[0]}`)?.focus();
+      return null;
+    }
     const sent = body;
     const result = await save.run(() =>
       current ? api.put<{ plan: Plan }>(`/admin/plans/${current.id}`, sent) : api.post<{ plan: Plan }>('/admin/plans', sent),
@@ -250,22 +278,35 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
   }
 
   const live = current?.status === 'published';
-  const number = (key: 'visitMinutes' | 'skipsPerMonth' | 'minTermMonths', min: number, max: number, step = 1) => (
-    <div className="af">
-      <label htmlFor={`plan-${key}`}>{t(`admin.plans.fields.${key}`)}</label>
-      <input
-        id={`plan-${key}`}
-        type="number"
-        min={min}
-        max={max}
-        step={step}
-        required
-        value={draft[key]}
-        onChange={(e) => set(key, Number(e.target.value))}
-      />
-      {key === 'visitMinutes' && <span className="hint">{t('admin.plans.visitHint')}</span>}
-    </div>
-  );
+  const number = (key: NumberField) => {
+    const { min, max, step } = NUMBER_LIMITS[key];
+    const invalid = badNumbers.includes(key);
+    return (
+      <div className="af">
+        <label htmlFor={`plan-${key}`}>{t(`admin.plans.fields.${key}`)}</label>
+        <input
+          id={`plan-${key}`}
+          type="number"
+          inputMode="numeric"
+          min={min}
+          max={max}
+          step={step}
+          required
+          value={draft[key]}
+          aria-invalid={invalid || undefined}
+          aria-describedby={invalid ? `plan-${key}-error` : undefined}
+          onChange={(e) => set(key, e.target.value)}
+        />
+        {invalid ? (
+          <span id={`plan-${key}-error`} className="error-text">
+            {t(`admin.plans.numberError.${key}`, { min, max, step })}
+          </span>
+        ) : (
+          key === 'visitMinutes' && <span className="hint">{t('admin.plans.visitHint')}</span>
+        )}
+      </div>
+    );
+  };
 
   return (
     // Drafts may be incomplete, so the browser's own required-field check must not block saving.
@@ -286,7 +327,12 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
               {t('admin.plans.unpublish')}
             </button>
           ) : (
-            <button type="button" className="abtn big" disabled={!valid || publish.busy || save.busy} onClick={() => void setPublished(true)}>
+            <button
+              type="button"
+              className="abtn big"
+              disabled={!valid || publish.busy || save.busy}
+              onClick={() => void setPublished(true)}
+            >
               {t('admin.plans.publish')}
             </button>
           )}
@@ -343,7 +389,9 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
             <label htmlFor="plan-price">{t('admin.plans.fields.price')}</label>
             <input id="plan-price" inputMode="decimal" required value={draft.price} onChange={(e) => set('price', e.target.value)} />
             <span className="hint">{t('admin.plans.priceHint')}</span>
-            {draft.price && (priceCents === null || priceCents < 500) && <span className="error-text">{t('admin.plans.priceInvalid')}</span>}
+            {draft.price && (priceCents === null || priceCents < 500) && (
+              <span className="error-text">{t('admin.plans.priceInvalid')}</span>
+            )}
           </div>
           <div className="af">
             <label htmlFor="plan-frequency">{t('admin.plans.fields.frequency')}</label>
@@ -356,8 +404,8 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
             </select>
             <span className="hint">{t('admin.plans.visitsHint', { visits })}</span>
           </div>
-          {number('visitMinutes', 15, 600, 15)}
-          {number('minTermMonths', 0, 12)}
+          {number('visitMinutes')}
+          {number('minTermMonths')}
 
           <fieldset className="af full">
             <legend>{t('admin.plans.fields.tasks')}</legend>
@@ -368,7 +416,12 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
                   <button
                     type="button"
                     aria-label={t('admin.plans.removeTask', { task })}
-                    onClick={() => set('tasks', draft.tasks.filter((_, i) => i !== index))}
+                    onClick={() =>
+                      set(
+                        'tasks',
+                        draft.tasks.filter((_, i) => i !== index),
+                      )
+                    }
                   >
                     <Icon name="x" />
                   </button>
@@ -447,11 +500,18 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
             />
             <span className="hint">{draft.seasonal ? t('admin.plans.seasonOn') : t('admin.plans.seasonOff')}</span>
           </div>
-          {number('skipsPerMonth', 0, 8)}
+          {number('skipsPerMonth')}
 
           <div className="af full">
             <label htmlFor="plan-share">{t('admin.plans.fields.proSharePct', { pct: draft.proSharePct })}</label>
-            <input id="plan-share" type="range" min={50} max={90} value={draft.proSharePct} onChange={(e) => set('proSharePct', Number(e.target.value))} />
+            <input
+              id="plan-share"
+              type="range"
+              min={50}
+              max={90}
+              value={draft.proSharePct}
+              onChange={(e) => set('proSharePct', Number(e.target.value))}
+            />
             <div className="split" aria-hidden="true">
               <div style={{ width: `${draft.proSharePct}%` }} />
               <div style={{ width: `${100 - draft.proSharePct}%` }} />
@@ -477,7 +537,8 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
               <div>
                 <p className="b">{draft.name.trim() || t('admin.plans.untitled')}</p>
                 <p className="small muted">
-                  {t(`admin.plans.frequency.${draft.frequency}`)} · {t('admin.plans.minutes', { minutes: draft.visitMinutes })}
+                  {t(`admin.plans.frequency.${draft.frequency}`)} ·{' '}
+                  {t('admin.plans.minutes', { minutes: draft.visitMinutes.trim() || '–' })}
                 </p>
               </div>
             </div>
@@ -505,7 +566,7 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
             </span>
             <p className="tiny muted">
               {draft.seasonal && `${t('admin.plans.seasonShort')} · `}
-              {t('admin.plans.rulesShort', { skips: draft.skipsPerMonth, months: draft.minTermMonths })}
+              {t('admin.plans.rulesShort', { skips: draft.skipsPerMonth.trim() || '–', months: draft.minTermMonths.trim() || '–' })}
             </p>
           </div>
           <p className="small muted">

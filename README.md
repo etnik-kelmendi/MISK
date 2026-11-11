@@ -209,7 +209,8 @@ in production; sign-in is impossible without it.
 
 These are open owner decisions; see `QUESTIONS.md`.
 
-- [ ] Terms of service and privacy policy published, and `VITE_TERMS_URL` / `VITE_PRIVACY_URL` set (Q7).
+- [ ] The in-app terms (`/terms`) reviewed by a lawyer with the legal entity name, the privacy policy written, and `VITE_TERMS_URL` / `VITE_PRIVACY_URL` set (Q7).
+- [ ] SMTP configured: email sign-up sends a confirmation link and cannot complete without it (D39).
 - [ ] Pilot city, its time zone and served postcodes (Q2).
 - [ ] Pros' share and service fee confirmed (Q4, Q5); cancellation policy within 24 hours (Q3).
 - [ ] VAT treatment and invoices checked with an accountant (Q8).

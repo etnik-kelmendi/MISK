@@ -65,6 +65,20 @@ describe('log in', () => {
     expect(api.bodies['POST /auth/login']).toEqual({ email: 'sara@example.com', password: 'garden42' });
   });
 
+  it('asks to confirm the email first and can send the link again', async () => {
+    const api = fakeApi(null);
+    api.on('POST /auth/login', { status: 403, body: { error: 'email_not_verified' } });
+    api.on('POST /auth/verify-email/resend', { status: 202, body: {} });
+    renderAt('/signin');
+    await user().type(await screen.findByLabelText('Email address'), 'sara@example.com');
+    await user().type(screen.getByLabelText('Password'), 'garden42');
+    await user().click(screen.getByRole('button', { name: 'Log in' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Please confirm your email first.');
+    await user().click(screen.getByRole('button', { name: 'Send the link again' }));
+    expect(await screen.findByText(/A new link is on its way/)).toBeInTheDocument();
+    expect(api.bodies['POST /auth/verify-email/resend']).toEqual({ email: 'sara@example.com' });
+  });
+
   it('explains a wrong email or password', async () => {
     const api = fakeApi(null);
     api.on('POST /auth/login', { status: 401, body: { error: 'invalid_login' } });
@@ -137,18 +151,18 @@ describe('sign up', () => {
     'Confirm password': 'garden42',
   };
 
-  it('creates the account and asks how the person will use MISK', async () => {
+  it('creates the account and asks the person to confirm their email before signing in', async () => {
     const api = fakeApi(null);
-    const created = { ...users.new, phone: null, email: 'sara@example.com', firstName: 'Sara', lastName: 'Meier' };
-    api.on('POST /auth/register', { status: 201, body: { user: created } });
+    api.on('POST /auth/register', { status: 201, body: { status: 'verification_sent', email: 'sara@example.com' } });
+    api.on('POST /auth/verify-email/resend', { status: 202, body: {} });
     renderAt('/signup');
     await screen.findByRole('heading', { name: 'Create your account' });
     await fill(complete);
     await user().click(screen.getByRole('checkbox', { name: /I accept the terms and conditions/ }));
     await user().click(screen.getByRole('button', { name: 'Sign up' }));
 
-    expect(await screen.findByRole('heading', { name: 'Welcome!' })).toBeInTheDocument();
-    expect(screen.getByLabelText('Your first name')).toHaveValue('Sara');
+    expect(await screen.findByRole('heading', { name: 'Check your email' })).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('We sent a link to sara@example.com.');
     expect(api.bodies['POST /auth/register']).toEqual({
       firstName: 'Sara',
       lastName: 'Meier',
@@ -156,6 +170,41 @@ describe('sign up', () => {
       password: 'garden42',
       acceptTerms: true,
     });
+
+    await user().click(screen.getByRole('button', { name: 'Send the link again' }));
+    expect(await screen.findByText(/A new link is on its way/)).toBeInTheDocument();
+    expect(api.bodies['POST /auth/verify-email/resend']).toEqual({ email: 'sara@example.com' });
+
+    await user().click(screen.getByRole('button', { name: 'Use another email' }));
+    expect(field('Email address')).toHaveValue('');
+    expect(field('First name')).toHaveValue('Sara');
+  });
+
+  it('shows the terms and conditions without leaving the form, and can accept them from there', async () => {
+    fakeApi(null);
+    renderAt('/signup');
+    await screen.findByRole('heading', { name: 'Create your account' });
+    await fill({ 'First name': 'Sara' });
+    await user().click(screen.getByRole('button', { name: 'Read the terms and conditions' }));
+    const terms = screen.getByRole('dialog', { name: 'Terms and conditions' });
+    expect(within(terms).getByRole('heading', { name: '4. Cancelling' })).toBeInTheDocument();
+    expect(within(terms).getByText(/cancel for free until 24 hours before the start/)).toBeInTheDocument();
+    await user().click(within(terms).getByRole('button', { name: 'I have read and accept the terms' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: /I accept the terms and conditions/ })).toBeChecked();
+    expect(field('First name')).toHaveValue('Sara');
+
+    await user().click(screen.getByRole('button', { name: 'Read the terms and conditions' }));
+    await user().keyboard('{Escape}');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('has the terms on their own page, linked from log-in', async () => {
+    fakeApi(null);
+    renderAt('/signin');
+    await user().click(await screen.findByRole('link', { name: 'Terms' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Terms and conditions' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: '1. What MISK is' })).toBeInTheDocument();
   });
 
   it('marks required fields and keeps Sign up disabled until all are filled and the terms accepted', async () => {
@@ -254,6 +303,45 @@ describe('sign up', () => {
     renderAt('/signup');
     await user().click(await screen.findByRole('button', { name: 'Log in' }));
     expect(await screen.findByRole('heading', { name: 'Log in to MISK' })).toBeInTheDocument();
+  });
+});
+
+describe('confirming an email', () => {
+  const TOKEN = 'abcdefghijklmnopqrstuvwxyz123456';
+
+  it('confirms the email from the link once, signs the person in and asks how they will use MISK', async () => {
+    const api = fakeApi(null);
+    const created = { ...users.new, phone: null, email: 'sara@example.com', firstName: 'Sara', lastName: 'Meier' };
+    api.on('POST /auth/verify-email', { body: { user: created } });
+    window.history.replaceState(null, '', `/verify-email#token=${TOKEN}`);
+    renderAt('/verify-email');
+    expect(await screen.findByRole('heading', { name: 'Welcome!' })).toBeInTheDocument();
+    expect(api.bodies['POST /auth/verify-email']).toEqual({ token: TOKEN });
+    expect(api.calls.filter((c) => c === 'POST /auth/verify-email')).toHaveLength(1);
+    expect(window.location.hash).toBe('');
+  });
+
+  it('offers a new link when the link expired or was used', async () => {
+    const api = fakeApi(null);
+    api.on('POST /auth/verify-email', { status: 400, body: { error: 'invalid_verification_link' } });
+    api.on('POST /auth/verify-email/resend', { status: 202, body: {} });
+    window.history.replaceState(null, '', `/verify-email#token=${TOKEN}`);
+    renderAt('/verify-email');
+    expect(await screen.findByRole('alert')).toHaveTextContent('This link has expired or was already used.');
+    const send = screen.getByRole('button', { name: 'Send the link again' });
+    expect(send).toBeDisabled();
+    await user().type(screen.getByLabelText('Email address'), 'sara@example.com');
+    await user().click(send);
+    expect(await screen.findByText(/A new link is on its way/)).toBeInTheDocument();
+    expect(api.bodies['POST /auth/verify-email/resend']).toEqual({ email: 'sara@example.com' });
+  });
+
+  it('says a link without a token cannot be used', async () => {
+    const api = fakeApi(null);
+    window.history.replaceState(null, '', '/verify-email');
+    renderAt('/verify-email');
+    expect(await screen.findByRole('alert')).toHaveTextContent('This link has expired or was already used.');
+    expect(api.calls).not.toContain('POST /auth/verify-email');
   });
 });
 
@@ -914,6 +1002,29 @@ describe('plan page', () => {
         tasks: ['Mow'],
       }),
     );
+  });
+
+  it('leaves an emptied number field empty and explains the limits before saving', async () => {
+    const api = openNewPlan();
+    await fillComplete();
+    const length = screen.getByLabelText('Visit length (minutes)');
+    await user().clear(length);
+    expect(length).toHaveValue(null);
+    expect(length).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByText('Enter a visit length from 15 to 600 minutes, in steps of 15.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Publish plan' })).toBeDisabled();
+    await user().click(screen.getByRole('button', { name: 'Save draft' }));
+    expect(api.calls).not.toContain('POST /admin/plans');
+    expect(length).toHaveFocus();
+
+    await user().type(length, '50');
+    expect(screen.getByText('Enter a visit length from 15 to 600 minutes, in steps of 15.')).toBeInTheDocument();
+    await user().clear(length);
+    await user().type(length, '45');
+    expect(length).toHaveValue(45);
+    expect(length).not.toHaveAttribute('aria-invalid');
+    await user().click(screen.getByRole('button', { name: 'Save draft' }));
+    await waitFor(() => expect(api.bodies['POST /admin/plans']).toMatchObject({ visitMinutes: 45 }));
   });
 
   it('adds tasks with Enter or the plus button, as removable tags, without empty or duplicate ones', async () => {

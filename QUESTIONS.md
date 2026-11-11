@@ -11,7 +11,7 @@ Each question records the default that is built until the owner answers. Answere
 | Q4 | Pros' share of the job price. The demo shows 82%. | 82% of the job price and of approved extra work; the service fee goes to MISK. Admins can change it. |
 | Q5 | Service fee per booking. The demo shows €2.90. | €2.90, editable by admins. |
 | Q6 | Tips (shown in the demo's review screen). | Answered by the Settings story: tips are taken after the job and split by the commission (D34). |
-| Q7 | Terms of service and privacy policy text, and the legal entity name. | Not written by the developer. The sign-in screen links to `TERMS_URL` and `PRIVACY_URL` from the web configuration, and the README's launch checklist lists both as blockers. |
+| Q7 | Terms of service and privacy policy text, and the legal entity name. | The app has plain-language terms describing how MISK works (D39), without a legal entity name; they need a legal review before launch. The privacy policy is still missing; `VITE_TERMS_URL` and `VITE_PRIVACY_URL` link to published versions once they exist. |
 | Q8 | VAT treatment of prices and invoices to customers. | Prices are shown as final consumer prices including VAT; Stripe receipts are emailed only if the customer gives an email. Invoices are not generated. |
 | Q9 | Should pros set different hours per day? The demo says "you can change hours per day later". | Slots start 08:00–18:00 every two hours on the chosen working days, and a job must end by 20:00. |
 | Q10 | The demo says "you can add the other role later". Can one phone number be both a customer and a pro? | No: the role chosen at first sign-in is final. A pro who also wants to book uses a second number. |

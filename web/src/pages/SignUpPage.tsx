@@ -1,14 +1,16 @@
 import { useId, useState, type FormEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Navigate, useNavigate } from 'react-router';
-import { useApi, useAppConfig } from '../api/ApiContext';
+import { useApi } from '../api/ApiContext';
 import { ApiError } from '../api/client';
-import type { User } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import { HOME_OF } from '../auth/RequireRole';
+import { Drawer } from '../components/Drawer';
 import { ErrorText } from '../components/ErrorText';
 import { Icon } from '../components/Icon';
+import { ResendVerification } from '../components/ResendVerification';
 import { useAction } from '../lib/useAction';
+import { TermsContent } from './TermsPage';
 
 export const MIN_PASSWORD_LENGTH = 8;
 const EMAIL_FORMAT = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
@@ -106,9 +108,8 @@ export function PasswordInput({
 export function SignUpPage() {
   const { t } = useTranslation();
   const api = useApi();
-  const config = useAppConfig();
   const navigate = useNavigate();
-  const { state, setUser } = useAuth();
+  const { state } = useAuth();
   const ids = { first: useId(), last: useId(), email: useId(), password: useId(), confirm: useId(), terms: useId(), rules: useId() };
   const [form, setForm] = useState({ firstName: '', lastName: '', email: '', password: '', confirm: '', acceptTerms: false });
   const [emailTouched, setEmailTouched] = useState(false);
@@ -117,6 +118,9 @@ export function SignUpPage() {
   // The email the API said is already registered; the message goes away once the email changes.
   const [takenEmail, setTakenEmail] = useState<string | null>(null);
   const { run, busy, error } = useAction();
+  const [termsOpen, setTermsOpen] = useState(false);
+  // The address the confirmation link went to; the account signs in once it is confirmed.
+  const [sentTo, setSentTo] = useState<string | null>(null);
 
   if (state.status === 'signedIn') {
     return <Navigate to={state.user.role ? HOME_OF[state.user.role] : '/signin'} replace />;
@@ -142,7 +146,7 @@ export function SignUpPage() {
     }
     const result = await run(async () => {
       try {
-        return await api.post<{ user: User }>('/auth/register', {
+        return await api.post<{ status: 'verification_sent'; email: string }>('/auth/register', {
           firstName: form.firstName.trim(),
           lastName: form.lastName.trim(),
           email: form.email.trim(),
@@ -158,10 +162,44 @@ export function SignUpPage() {
       }
     });
     if (result) {
-      setUser(result.user);
-      // A new account chooses next whether it needs help or offers it.
-      navigate('/signin', { replace: true });
+      setSentTo(result.email);
     }
+  }
+
+  if (sentTo) {
+    return (
+      <div className="app-frame signin-frame">
+        <main className="app-body">
+          <div className="signin stack">
+            <div className="signin-hero small-hero">
+              <span className="logo-mark big">
+                <Icon name="leaf" />
+              </span>
+              <h1>{t('verifyEmail.checkTitle')}</h1>
+            </div>
+            <p className="info" role="status">
+              <Icon name="check" /> {t('verifyEmail.checkText', { email: sentTo })}
+            </p>
+            <p className="small muted">{t('verifyEmail.checkSpam')}</p>
+            <ResendVerification email={sentTo} />
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => {
+                setSentTo(null);
+                setForm((current) => ({ ...current, email: '' }));
+                setEmailTouched(false);
+              }}
+            >
+              {t('verifyEmail.otherEmail')}
+            </button>
+            <button type="button" className="link small center" onClick={() => navigate('/signin')}>
+              {t('verifyEmail.toLogin')}
+            </button>
+          </div>
+        </main>
+      </div>
+    );
   }
 
   return (
@@ -182,10 +220,24 @@ export function SignUpPage() {
 
           <div className="two-col">
             <Field id={ids.first} label={t('signUp.firstName')}>
-              <input id={ids.first} autoComplete="given-name" required maxLength={60} value={form.firstName} onChange={(e) => set('firstName', e.target.value)} />
+              <input
+                id={ids.first}
+                autoComplete="given-name"
+                required
+                maxLength={60}
+                value={form.firstName}
+                onChange={(e) => set('firstName', e.target.value)}
+              />
             </Field>
             <Field id={ids.last} label={t('signUp.lastName')}>
-              <input id={ids.last} autoComplete="family-name" required maxLength={60} value={form.lastName} onChange={(e) => set('lastName', e.target.value)} />
+              <input
+                id={ids.last}
+                autoComplete="family-name"
+                required
+                maxLength={60}
+                value={form.lastName}
+                onChange={(e) => set('lastName', e.target.value)}
+              />
             </Field>
           </div>
 
@@ -252,17 +304,30 @@ export function SignUpPage() {
             />
             <label htmlFor={ids.terms}>
               {t('signUp.terms')}{' '}
-              {config.termsUrl && (
-                <a href={config.termsUrl} target="_blank" rel="noreferrer">
-                  {t('signUp.readTerms')}
-                </a>
-              )}{' '}
               <span className="required" aria-hidden="true">
                 *
               </span>
               <span className="visually-hidden">{t('signUp.requiredSuffix')}</span>
             </label>
+            <button type="button" className="link b" aria-haspopup="dialog" onClick={() => setTermsOpen(true)}>
+              {t('signUp.readTerms')}
+            </button>
           </div>
+          {termsOpen && (
+            <Drawer title={t('terms.title')} closeLabel={t('common.close')} onClose={() => setTermsOpen(false)}>
+              <TermsContent headingLevel={3} />
+              <button
+                type="button"
+                className="cta"
+                onClick={() => {
+                  set('acceptTerms', true);
+                  setTermsOpen(false);
+                }}
+              >
+                {t('terms.accept')}
+              </button>
+            </Drawer>
+          )}
 
           <ErrorText error={error} />
           <button className="cta" type="submit" disabled={busy || anyEmpty || !form.acceptTerms}>

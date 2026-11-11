@@ -354,8 +354,9 @@ async function fill(
   const customerIds = new Map<string, string>();
   for (const customer of CUSTOMERS) {
     const user = await db.query<{ id: string }>(
-      `INSERT INTO users (phone, email, password_hash, role, first_name, last_name, terms_accepted_at, stripe_customer_id)
-       VALUES ($1, $2, $3, 'customer', $4, $5, CASE WHEN $2::text IS NOT NULL THEN now() END, $6) RETURNING id`,
+      `INSERT INTO users (phone, email, password_hash, role, first_name, last_name, terms_accepted_at, email_verified_at, stripe_customer_id)
+       VALUES ($1, $2, $3, 'customer', $4, $5, CASE WHEN $2::text IS NOT NULL THEN now() END, CASE WHEN $2::text IS NOT NULL THEN now() END, $6)
+       RETURNING id`,
       [customer.phone, customer.email, customer.email ? customerHash : null, customer.firstName, customer.lastName, `cus_seed_${customer.key}`],
     );
     customerIds.set(customer.key, user.rows[0]?.id ?? '');

@@ -39,6 +39,8 @@ import { ProVisitPage } from './pages/pro/ProVisitPage';
 import { ProWeekPage } from './pages/pro/ProWeekPage';
 import { SignInPage } from './pages/SignInPage';
 import { SignUpPage } from './pages/SignUpPage';
+import { TermsPage } from './pages/TermsPage';
+import { VerifyEmailPage } from './pages/VerifyEmailPage';
 import { AdminShell, CustomerShell, ProShell } from './shells/Shells';
 
 function NotFoundPage() {
@@ -58,6 +60,8 @@ function CustomerAndProRoutes() {
     <Routes>
       <Route path="/signin" element={<SignInPage />} />
       <Route path="/signup" element={<SignUpPage />} />
+      <Route path="/verify-email" element={<VerifyEmailPage />} />
+      <Route path="/terms" element={<TermsPage />} />
       <Route
         element={
           <RequireRole allow="customer">

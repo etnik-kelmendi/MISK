@@ -18,7 +18,8 @@
     "signOut": "Sign out",
     "and": "and",
     "newPro": "New on MISK",
-    "ratingLabel": "Rated {{average}} out of 5 from {{count}} jobs"
+    "ratingLabel": "Rated {{average}} out of 5 from {{count}} jobs",
+    "close": "Close"
   },
   "error": {
     "title": "Something went wrong",
@@ -123,7 +124,9 @@
     "zone_already_paused": "This zone is already paused.",
     "zone_not_found": "This zone does not exist.",
     "postcode_served": "MISK already serves this postcode.",
-    "email_failed": "The invite email could not be sent. Please try again."
+    "email_failed": "The invite email could not be sent. Please try again.",
+    "email_not_verified": "Please confirm your email first. We sent you a link when you signed up.",
+    "invalid_verification_link": "This link has expired or was already used."
   },
   "nav": {
     "customer": "Main menu",
@@ -1384,6 +1387,11 @@
         "text": "This plan has changes that are not saved. If you leave now, they are lost.",
         "stay": "Stay and keep editing",
         "leave": "Leave without saving"
+      },
+      "numberError": {
+        "visitMinutes": "Enter a visit length from {{min}} to {{max}} minutes, in steps of {{step}}.",
+        "skipsPerMonth": "Enter a number of skips from {{min}} to {{max}}.",
+        "minTermMonths": "Enter a minimum term from {{min}} to {{max}} months."
       }
     },
     "signUp": {
@@ -1425,7 +1433,7 @@
       "notMet": "not yet"
     },
     "terms": "I accept the terms and conditions.",
-    "readTerms": "Read them",
+    "readTerms": "Read the terms and conditions",
     "submit": "Sign up",
     "creating": "Creating your account…",
     "fillAll": "Fill in all fields and accept the terms to sign up.",
@@ -1553,5 +1561,66 @@
     "unsupported": "This browser cannot show push notifications.",
     "notSetUp": "Push notifications are not set up on the server yet.",
     "denied": "Notifications are blocked for MISK in this browser’s settings."
+  },
+  "verifyEmail": {
+    "title": "Confirm your email",
+    "checking": "Confirming your email…",
+    "checkTitle": "Check your email",
+    "checkText": "We sent a link to {{email}}. Open it to confirm your email and finish signing up. The link works for 24 hours.",
+    "checkSpam": "No email after a few minutes? Check your spam folder or send the link again.",
+    "resend": "Send the link again",
+    "resent": "A new link is on its way. Only the newest link works.",
+    "otherEmail": "Use another email",
+    "askNew": "Enter your email and we will send you a new link.",
+    "toLogin": "Back to log in"
+  },
+  "terms": {
+    "title": "Terms and conditions",
+    "back": "Back",
+    "accept": "I have read and accept the terms",
+    "updated": "Last updated 11 November 2026",
+    "intro": "These terms apply when you use MISK to book home and garden services or to offer them as a pro. Please read them before you create an account.",
+    "sections": {
+      "about": {
+        "title": "1. What MISK is",
+        "body": "MISK is a marketplace that connects customers with independent professionals (\"pros\") for home and garden services. The pros are not employed by MISK; each pro is responsible for the work they do."
+      },
+      "account": {
+        "title": "2. Your account",
+        "body": "Give your real name and an email address or mobile number you use. An email account can only sign in after you confirm your email address. Keep your password to yourself. We may pause or close an account that breaks these terms or is used to harm others."
+      },
+      "booking": {
+        "title": "3. Booking and prices",
+        "body": "The price you see before you book includes VAT and the MISK service fee. Your card is checked when you book, and charged 24 hours after the pro marks the job as done."
+      },
+      "cancelling": {
+        "title": "4. Cancelling",
+        "body": "You can cancel for free until 24 hours before the start. If you cancel later and a pro has already been assigned, the full price is charged and the pro is paid their share."
+      },
+      "problems": {
+        "title": "5. If something goes wrong",
+        "body": "Report a problem in the app within 24 hours after the job. The charge then waits until our team has looked at it. Depending on what happened, the team refunds you or charges the booking."
+      },
+      "tips": {
+        "title": "6. Tips",
+        "body": "Tips are optional and charged to the card you booked with. The pro receives the tip minus the same commission MISK keeps on jobs. A refund of a job does not refund a tip."
+      },
+      "plans": {
+        "title": "7. Monthly plans",
+        "body": "Plans are billed every month. You can cancel a plan in the app; it ends when the paid month ends, once its minimum term is over. Seasonal plans only run from April to October."
+      },
+      "pros": {
+        "title": "8. For pros",
+        "body": "Pros send their ID, trade certificate, insurance and a certificate of good conduct, and get jobs only once MISK has checked them and while they stay valid. MISK keeps a commission on each job and pays out the rest to your bank account."
+      },
+      "liability": {
+        "title": "9. Responsibility",
+        "body": "MISK is responsible for running the platform and handling payments with care. The pro who does the job is responsible for the quality and safety of the work. Nothing in these terms limits your rights as a consumer under the law."
+      },
+      "changes": {
+        "title": "10. Changes to these terms",
+        "body": "We may update these terms. If a change matters for you, we tell you in the app or by email before it applies."
+      }
+    }
   }
 }

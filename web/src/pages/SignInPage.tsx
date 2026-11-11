@@ -1,12 +1,14 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Navigate, useNavigate, useSearchParams } from 'react-router';
+import { Link, Navigate, useNavigate, useSearchParams } from 'react-router';
 import { useApi, useAppConfig } from '../api/ApiContext';
+import { ApiError } from '../api/client';
 import type { User } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import { HOME_OF } from '../auth/RequireRole';
 import { ErrorText } from '../components/ErrorText';
 import { Icon } from '../components/Icon';
+import { ResendVerification } from '../components/ResendVerification';
 import { useAction } from '../lib/useAction';
 import { invitedAsPro, rememberInvite } from '../lib/invite';
 
@@ -15,18 +17,17 @@ export type Method = 'email' | 'phone';
 function LegalLinks() {
   const { t } = useTranslation();
   const config = useAppConfig();
-  if (!config.termsUrl && !config.privacyUrl) {
-    return null;
-  }
   return (
     <p className="tiny muted center">
-      {t('signIn.agree')}{' '}
-      {config.termsUrl && (
+      {t('signIn.agree')} {/* The published terms when configured, otherwise the terms in the app. */}
+      {config.termsUrl ? (
         <a href={config.termsUrl} target="_blank" rel="noreferrer">
           {t('signIn.terms')}
         </a>
+      ) : (
+        <Link to="/terms">{t('signIn.terms')}</Link>
       )}
-      {config.termsUrl && config.privacyUrl && ` ${t('common.and')} `}
+      {config.privacyUrl && ` ${t('common.and')} `}
       {config.privacyUrl && (
         <a href={config.privacyUrl} target="_blank" rel="noreferrer">
           {t('signIn.privacy')}
@@ -90,7 +91,16 @@ function EmailLogin() {
           </button>
         </div>
       </div>
-      <ErrorText error={error} />
+      {error instanceof ApiError && error.code === 'email_not_verified' ? (
+        <div className="stack">
+          <p className="error-text" role="alert">
+            {t('errors.email_not_verified')}
+          </p>
+          <ResendVerification email={email} />
+        </div>
+      ) : (
+        <ErrorText error={error} />
+      )}
       <button className="cta" type="submit" disabled={busy || !email.trim() || !password}>
         {busy ? t('common.checking') : t('signIn.logIn')}
       </button>
