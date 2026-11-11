@@ -13,11 +13,13 @@ import { MIN_PASSWORD_LENGTH } from './TeamPage';
  * New team members ask for an admin account here. Nobody can sign in with it until an existing admin
  * approves the request under Settings → Team (D21).
  */
+const EMPTY_FORM = { firstName: '', lastName: '', email: '', password: '', confirm: '' };
+
 export function AdminSignUpPage() {
   const { t } = useTranslation();
   const api = useApi();
   const ids = { first: useId(), last: useId(), email: useId(), password: useId(), confirm: useId() };
-  const [form, setForm] = useState({ firstName: '', lastName: '', email: '', password: '', confirm: '' });
+  const [form, setForm] = useState(EMPTY_FORM);
   const [emailTouched, setEmailTouched] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [takenEmail, setTakenEmail] = useState<string | null>(null);
@@ -31,6 +33,15 @@ export function AdminSignUpPage() {
   const passwordShort = form.password.length < MIN_PASSWORD_LENGTH;
   const mismatch = submitted && form.confirm !== '' && form.password !== form.confirm;
   const emailError = emailInvalid ? t('signUp.errors.email') : emailTaken ? t('signUp.errors.emailTaken') : null;
+
+  /** Back to an empty form, to request an account for another email. */
+  function startOver() {
+    setForm(EMPTY_FORM);
+    setEmailTouched(false);
+    setSubmitted(false);
+    setTakenEmail(null);
+    setSent(false);
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -76,6 +87,9 @@ export function AdminSignUpPage() {
             <Link to="/admin/login" className="abtn big">
               {t('admin.signUp.toLogin')}
             </Link>
+            <button type="button" className="abtn ghost" onClick={startOver}>
+              {t('admin.signUp.another')}
+            </button>
           </>
         ) : (
           <form className="stack" onSubmit={submit} noValidate>

@@ -1079,6 +1079,20 @@ describe('admin', () => {
       email: 'lina@misk.test',
       password: 'a long new admin password',
     });
+
+    // Another email can be entered right after, on an empty form.
+    await user().click(screen.getByRole('button', { name: 'Request another account' }));
+    const email = screen.getByLabelText(/^Work email address/);
+    expect(email).toHaveValue('');
+    expect(email).toBeEnabled();
+    await user().type(screen.getByLabelText(/^First name/), 'Arta');
+    await user().type(screen.getByLabelText(/^Last name/), 'Gashi');
+    await user().type(email, 'arta@misk.test');
+    await user().type(screen.getByLabelText(/^Password/), 'another long admin password');
+    await user().type(screen.getByLabelText(/^Confirm password/), 'another long admin password');
+    await user().click(screen.getByRole('button', { name: 'Request account' }));
+    expect(await screen.findByRole('status')).toHaveTextContent('Your request is with the MISK team');
+    expect(api.bodies['POST /auth/admin/register']).toMatchObject({ email: 'arta@misk.test' });
   });
 
   it('says when a requested account is still waiting for approval', async () => {
@@ -1146,7 +1160,15 @@ describe('admin', () => {
     expect(forgot).toHaveAttribute('aria-expanded', 'true');
     const panel = screen.getByRole('region', { name: 'Reset your password' });
     expect(panel).not.toHaveTextContent('No email on your account');
-    await user().type(within(panel).getByLabelText('Username or email'), 'elion.thaqi@canera.ch');
+    const email = within(panel).getByLabelText('Email');
+    await user().type(email, 'not-an-email');
+    await user().click(within(panel).getByRole('button', { name: 'Email me a reset link' }));
+    expect(within(panel).getByText('Please enter a valid email address')).toBeInTheDocument();
+    expect(email).toHaveAttribute('aria-invalid', 'true');
+    expect(api.calls).not.toContain('POST /auth/admin/forgot');
+    await user().clear(email);
+    await user().type(email, 'elion.thaqi@canera.ch');
+    expect(within(panel).queryByText('Please enter a valid email address')).not.toBeInTheDocument();
     await user().click(within(panel).getByRole('button', { name: 'Email me a reset link' }));
     expect(await within(panel).findByRole('status')).toHaveTextContent('a link is on its way');
     expect(api.bodies['POST /auth/admin/forgot']).toEqual({ identifier: 'elion.thaqi@canera.ch' });

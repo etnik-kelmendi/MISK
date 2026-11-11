@@ -79,7 +79,7 @@
     "password_too_short": "The password must have at least 12 characters.",
     "invalid_username": "Use 3 or more characters with no spaces.",
     "username_taken": "Another admin already has this username.",
-    "email_unavailable": "Email is not set up yet, so no link can be sent. Ask another admin, or whoever runs the server.",
+    "email_unavailable": "Reset links cannot be sent by email yet. Ask another admin to reset your password.",
     "invalid_reset_link": "This link has expired or was already used. Ask for a new one from the sign-in page.",
     "email_taken": "An account with this email already exists",
     "invalid_login": "The email or password is not right.",
@@ -536,10 +536,10 @@
       "submit": "Sign in",
       "forgot": "Forgot password?",
       "forgotTitle": "Reset your password",
-      "forgotIntro": "Enter your username or the email on your admin account. We email you a link to choose a new password.",
-      "forgotIdentifier": "Username or email",
+      "forgotIntro": "Enter the email of your admin account and we will send you a link to choose a new password.",
+      "forgotEmail": "Email",
       "forgotSend": "Email me a reset link",
-      "forgotSent": "If an admin account matches and has an email address, a link is on its way. It works once, for 30 minutes. Check your spam folder too.",
+      "forgotSent": "If the account exists, a link is on its way. It works for 30 minutes.",
       "identifier": "Username or email",
       "newToTeam": "New to the MISK team?",
       "requestAccount": "Request an account"
@@ -1393,7 +1393,8 @@
       "passwordShort": "The password needs at least {{min}} characters.",
       "submit": "Request account",
       "sent": "Thanks! Your request is with the MISK team. You can sign in with your email once an admin approves it; they have been emailed a link to do so.",
-      "toLogin": "Back to sign-in"
+      "toLogin": "Back to sign-in",
+      "another": "Request another account"
     },
     "approve": {
       "title": "Approve account request",

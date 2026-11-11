@@ -8,18 +8,26 @@ import { HOME_OF } from '../../auth/RequireRole';
 import { ErrorText } from '../../components/ErrorText';
 import { Icon } from '../../components/Icon';
 import { useAction } from '../../lib/useAction';
+import { isValidEmail } from '../SignUpPage';
 
 /** Emails a reset link to the admin's address. The answer never says whether the account exists. */
 function ForgotPassword({ initial }: { initial: string }) {
   const { t } = useTranslation();
   const api = useApi();
-  const [identifier, setIdentifier] = useState(initial);
+  // A username typed into sign-in is not carried over: the reset needs the account's email.
+  const [email, setEmail] = useState(isValidEmail(initial) ? initial.trim() : '');
+  const [touched, setTouched] = useState(false);
   const [sent, setSent] = useState(false);
   const { run, busy, error } = useAction();
+  const emailError = touched && !isValidEmail(email) ? t('signUp.errors.email') : null;
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    const ok = await run(() => api.post('/auth/admin/forgot', { identifier }).then(() => true));
+    setTouched(true);
+    if (!isValidEmail(email)) {
+      return;
+    }
+    const ok = await run(() => api.post('/auth/admin/forgot', { identifier: email.trim() }).then(() => true));
     setSent(Boolean(ok));
   }
 
@@ -31,22 +39,31 @@ function ForgotPassword({ initial }: { initial: string }) {
           <Icon name="check" /> {t('admin.login.forgotSent')}
         </p>
       ) : (
-        <form className="stack" onSubmit={submit}>
+        <form className="stack" onSubmit={submit} noValidate>
           <p className="small muted">{t('admin.login.forgotIntro')}</p>
           <div className="af">
-            <label htmlFor="forgot-identifier">{t('admin.login.forgotIdentifier')}</label>
+            <label htmlFor="forgot-email">{t('admin.login.forgotEmail')}</label>
             <input
-              id="forgot-identifier"
+              id="forgot-email"
+              type="email"
+              inputMode="email"
               autoComplete="email"
               required
-              minLength={3}
               maxLength={254}
-              value={identifier}
-              onChange={(e) => setIdentifier(e.target.value)}
+              value={email}
+              aria-invalid={Boolean(emailError) || undefined}
+              aria-describedby={emailError ? 'forgot-email-error' : undefined}
+              onChange={(e) => setEmail(e.target.value)}
+              onBlur={() => setTouched(email.trim() !== '')}
             />
+            {emailError && (
+              <span id="forgot-email-error" className="error-text">
+                {emailError}
+              </span>
+            )}
           </div>
           <ErrorText error={error} />
-          <button type="submit" className="abtn" disabled={busy || identifier.trim().length < 3}>
+          <button type="submit" className="abtn" disabled={busy || email.trim() === ''}>
             {busy ? t('common.sending') : t('admin.login.forgotSend')}
           </button>
         </form>
