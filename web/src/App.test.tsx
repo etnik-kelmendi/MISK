@@ -345,6 +345,41 @@ describe('confirming an email', () => {
   });
 });
 
+describe('my bookings', () => {
+  const booking = (i: number) => ({
+    id: `b-${i}`,
+    status: 'completed' as const,
+    serviceName: `Job ${i + 1}`,
+    categoryId: 'cat-garden',
+    startsAt: new Date(Date.UTC(2026, 10, 30 - i, 9)).toISOString(),
+    totalCents: 4840,
+    proName: 'Daniel',
+    canRate: false,
+  });
+
+  it('shows the 10 most recent bookings and the rest after "View all"', async () => {
+    const api = fakeApi(users.customer);
+    api.on('GET /bookings', { body: { bookings: Array.from({ length: 13 }, (_, i) => booking(i)) } });
+    renderAt('/bookings');
+    expect(await screen.findByText('Job 10')).toBeInTheDocument();
+    expect(screen.queryByText('Job 11')).not.toBeInTheDocument();
+    const viewAll = screen.getByRole('button', { name: 'View all (13)' });
+    expect(viewAll).toHaveAttribute('aria-expanded', 'false');
+    await user().click(viewAll);
+    expect(screen.getByText('Job 13')).toBeInTheDocument();
+    await user().click(screen.getByRole('button', { name: 'Show the 10 most recent' }));
+    expect(screen.queryByText('Job 11')).not.toBeInTheDocument();
+  });
+
+  it('shows no "View all" for ten bookings or fewer', async () => {
+    const api = fakeApi(users.customer);
+    api.on('GET /bookings', { body: { bookings: Array.from({ length: 10 }, (_, i) => booking(i)) } });
+    renderAt('/bookings');
+    expect(await screen.findByText('Job 10')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /View all/ })).not.toBeInTheDocument();
+  });
+});
+
 describe('booking a job', () => {
   it('walks details, time and payment, then opens the booking', async () => {
     const api = fakeApi(users.customer);
@@ -528,6 +563,40 @@ describe('a booking', () => {
     await user().click(send);
     expect(await screen.findByText(/we got your report/)).toBeInTheDocument();
     expect(api.bodies['POST /bookings/b1/problem']).toEqual({ note: 'Back lawn not mowed' });
+  });
+
+  it('sends photos with the problem report, and can add more while it is open', async () => {
+    const api = fakeApi(users.customer);
+    const done = { status: 'completed' as const, canCancel: false, chargeAt: '2026-11-07T10:00:00.000Z' };
+    const reported = { ...done, canReportProblem: false, problemReportedAt: '2026-11-06T12:00:00.000Z', problemNote: 'Mud on the terrace' };
+    let photos: { id: string; kind: 'problem' }[] = [];
+    api.on('GET /bookings/b1', { body: { booking: booking({ ...done, canReportProblem: true }) } });
+    api.on('POST /bookings/b1/problem', () => ({ body: { booking: booking({ ...reported, photos }) } }));
+    api.on('POST /bookings/b1/problem/photos', () => {
+      photos = [...photos, { id: `photo-${photos.length + 1}`, kind: 'problem' }];
+      return { status: 201, body: { booking: booking({ ...reported, photos }) } };
+    });
+    renderAt('/bookings/b1');
+    await user().click(await screen.findByRole('button', { name: 'Report a problem' }));
+    await user().type(screen.getByLabelText('Tell us what was not done right'), 'Mud on the terrace');
+    const picker = screen.getByLabelText('Add photos');
+    await user().upload(picker, [
+      new File(['a'], 'terrace.jpg', { type: 'image/jpeg' }),
+      new File(['b'], 'steps.png', { type: 'image/png' }),
+      new File(['c'], 'extra.png', { type: 'image/png' }),
+    ]);
+    expect(within(screen.getByRole('list', { name: 'Photos to send' })).getAllByRole('listitem')).toHaveLength(3);
+    await user().click(screen.getByRole('button', { name: 'Remove extra.png' }));
+    expect(within(screen.getByRole('list', { name: 'Photos to send' })).getAllByRole('listitem')).toHaveLength(2);
+
+    await user().click(screen.getByRole('button', { name: 'Send to MISK' }));
+    expect(await screen.findByText(/we got your report/)).toBeInTheDocument();
+    expect(api.calls.filter((c) => c === 'POST /bookings/b1/problem/photos')).toHaveLength(2);
+    const sent = screen.getByRole('list', { name: 'Your photo of the problem' });
+    expect(within(sent).getAllByRole('img')).toHaveLength(2);
+
+    await user().upload(screen.getByLabelText('Add a photo'), new File(['d'], 'more.jpg', { type: 'image/jpeg' }));
+    await waitFor(() => expect(within(screen.getByRole('list', { name: 'Your photo of the problem' })).getAllByRole('img')).toHaveLength(3));
   });
 });
 
@@ -969,6 +1038,66 @@ describe('plan page', () => {
     renderAt('/admin/plans/new');
     return api;
   }
+
+  function openExistingPlan(status = 'draft') {
+    const api = fakeApi(users.admin);
+    api.on('GET /admin/catalogue', { body: { categories, services: [] } });
+    api.on('GET /admin/plans', { body: { plans: [] } });
+    const plan = savedPlan(
+      {
+        name: 'Lawn care',
+        categoryId: 'cat-garden',
+        priceCents: 4900,
+        frequency: 'weekly',
+        visitMinutes: 60,
+        tasks: ['Mow'],
+        addonName: null,
+        addonPriceCents: null,
+        seasonal: false,
+        skipsPerMonth: 2,
+        minTermMonths: 3,
+        proSharePct: 70,
+        subscribers: 0,
+      },
+      status,
+    );
+    api.on('GET /admin/plans/p1', { body: { plan } });
+    renderAt('/admin/plans/p1');
+    return api;
+  }
+
+  it('deletes a plan after asking, and says so on the plans list', async () => {
+    const api = openExistingPlan('published');
+    api.on('DELETE /admin/plans/p1', { status: 204 });
+    await user().click(await screen.findByRole('button', { name: 'Delete plan' }));
+    const dialog = screen.getByRole('alertdialog', { name: 'Delete "Lawn care"?' });
+    expect(dialog).toHaveTextContent('it disappears from the app at once');
+    await user().click(within(dialog).getByRole('button', { name: 'Keep it' }));
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(api.calls).not.toContain('DELETE /admin/plans/p1');
+
+    await user().click(screen.getByRole('button', { name: 'Delete plan' }));
+    await user().click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Delete plan' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Plans' })).toBeInTheDocument();
+    expect(screen.getByText('"Lawn care" was deleted.')).toBeInTheDocument();
+    expect(api.calls).toContain('DELETE /admin/plans/p1');
+  });
+
+  it('explains why a plan with subscribers cannot be deleted', async () => {
+    const api = openExistingPlan();
+    api.on('DELETE /admin/plans/p1', { status: 409, body: { error: 'plan_has_subscriptions' } });
+    await user().click(await screen.findByRole('button', { name: 'Delete plan' }));
+    await user().click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Delete plan' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Customers have subscribed to this plan, so it cannot be deleted.');
+    expect(screen.getByRole('heading', { level: 1, name: /plan/i })).toBeInTheDocument();
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+
+  it('offers no delete for a plan that was never saved', async () => {
+    openNewPlan();
+    await screen.findByLabelText('Plan name');
+    expect(screen.queryByRole('button', { name: 'Delete plan' })).not.toBeInTheDocument();
+  });
 
   async function fillComplete() {
     await user().type(await screen.findByLabelText('Plan name'), 'Lawn care');

@@ -101,7 +101,8 @@ export async function loadBooking(db: Queryable, bookingId: string, viewer: View
     createdAt: b.createdAt,
     completedAt: b.completedAt,
     events: events.rows,
-    photos: photos.rows,
+    // Problem photos are between the customer and the MISK team.
+    photos: viewer === 'pro' ? photos.rows.filter((photo) => photo.kind !== 'problem') : photos.rows,
     extras: extras.rows,
     rating: rating.rows[0] ?? null,
   };

@@ -135,6 +135,37 @@ describe('admin bookings list', () => {
     await waitFor(() => expect(lastListQuery()?.get('type')).toBe('visit'));
   });
 
+  it('shows the 10 most recent bookings, with "View all" for the rest, and starts again at ten after a filter change', async () => {
+    const many = Array.from({ length: 14 }, (_, i) =>
+      row({ id: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`, number: `B-${2000 + i}`, tab: 'upcoming', status: 'accepted' }),
+    );
+    setUp(many);
+    renderAt('/admin/bookings');
+    const table = await screen.findByRole('table');
+    expect(within(table).getAllByRole('row')).toHaveLength(1 + 10);
+    expect(within(table).getByText('B-2009')).toBeInTheDocument();
+    expect(within(table).queryByText('B-2010')).not.toBeInTheDocument();
+    expect(screen.getByText('Showing the 10 most recent of 14.')).toBeInTheDocument();
+
+    await user().click(screen.getByRole('button', { name: 'View all (14)' }));
+    expect(within(table).getAllByRole('row')).toHaveLength(1 + 14);
+    expect(screen.getByText('Showing all 14.')).toBeInTheDocument();
+
+    await user().click(screen.getByRole('button', { name: 'Show the 10 most recent' }));
+    expect(within(table).getAllByRole('row')).toHaveLength(1 + 10);
+
+    await user().click(screen.getByRole('button', { name: 'View all (14)' }));
+    await user().selectOptions(screen.getByLabelText('Type'), 'booking');
+    await waitFor(() => expect(within(screen.getByRole('table')).getAllByRole('row')).toHaveLength(1 + 10));
+  });
+
+  it('shows no "View all" for ten bookings or fewer', async () => {
+    setUp();
+    renderAt('/admin/bookings');
+    await screen.findByRole('table');
+    expect(screen.queryByRole('button', { name: /View all/ })).not.toBeInTheDocument();
+  });
+
   it('says so when nothing matches', async () => {
     setUp([]);
     renderAt('/admin/bookings');
@@ -261,6 +292,11 @@ describe('admin booking side panel', () => {
       problemReportedAt: '2026-11-06T09:00:00.000Z',
       problemNote: 'Back lawn not mowed',
       chargeAt: '2026-11-07T08:00:00.000Z',
+      photos: [
+        { id: 'done-1', kind: 'completion' },
+        { id: 'problem-1', kind: 'problem' },
+        { id: 'problem-2', kind: 'problem' },
+      ],
     });
     api.on(`GET /admin/bookings/${BOOKING_ID}`, { body: { booking: withProblem } });
     api.on(`POST /admin/bookings/${BOOKING_ID}/charge`, {
@@ -269,6 +305,12 @@ describe('admin booking side panel', () => {
     renderAt(`/admin/bookings?open=b:${BOOKING_ID}`);
     const dialog = await screen.findByRole('dialog', { name: 'B-1042' });
     expect(within(dialog).getByText('Back lawn not mowed')).toBeInTheDocument();
+    const problemPhotos = within(dialog).getByRole('list', { name: "Customer's photo of the problem" });
+    expect(within(problemPhotos).getAllByRole('img').map((img) => img.getAttribute('src'))).toEqual([
+      expect.stringContaining('/files/problem-1'),
+      expect.stringContaining('/files/problem-2'),
+    ]);
+    expect(within(within(dialog).getByRole('list', { name: 'Photos' })).getAllByRole('img')).toHaveLength(1);
     await user().click(within(dialog).getByRole('button', { name: 'Charge the customer' }));
     await user().click(within(dialog).getByRole('button', { name: 'Charge the customer' }));
     expect(await within(dialog).findByText('Paid.')).toBeInTheDocument();

@@ -13,6 +13,8 @@ import { cancelBooking, CHARGE_DELAY_HOURS, confirmHold, settleBooking } from '.
 import { loadBooking } from './views.js';
 
 export const MAX_CUSTOMER_PHOTOS = 3;
+/** Photos a customer can add to a problem report. */
+export const MAX_PROBLEM_PHOTOS = 5;
 export const RATING_TAGS = ['on_time', 'tidy', 'friendly', 'great_value', 'extra_mile'] as const;
 
 /** Tips from €1 to €200. */
@@ -511,6 +513,44 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
       }
       request.log.warn({ event: 'problem_reported', bookingId: request.params.id });
       return { booking: await ownBooking(customerId, request.params.id) };
+    },
+  );
+
+  // Photos of what went wrong, while the reported problem is still open. Only the customer and the team see them.
+  app.post<{ Params: { id: string } }>(
+    '/bookings/:id/problem/photos',
+    { preHandler: guards.customer, schema: { params: uuidParams } },
+    async (request, reply) => {
+      const customerId = currentUser(request).id;
+      const content = await readSingleFile(request);
+      await withTransaction(pool, async (client) => {
+        const found = await client.query<{ open: boolean }>(
+          `SELECT problem_reported_at IS NOT NULL AND problem_resolved_at IS NULL AS open
+           FROM bookings WHERE id = $1 AND customer_id = $2 FOR UPDATE`,
+          [request.params.id, customerId],
+        );
+        const booking = found.rows[0];
+        if (!booking) {
+          throw notFound();
+        }
+        if (!booking.open) {
+          throw conflict('no_open_problem');
+        }
+        const count = await client.query<{ n: number }>(
+          "SELECT count(*)::int AS n FROM booking_photos WHERE booking_id = $1 AND kind = 'problem'",
+          [request.params.id],
+        );
+        if (onlyRow(count).n >= MAX_PROBLEM_PHOTOS) {
+          throw conflict('too_many_photos');
+        }
+        const upload = await storeUpload(client, ctx.storage, { ownerId: customerId, kind: 'photo', content });
+        await client.query("INSERT INTO booking_photos (upload_id, booking_id, kind) VALUES ($1, $2, 'problem')", [
+          upload.id,
+          request.params.id,
+        ]);
+      });
+      request.log.info({ event: 'problem_photo_added', bookingId: request.params.id });
+      return reply.code(201).send({ booking: await ownBooking(customerId, request.params.id) });
     },
   );
 

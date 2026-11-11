@@ -16,6 +16,7 @@ export interface Api {
   post<T>(path: string, body?: unknown): Promise<T>;
   patch<T>(path: string, body: unknown): Promise<T>;
   put<T>(path: string, body: unknown): Promise<T>;
+  delete<T = void>(path: string): Promise<T>;
   /** Sends one file as multipart form data. */
   upload<T>(path: string, file: File): Promise<T>;
   /** Address of an uploaded file; the browser sends the session cookie with it. */
@@ -47,6 +48,7 @@ export function createApi(baseUrl: string): Api {
     post: (path, body) => send(path, json('POST', body)),
     patch: (path, body) => send(path, json('PATCH', body)),
     put: (path, body) => send(path, json('PUT', body)),
+    delete: (path) => send(path, { method: 'DELETE' }),
     upload: (path, file) => {
       const form = new FormData();
       form.append('file', file);

@@ -90,7 +90,7 @@ export async function buildApp({ config, pool, gateway, sms, email = null, stora
   await app.register(cors, {
     origin: [...new Set([config.webOrigin, config.adminOrigin])],
     credentials: true,
-    methods: ['GET', 'HEAD', 'POST', 'PATCH', 'PUT'],
+    methods: ['GET', 'HEAD', 'POST', 'PATCH', 'PUT', 'DELETE'],
   });
   await app.register(multipart, {
     limits: { fileSize: MAX_UPLOAD_BYTES, files: 1, fields: 0, parts: 1 },

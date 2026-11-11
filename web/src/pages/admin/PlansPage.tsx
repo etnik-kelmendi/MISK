@@ -22,6 +22,8 @@ export const VISITS_PER_MONTH: Record<Frequency, number> = {
 export function PlansPage() {
   const { t } = useTranslation();
   const api = useApi();
+  const location = useLocation();
+  const deleted = (location.state as { deleted?: string } | null)?.deleted;
   const load = useCallback(() => api.get<{ plans: Plan[] }>('/admin/plans'), [api]);
   const { state, reload } = useResource(load);
 
@@ -34,6 +36,11 @@ export function PlansPage() {
         </Link>
       </div>
       <p className="muted small">{t('admin.plans.intro')}</p>
+      {deleted !== undefined && (
+        <p className="info" role="status">
+          <Icon name="check" /> {t('admin.plans.deleted', { name: deleted || t('admin.plans.untitled') })}
+        </p>
+      )}
       <ResourceState state={state} reload={reload}>
         {({ plans }) =>
           plans.length === 0 ? (
@@ -173,6 +180,8 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
   const navigate = useNavigate();
   const save = useAction();
   const publish = useAction();
+  const removal = useAction();
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [draft, setDraft] = useState<Draft>(() => toDraft(plan));
   // What was last saved, to tell whether leaving the page would lose changes.
   const [savedInput, setSavedInput] = useState(() => JSON.stringify(inputOf(toDraft(plan))));
@@ -263,6 +272,20 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
     return result.plan;
   }
 
+  async function deletePlan() {
+    if (!current) {
+      return;
+    }
+    const done = await removal.run(() => api.delete(`/admin/plans/${current.id}`).then(() => true));
+    if (done) {
+      // The plan is gone, so there is nothing left to lose by leaving.
+      dirtyRef.current = false;
+      void navigate('/admin/plans', { replace: true, state: { deleted: current.name ?? '' } });
+    } else {
+      setConfirmDelete(false);
+    }
+  }
+
   async function setPublished(published: boolean) {
     if (published && !valid) {
       return;
@@ -319,6 +342,20 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
           </p>
         </div>
         <div className="row gap8">
+          {current && (
+            <button
+              type="button"
+              className="abtn ghost big danger-text"
+              aria-haspopup="dialog"
+              disabled={removal.busy || confirmDelete}
+              onClick={() => {
+                removal.clearError();
+                setConfirmDelete(true);
+              }}
+            >
+              <Icon name="x" /> {t('admin.plans.delete.button')}
+            </button>
+          )}
           <button type="submit" className="abtn ghost big" disabled={save.busy}>
             {t('admin.plans.saveDraft')}
           </button>
@@ -366,7 +403,25 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
           </div>
         </div>
       )}
-      <ErrorText error={save.error ?? publish.error} />
+      {confirmDelete && current && (
+        <div className="panel leave-warning" role="alertdialog" aria-labelledby="delete-title" aria-describedby="delete-text">
+          <p id="delete-title" className="b">
+            {t('admin.plans.delete.title', { name: current.name ?? t('admin.plans.untitled') })}
+          </p>
+          <p id="delete-text" className="small">
+            {live ? t('admin.plans.delete.liveText') : t('admin.plans.delete.text')}
+          </p>
+          <div className="row gap8">
+            <button type="button" className="abtn danger" disabled={removal.busy} onClick={() => void deletePlan()}>
+              {removal.busy ? t('admin.plans.delete.deleting') : t('admin.plans.delete.confirm')}
+            </button>
+            <button type="button" className="abtn ghost" disabled={removal.busy} onClick={() => setConfirmDelete(false)}>
+              {t('admin.plans.delete.keep')}
+            </button>
+          </div>
+        </div>
+      )}
+      <ErrorText error={save.error ?? publish.error ?? removal.error} />
 
       <div className="builder">
         <div className="panel fgrid">

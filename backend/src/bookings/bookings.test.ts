@@ -751,6 +751,41 @@ describe('admin booking actions', () => {
     expect(errorOf(await call(t, 'POST', `/admin/bookings/${bookingId}/charge`, { cookie: admin }))).toBe('nothing_to_charge');
   });
 
+  it('shows the team the photos a customer adds to a problem, and keeps them from the pro', async () => {
+    const { bookingId, pro } = await completedJob();
+    const addProblemPhoto = () => upload(t, `/bookings/${bookingId}/problem/photos`, customer, FILES.jpeg);
+    expect(errorOf(await addProblemPhoto())).toBe('no_open_problem');
+
+    await call(t, 'POST', `/bookings/${bookingId}/problem`, { cookie: customer, body: { note: 'Mud all over the terrace' } });
+    const added = await addProblemPhoto();
+    expect(added.statusCode).toBe(201);
+    expect(added.json().booking.photos.filter((p: { kind: string }) => p.kind === 'problem')).toHaveLength(1);
+    expect((await upload(t, `/bookings/${bookingId}/problem/photos`, customer, FILES.text)).statusCode).toBe(400);
+    for (let i = 1; i < 5; i += 1) {
+      expect((await addProblemPhoto()).statusCode).toBe(201);
+    }
+    expect(errorOf(await addProblemPhoto())).toBe('too_many_photos');
+
+    const admin = await signInAdmin(t);
+    const seen = (await call(t, 'GET', `/admin/bookings/${bookingId}`, { cookie: admin })).json().booking;
+    const problemPhotos = seen.photos.filter((p: { kind: string }) => p.kind === 'problem');
+    expect(problemPhotos).toHaveLength(5);
+    expect(seen.photos.filter((p: { kind: string }) => p.kind === 'completion')).toHaveLength(1);
+    const photoId = problemPhotos[0].id;
+    expect((await call(t, 'GET', `/files/${photoId}`, { cookie: admin })).statusCode).toBe(200);
+    expect((await call(t, 'GET', `/files/${photoId}`, { cookie: customer })).statusCode).toBe(200);
+
+    const proView = (await call(t, 'GET', `/pro/jobs/${bookingId}`, { cookie: pro.cookie })).json().job;
+    expect(proView.photos.map((p: { kind: string }) => p.kind)).toEqual(['completion']);
+    expect((await call(t, 'GET', `/files/${photoId}`, { cookie: pro.cookie })).statusCode).toBe(404);
+
+    // Once the team has settled the problem, no more photos can be added.
+    await t.pool.query("UPDATE bookings SET completed_at = now() - interval '25 hours' WHERE id = $1", [bookingId]);
+    await call(t, 'POST', `/admin/bookings/${bookingId}/charge`, { cookie: admin });
+    await t.pool.query("DELETE FROM booking_photos WHERE booking_id = $1 AND kind = 'problem'", [bookingId]);
+    expect(errorOf(await addProblemPhoto())).toBe('no_open_problem');
+  });
+
   it('lists bookings by tab with counts, search and filters', async () => {
     const pro = await approvedPro(t, '+4915100000101', { trades: [market.gardening] });
     const upcoming = await bookFirst();

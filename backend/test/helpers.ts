@@ -97,7 +97,7 @@ export async function resetDatabase(pool: pg.Pool) {
   await pool.query('TRUNCATE admin_activity');
 }
 
-type Method = 'GET' | 'POST' | 'PATCH' | 'PUT';
+type Method = 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
 
 /** Calls the API as the web app would: with its Origin and, when given, a session cookie. */
 export function call(

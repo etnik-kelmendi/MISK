@@ -72,8 +72,12 @@ async function findReadableUpload(db: Queryable, user: User, uploadId: string) {
        OR EXISTS (
          SELECT 1 FROM booking_photos p JOIN bookings b ON b.id = p.booking_id
          WHERE p.upload_id = u.id AND (
-           b.customer_id = $2 OR b.pro_id = $2
-           OR EXISTS (SELECT 1 FROM booking_offers o WHERE o.booking_id = b.id AND o.pro_id = $2 AND o.status = 'pending')
+           b.customer_id = $2
+           -- Pros see the job's photos, but not the customer's photos of a problem they reported.
+           OR (p.kind <> 'problem' AND (
+             b.pro_id = $2
+             OR EXISTS (SELECT 1 FROM booking_offers o WHERE o.booking_id = b.id AND o.pro_id = $2 AND o.status = 'pending')
+           ))
          )
        )
      )`,

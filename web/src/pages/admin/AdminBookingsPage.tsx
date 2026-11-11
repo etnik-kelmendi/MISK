@@ -20,6 +20,7 @@ import { StatusBadge } from '../../components/StatusBadge';
 import { downloadFile, toCsv } from '../../lib/csv';
 import { dateTime, euro, zonedParts } from '../../lib/format';
 import { usePolling } from '../../lib/usePolling';
+import { RECENT_BOOKINGS } from '../../lib/recent';
 import { AdminBookingDrawer, REFRESH_MS, type OpenItem } from './AdminBookingDrawer';
 
 const SEARCH_DELAY_MS = 250;
@@ -61,6 +62,8 @@ export function AdminBookingsPage() {
   const typeParam = params.get('type');
   const type = typeParam === 'booking' || typeParam === 'visit' ? typeParam : '';
   const open = parseOpen(params.get('open'));
+  // "View all" is kept in the address, so it survives the automatic refresh and a reload.
+  const showAll = params.get('view') === 'all';
   const [typed, setTyped] = useState(q);
   const returnFocus = useRef<HTMLElement | null>(null);
 
@@ -72,6 +75,10 @@ export function AdminBookingsPage() {
           for (const [key, value] of Object.entries(next)) {
             if (value) updated.set(key, value);
             else updated.delete(key);
+          }
+          // Another tab, search or filter starts again with the most recent ten.
+          if (['tab', 'q', 'trade', 'type'].some((key) => key in next)) {
+            updated.delete('view');
           }
           return updated;
         },
@@ -130,7 +137,7 @@ export function AdminBookingsPage() {
       : t(`admin.bookings.subscription.${item.paymentStatus as SubscriptionStatus}`);
   }
 
-  /** Exactly the rows on screen: the current tab, search and filters. */
+  /** Every row of the current tab, search and filters, including those beyond the ten shown first. */
   function exportShown(items: AdminBookingListItem[]) {
     const columns = ['number', 'date', 'time', 'service', 'trade', 'type', 'customer', 'address', 'pro', 'status', 'value', 'payment'] as const;
     const rows = items.map((item) => {
@@ -239,7 +246,7 @@ export function AdminBookingsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {bookings.map((item) => (
+                  {(showAll ? bookings : bookings.slice(0, RECENT_BOOKINGS)).map((item) => (
                     <tr
                       key={`${item.kind}-${item.id}`}
                       className={item.tab === 'needs_action' ? 'hl' : ''}
@@ -279,7 +286,25 @@ export function AdminBookingsPage() {
                   ))}
                 </tbody>
               </table>
-              {truncated && <p className="small muted">{t('admin.bookings.truncated', { count: bookings.length })}</p>}
+              {bookings.length > RECENT_BOOKINGS && (
+                <div className="row between wrap gap8 view-all">
+                  <p className="small muted">
+                    {showAll
+                      ? t('admin.bookings.showingAll', { count: bookings.length })
+                      : t('admin.bookings.showingRecent', { shown: RECENT_BOOKINGS, count: bookings.length })}
+                  </p>
+                  {showAll ? (
+                    <button type="button" className="abtn ghost" onClick={() => change({ view: '' })}>
+                      {t('admin.bookings.showRecent', { count: RECENT_BOOKINGS })}
+                    </button>
+                  ) : (
+                    <button type="button" className="abtn" onClick={() => change({ view: 'all' })}>
+                      {t('admin.bookings.viewAll', { count: bookings.length })}
+                    </button>
+                  )}
+                </div>
+              )}
+              {showAll && truncated && <p className="small muted">{t('admin.bookings.truncated', { count: bookings.length })}</p>}
             </div>
           )
         }

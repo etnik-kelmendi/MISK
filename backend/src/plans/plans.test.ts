@@ -115,5 +115,48 @@ describe('plans', () => {
     const customer = await signIn(t, '+4915100000001', 'customer');
     expect((await call(t, 'POST', '/admin/plans', { cookie: customer, body: plan() })).statusCode).toBe(403);
     expect((await call(t, 'GET', '/admin/plans', { cookie: customer })).statusCode).toBe(403);
+    const id = (await call(t, 'POST', '/admin/plans', { cookie: admin, body: plan() })).json().plan.id;
+    expect((await call(t, 'DELETE', `/admin/plans/${id}`, { cookie: customer })).statusCode).toBe(403);
+  });
+});
+
+describe('deleting a plan', () => {
+  const create = async (body: Record<string, unknown> = plan()) =>
+    (await call(t, 'POST', '/admin/plans', { cookie: admin, body })).json().plan.id as string;
+  const remove = (id: string) => call(t, 'DELETE', `/admin/plans/${id}`, { cookie: admin });
+
+  it('deletes a draft and a live plan nobody has subscribed to', async () => {
+    const draft = await create(empty);
+    const live = await create();
+    await call(t, 'POST', `/admin/plans/${live}/status`, { cookie: admin, body: { published: true } });
+    expect((await t.app.inject({ method: 'GET', url: '/plans' })).json().plans).toHaveLength(1);
+
+    expect((await remove(draft)).statusCode).toBe(204);
+    expect((await remove(live)).statusCode).toBe(204);
+    expect((await call(t, 'GET', '/admin/plans', { cookie: admin })).json().plans).toEqual([]);
+    expect((await t.app.inject({ method: 'GET', url: '/plans' })).json().plans).toEqual([]);
+    expect((await call(t, 'GET', `/admin/plans/${live}`, { cookie: admin })).statusCode).toBe(404);
+    expect((await remove(live)).statusCode).toBe(404);
+  });
+
+  it('keeps a plan customers have subscribed to, even after they cancelled', async () => {
+    const id = await create();
+    const customer = await signIn(t, '+4915100000002', 'customer');
+    const customerId = (await call(t, 'GET', '/auth/me', { cookie: customer })).json().user.id;
+    await t.pool.query(
+      `INSERT INTO subscriptions (customer_id, plan_id, category_id, plan_name, tasks, size, frequency, days, time_window,
+         visit_minutes, address, postcode, with_addon, price_cents, pro_share_pct, seasonal, skips_per_month, min_term_months, status)
+       VALUES ($1, $2, $3, 'Weekly lawn care', '{Mow}', 'M', 'weekly', '{2}', 'morning', 60, 'Invalidenstrasse 1', '10115',
+         false, 4900, 70, false, 2, 3, 'cancelled')`,
+      [customerId, id, market.gardening],
+    );
+    const refused = await remove(id);
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json()).toEqual({ error: 'plan_has_subscriptions' });
+    expect((await call(t, 'GET', `/admin/plans/${id}`, { cookie: admin })).statusCode).toBe(200);
+  });
+
+  it('refuses an id that is not a plan id', async () => {
+    expect((await remove('not-a-uuid')).statusCode).toBe(400);
   });
 });

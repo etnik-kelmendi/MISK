@@ -1,4 +1,4 @@
-import { useCallback, useState, type FormEvent } from 'react';
+import { useCallback, useState, type ChangeEvent, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router';
 import { useApi } from '../../api/ApiContext';
@@ -7,7 +7,7 @@ import type { BookingStatus, CustomerBooking, Extra, PaymentStep } from '../../a
 import { useResource } from '../../api/useResource';
 import { ErrorText } from '../../components/ErrorText';
 import { Icon } from '../../components/Icon';
-import { FileButton, IMAGE_TYPES, PhotoGrid } from '../../components/Photos';
+import { FileButton, IMAGE_TYPES, MAX_FILE_BYTES, PhotoGrid } from '../../components/Photos';
 import { ResourceState } from '../../components/ResourceState';
 import { Stars, StatusBadge } from '../../components/StatusBadge';
 import { dateTime, euro, parseEuroToCents, proShare, time } from '../../lib/format';
@@ -143,21 +143,46 @@ function RatingForm({ booking, onRated }: { booking: CustomerBooking; onRated: (
   );
 }
 
-/** Within 24 hours of the job, the customer can stop the charge by telling MISK what went wrong. */
+/** Photos a customer can add to a problem report, as the API allows. */
+export const MAX_PROBLEM_PHOTOS = 5;
+
+/** Within 24 hours of the job, the customer can stop the charge by telling MISK what went wrong, with photos. */
 function ProblemForm({ booking, onReported }: { booking: CustomerBooking; onReported: (b: CustomerBooking) => void }) {
   const { t } = useTranslation();
   const api = useApi();
   const { timezone } = useMarket();
   const [open, setOpen] = useState(false);
   const [note, setNote] = useState('');
+  const [files, setFiles] = useState<File[]>([]);
+  const [tooBig, setTooBig] = useState(false);
   const { run, busy, error } = useAction();
   const tooShort = note.trim().length < 3;
 
+  function choose(event: ChangeEvent<HTMLInputElement>) {
+    const picked = Array.from(event.target.files ?? []);
+    event.target.value = '';
+    // Files over 8 MB are left out here, so nobody waits for an upload the API would refuse.
+    setTooBig(picked.some((file) => file.size > MAX_FILE_BYTES));
+    setFiles((current) => [...current, ...picked.filter((file) => file.size <= MAX_FILE_BYTES)].slice(0, MAX_PROBLEM_PHOTOS));
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault();
-    const result = await run(() => api.post<{ booking: CustomerBooking }>(`/bookings/${booking.id}/problem`, { note: note.trim() }));
+    const result = await run(async () => {
+      let latest = (await api.post<{ booking: CustomerBooking }>(`/bookings/${booking.id}/problem`, { note: note.trim() })).booking;
+      // The report is in; photos follow one by one. One that fails can be added again below the report.
+      for (const file of files) {
+        try {
+          latest = (await api.upload<{ booking: CustomerBooking }>(`/bookings/${booking.id}/problem/photos`, file)).booking;
+        } catch (caught) {
+          onReported(latest);
+          throw caught;
+        }
+      }
+      return latest;
+    });
     if (result) {
-      onReported(result.booking);
+      onReported(result);
     }
   }
 
@@ -177,6 +202,47 @@ function ProblemForm({ booking, onReported }: { booking: CustomerBooking; onRepo
       <div className="field">
         <label htmlFor="problem-note">{t('problem.note')}</label>
         <textarea id="problem-note" rows={4} maxLength={1000} value={note} onChange={(e) => setNote(e.target.value)} />
+      </div>
+      <div className="stack">
+        <span className="b small">{t('problem.photos', { max: MAX_PROBLEM_PHOTOS })}</span>
+        {files.length > 0 && (
+          <ul className="stack" aria-label={t('problem.chosen')}>
+            {files.map((file, index) => (
+              <li key={`${file.name}-${index}`} className="row between gap8 small">
+                <span className="grow">{file.name}</span>
+                <button
+                  type="button"
+                  className="link"
+                  aria-label={t('problem.removePhoto', { name: file.name })}
+                  onClick={() => setFiles((current) => current.filter((_, i) => i !== index))}
+                >
+                  {t('problem.remove')}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {files.length < MAX_PROBLEM_PHOTOS && (
+          <span className="file-button">
+            <input
+              id="problem-photos"
+              type="file"
+              accept={IMAGE_TYPES}
+              multiple
+              className="visually-hidden"
+              onChange={choose}
+              disabled={busy}
+            />
+            <label htmlFor="problem-photos" className="mini-btn">
+              <Icon name="camera" /> {t('problem.addPhotos')}
+            </label>
+          </span>
+        )}
+        {tooBig && (
+          <span className="error-text" role="alert">
+            {t('errors.file_too_large')}
+          </span>
+        )}
       </div>
       <p className="tiny muted">{t('problem.hint')}</p>
       <ErrorText error={error} />
@@ -271,15 +337,25 @@ function PaymentSection({ booking, onConfirmed }: { booking: CustomerBooking; on
   );
 }
 
-function BookingView({ booking, onChanged, reload }: { booking: CustomerBooking; onChanged: (b: CustomerBooking) => void; reload: () => void }) {
+function BookingView({
+  booking,
+  onChanged,
+  reload,
+}: {
+  booking: CustomerBooking;
+  onChanged: (b: CustomerBooking) => void;
+  reload: () => void;
+}) {
   const { t } = useTranslation();
   const api = useApi();
   const { timezone } = useMarket();
   const cancel = useAction();
   const addPhoto = useAction();
+  const addProblemPhoto = useAction();
   const [confirmCancel, setConfirmCancel] = useState(false);
   const customerPhotos = booking.photos.filter((p) => p.kind === 'customer').map((p) => p.id);
   const proPhotos = booking.photos.filter((p) => p.kind === 'completion').map((p) => p.id);
+  const problemPhotos = booking.photos.filter((p) => p.kind === 'problem').map((p) => p.id);
   const open = booking.status !== 'completed' && booking.status !== 'cancelled';
 
   return (
@@ -339,20 +415,31 @@ function BookingView({ booking, onChanged, reload }: { booking: CustomerBooking;
           {t('tip.thanks', { amount: euro(booking.tip.amountCents), pro: euro(booking.tip.proCents), name: booking.pro?.firstName ?? '' })}
         </p>
       )}
-      {booking.lateCancel && (
-        <p className="card">{t('booking.lateCancelled', { price: euro(booking.totalCents) })}</p>
-      )}
+      {booking.lateCancel && <p className="card">{t('booking.lateCancelled', { price: euro(booking.totalCents) })}</p>}
       {booking.canReportProblem && <ProblemForm booking={booking} onReported={onChanged} />}
       {booking.problemReportedAt && (
-        <p className="card" role="status">
-          {booking.problemResolvedAt ? t('problem.resolved') : t('problem.received')}
-        </p>
+        <section className="card stack" aria-label={t('problem.yourReport')}>
+          <p role="status">{booking.problemResolvedAt ? t('problem.resolved') : t('problem.received')}</p>
+          <PhotoGrid ids={problemPhotos} label={t('problem.yourPhotos')} />
+          {!booking.problemResolvedAt && problemPhotos.length < MAX_PROBLEM_PHOTOS && (
+            <FileButton
+              label={t('problem.addPhoto')}
+              accept={IMAGE_TYPES}
+              icon="camera"
+              onFile={async (file) => {
+                const result = await addProblemPhoto.run(() =>
+                  api.upload<{ booking: CustomerBooking }>(`/bookings/${booking.id}/problem/photos`, file),
+                );
+                if (result) {
+                  onChanged(result.booking);
+                }
+              }}
+            />
+          )}
+          <ErrorText error={addProblemPhoto.error} />
+        </section>
       )}
-      {booking.rating && (
-        <p className="card">
-          {t('booking.youRated', { stars: booking.rating.stars })}
-        </p>
-      )}
+      {booking.rating && <p className="card">{t('booking.youRated', { stars: booking.rating.stars })}</p>}
 
       <section className="card" aria-label={t('book.price')}>
         <p className="line">

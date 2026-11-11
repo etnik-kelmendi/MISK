@@ -126,7 +126,8 @@
     "postcode_served": "MISK already serves this postcode.",
     "email_failed": "The invite email could not be sent. Please try again.",
     "email_not_verified": "Please confirm your email first. We sent you a link when you signed up.",
-    "invalid_verification_link": "This link has expired or was already used."
+    "invalid_verification_link": "This link has expired or was already used.",
+    "plan_has_subscriptions": "Customers have subscribed to this plan, so it cannot be deleted. Unpublish it to stop new sign-ups; existing subscriptions keep running."
   },
   "nav": {
     "customer": "Main menu",
@@ -274,7 +275,9 @@
     "empty": "No bookings yet.",
     "bookFirst": "Book a pro",
     "with": "with {{name}}",
-    "rateNow": "Rate"
+    "rateNow": "Rate",
+    "viewAll": "View all ({{count}})",
+    "showRecent": "Show the {{count}} most recent"
   },
   "booking": {
     "title": "Your booking",
@@ -329,7 +332,15 @@
     "hint": "We hold the charge until the MISK team has looked at it, and contact you.",
     "send": "Send to MISK",
     "received": "Thanks, we got your report. The charge is on hold and the MISK team will contact you.",
-    "resolved": "The MISK team has dealt with the problem you reported."
+    "resolved": "The MISK team has dealt with the problem you reported.",
+    "photos": "Photos (optional, up to {{max}})",
+    "addPhotos": "Add photos",
+    "chosen": "Photos to send",
+    "remove": "Remove",
+    "removePhoto": "Remove {{name}}",
+    "yourReport": "Your problem report",
+    "yourPhotos": "Your photo of the problem",
+    "addPhoto": "Add a photo"
   },
   "rating": {
     "title": "How was {{name}}?",
@@ -665,7 +676,11 @@
         "active": "Plan paid monthly",
         "past_due": "Plan payment failed",
         "cancelled": "Plan ended"
-      }
+      },
+      "showingRecent": "Showing the {{shown}} most recent of {{count}}.",
+      "showingAll": "Showing all {{count}}.",
+      "viewAll": "View all ({{count}})",
+      "showRecent": "Show the {{count}} most recent"
     },
     "booking": {
       "close": "Close",
@@ -766,7 +781,9 @@
         "miskMonthly": "MISK keeps per month",
         "billing": "Billing",
         "billingNote": "Plan visits are paid by the monthly subscription, not one by one. Change the plan from the customer's subscription."
-      }
+      },
+      "problemPhotos": "Customer's photo of the problem",
+      "noProblemPhotos": "The customer sent no photos."
     },
     "pros": {
       "title": "Providers",
@@ -1392,6 +1409,16 @@
         "visitMinutes": "Enter a visit length from {{min}} to {{max}} minutes, in steps of {{step}}.",
         "skipsPerMonth": "Enter a number of skips from {{min}} to {{max}}.",
         "minTermMonths": "Enter a minimum term from {{min}} to {{max}} months."
+      },
+      "deleted": "\"{{name}}\" was deleted.",
+      "delete": {
+        "button": "Delete plan",
+        "title": "Delete \"{{name}}\"?",
+        "text": "The plan is removed for good. This cannot be undone.",
+        "liveText": "The plan is live: it disappears from the app at once and is removed for good. This cannot be undone.",
+        "confirm": "Delete plan",
+        "deleting": "Deleting…",
+        "keep": "Keep it"
       }
     },
     "signUp": {

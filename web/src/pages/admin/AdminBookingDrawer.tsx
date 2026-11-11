@@ -74,18 +74,28 @@ function MoneyRow({ label, value, strong = false }: { label: string; value: stri
 function ChargeNote({ booking }: { booking: AdminBooking }) {
   const { t } = useTranslation();
   const { timezone } = useMarket();
+  const problemPhotos = booking.photos.filter((p) => p.kind === 'problem').map((p) => p.id);
   if (booking.problemReportedAt && !booking.problemResolvedAt) {
     return (
-      <div className="note warn-note" role="status">
+      <div className="note warn-note stack" role="status">
         <p>{t('admin.booking.problemOpen', { date: dateTime(booking.problemReportedAt, timezone) })}</p>
         <blockquote>{booking.problemNote}</blockquote>
+        {problemPhotos.length > 0 ? (
+          <PhotoGrid ids={problemPhotos} label={t('admin.booking.problemPhotos')} />
+        ) : (
+          <p className="small">{t('admin.booking.noProblemPhotos')}</p>
+        )}
       </div>
     );
   }
   return (
     <>
       {booking.problemResolvedAt && (
-        <p className="small muted">{t('admin.booking.problemResolved', { date: dateTime(booking.problemResolvedAt, timezone) })}</p>
+        <div className="stack">
+          <p className="small muted">{t('admin.booking.problemResolved', { date: dateTime(booking.problemResolvedAt, timezone) })}</p>
+          {booking.problemNote && <blockquote className="small">{booking.problemNote}</blockquote>}
+          <PhotoGrid ids={problemPhotos} label={t('admin.booking.problemPhotos')} />
+        </div>
       )}
       {booking.paymentStatus === 'held' && booking.status === 'completed' && booking.chargeAt && (
         <p className="small">{t('admin.booking.chargeAt', { date: dateTime(booking.chargeAt, timezone) })}</p>
@@ -121,7 +131,9 @@ function LogLine({ entry }: { entry: AdminAction }) {
   return (
     <li>
       {text}
-      <div className="small muted">{t('admin.booking.logBy', { name: entry.adminName ?? '–', date: dateTime(entry.createdAt, timezone) })}</div>
+      <div className="small muted">
+        {t('admin.booking.logBy', { name: entry.adminName ?? '–', date: dateTime(entry.createdAt, timezone) })}
+      </div>
     </li>
   );
 }
@@ -259,7 +271,8 @@ function MoneyActions({ booking, onChanged }: { booking: AdminBooking; onChanged
   const [confirm, setConfirm] = useState<Confirmable | null>(null);
   const available: Confirmable[] = [];
   if (booking.status !== 'completed' && booking.status !== 'cancelled') available.push('cancel');
-  if (booking.status === 'completed' && (booking.paymentStatus === 'held' || booking.paymentStatus === 'captured')) available.push('refund');
+  if (booking.status === 'completed' && (booking.paymentStatus === 'held' || booking.paymentStatus === 'captured'))
+    available.push('refund');
   if (booking.status === 'completed' && booking.paymentStatus === 'held' && booking.problemReportedAt && !booking.problemResolvedAt) {
     available.push('charge');
   }
@@ -383,11 +396,13 @@ function BookingDetails({ booking, onChanged }: { booking: AdminBooking; onChang
         <ChargeNote booking={booking} />
       </section>
 
-      {REASSIGNABLE.has(booking.status) && <AssignPro key={`${booking.status}-${booking.pro?.id ?? ''}`} booking={booking} onChanged={onChanged} />}
+      {REASSIGNABLE.has(booking.status) && (
+        <AssignPro key={`${booking.status}-${booking.pro?.id ?? ''}`} booking={booking} onChanged={onChanged} />
+      )}
       {RESCHEDULABLE.has(booking.status) && <MoveBooking key={booking.id} booking={booking} onChanged={onChanged} />}
       <MoneyActions booking={booking} onChanged={onChanged} />
 
-      {booking.photos.length > 0 && <PhotoGrid ids={booking.photos.map((p) => p.id)} label={t('admin.booking.photos')} />}
+      <PhotoGrid ids={booking.photos.filter((p) => p.kind !== 'problem').map((p) => p.id)} label={t('admin.booking.photos')} />
 
       <section className="stack">
         <h3>{t('admin.booking.log')}</h3>
@@ -501,7 +516,9 @@ function VisitDetails({ visit }: { visit: AdminVisit }) {
         <dd>
           {visit.tasks.join(', ')}
           {visit.status === 'completed' && (
-            <div className="small muted">{t('admin.booking.visit.tasksDone', { done: visit.tasksDone.length, total: visit.tasks.length })}</div>
+            <div className="small muted">
+              {t('admin.booking.visit.tasksDone', { done: visit.tasksDone.length, total: visit.tasks.length })}
+            </div>
           )}
         </dd>
         <dt>{t('admin.booking.notes')}</dt>

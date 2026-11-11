@@ -105,7 +105,8 @@ export interface BookingBase {
   createdAt: string;
   completedAt: string | null;
   events: { status: BookingStatus; at: string }[];
-  photos: { id: string; kind: 'customer' | 'completion' }[];
+  /** Problem photos are only sent to the customer who took them and to the MISK team. */
+  photos: { id: string; kind: 'customer' | 'completion' | 'problem' }[];
   extras: Extra[];
   rating: { stars: number; tags: string[] } | null;
 }

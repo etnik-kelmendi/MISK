@@ -685,6 +685,13 @@ async function fill(
        problem_note = 'The hedge at the back of the garden was not trimmed at all.' WHERE id = $1`,
     [problem.id],
   );
+  // The customer's photos of it, for the team only.
+  for (const colour of [[96, 128, 70], [120, 150, 84]] as [number, number, number][]) {
+    await db.query("INSERT INTO booking_photos (upload_id, booking_id, kind) VALUES ($1, $2, 'problem')", [
+      await upload(customerIds.get('clara') ?? '', 'photo', makePhoto(colour), 'image/png'),
+      problem.id,
+    ]);
+  }
 
   // Cancelled by the customer six hours before the start: the full price was charged and the pro paid.
   const lateCancel = await addBooking({

@@ -257,4 +257,31 @@ export async function planRoutes(app: FastifyInstance, ctx: AppContext) {
       return { plan: await loadPlan(request.params.id) };
     },
   );
+
+  // Deletes a plan nobody has ever subscribed to. Subscriptions keep their plan, so those plans can only be unpublished.
+  app.delete<{ Params: { id: string } }>(
+    '/admin/plans/:id',
+    { preHandler: guards.admin, schema: { params: uuidParams } },
+    async (request, reply) => {
+      const planId = request.params.id;
+      try {
+        const deleted = await pool.query(
+          `DELETE FROM plans p WHERE p.id = $1 AND NOT EXISTS (SELECT 1 FROM subscriptions s WHERE s.plan_id = p.id)`,
+          [planId],
+        );
+        if (!deleted.rowCount) {
+          await loadPlan(planId);
+          throw conflict('plan_has_subscriptions');
+        }
+      } catch (error) {
+        // A customer subscribing at the same moment wins: the plan stays.
+        if (isForeignKeyViolation(error)) {
+          throw conflict('plan_has_subscriptions');
+        }
+        throw error;
+      }
+      request.log.info({ event: 'plan_deleted', planId, by: currentUser(request).id });
+      return reply.code(204).send();
+    },
+  );
 }
