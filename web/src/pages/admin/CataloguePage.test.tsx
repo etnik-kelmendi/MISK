@@ -227,7 +227,10 @@ describe('catalogue page', () => {
     renderAt('/admin/catalogue');
     await user().click(await screen.findByRole('button', { name: 'New trade' }));
     const form = screen.getByRole('form', { name: 'New trade' });
-    expect(within(form).getByRole('button', { name: 'Create draft' })).toBeDisabled();
+    await user().click(within(form).getByRole('button', { name: 'Create draft' }));
+    expect(within(form).getByText('Enter a name for the trade, such as "Moving help".')).toBeInTheDocument();
+    expect(within(form).getByLabelText('Trade name')).toHaveFocus();
+    expect(api.calls).not.toContain('POST /admin/categories');
     await user().type(within(form).getByLabelText('Trade name'), 'Window cleaning');
     await user().click(within(form).getByRole('img', { name: 'Icon: Sparkle' }));
     await user().click(within(form).getByRole('button', { name: 'Create draft' }));

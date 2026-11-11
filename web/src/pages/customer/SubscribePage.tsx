@@ -11,6 +11,8 @@ import { ResourceState } from '../../components/ResourceState';
 import { euro } from '../../lib/format';
 import { currentMonth, DAYS_PER_WEEK, planSizePrice, VISITS_PER_MONTH } from '../../lib/plans';
 import { useAction } from '../../lib/useAction';
+import { useValidation } from '../../lib/useValidation';
+import { FieldError } from '../../components/FieldError';
 import { CardPayment } from '../../payments/CardPayment';
 import { AppHeader } from '../../shells/Shells';
 
@@ -39,7 +41,14 @@ function SubscribeForm({ plan, postcodes }: { plan: Plan; postcodes: Postcode[] 
   const perVisit = Math.round(total / VISITS_PER_MONTH[plan.frequency]);
   const month = currentMonth(timezone);
   const offSeason = plan.seasonal && (month < (plan.seasonFrom ?? 1) || month > (plan.seasonTo ?? 12));
-  const ready = days.length === needed && address.trim().length >= 3 && postcode !== '' && !offSeason;
+  const form = useValidation(
+    {
+      days: days.length !== needed && t('validation.daysMissing', { count: needed }),
+      address: !address.trim() ? t('validation.addressMissing') : address.trim().length < 3 && t('validation.addressShort'),
+      postcode: !postcode && t('validation.postcodeMissing'),
+    },
+    { days: `sub-day-${WEEKDAYS[0]}`, address: 'sub-address', postcode: 'sub-postcode' },
+  );
 
   function toggleDay(day: number) {
     setDays((current) => {
@@ -53,13 +62,16 @@ function SubscribeForm({ plan, postcodes }: { plan: Plan; postcodes: Postcode[] 
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (offSeason || !form.check()) {
+      return;
+    }
     const result = await run(() =>
       api.post<{ subscription: Subscription; payment: PaymentStep | null }>('/subscriptions', {
         planId: plan.id,
         size,
         days,
         timeWindow,
-        address,
+        address: address.trim(),
         postcode,
         notes,
         withAddon,
@@ -89,7 +101,7 @@ function SubscribeForm({ plan, postcodes }: { plan: Plan; postcodes: Postcode[] 
   }
 
   return (
-    <form onSubmit={submit}>
+    <form onSubmit={submit} noValidate>
       <div className="body">
         <p className="small muted">{t('subscribe.included', { tasks: plan.tasks.join(' · ') })}</p>
         <p className="small muted">
@@ -107,19 +119,32 @@ function SubscribeForm({ plan, postcodes }: { plan: Plan; postcodes: Postcode[] 
           </div>
         </fieldset>
 
-        <fieldset>
+        <fieldset {...form.describe('days')}>
           <legend className="h-sm">{t('subscribe.days', { count: needed })}</legend>
           <div className="wk">
             {WEEKDAYS.map((day) => (
               <label key={day} className={days.includes(day) ? 'on' : ''}>
-                <input type="checkbox" className="visually-hidden" checked={days.includes(day)} onChange={() => toggleDay(day)} />
+                <input
+                  id={`sub-day-${day}`}
+                  type="checkbox"
+                  className="visually-hidden"
+                  checked={days.includes(day)}
+                  onChange={() => toggleDay(day)}
+                />
                 {t(`weekday.${day}`)}
               </label>
             ))}
           </div>
+          <FieldError id={`sub-day-${WEEKDAYS[0]}`} message={form.message('days')} />
           <div className="seg wide-seg" role="group" aria-label={t('subscribe.window')}>
             {WINDOWS.map((w) => (
-              <button key={w} type="button" className={w === timeWindow ? 'on' : ''} aria-pressed={w === timeWindow} onClick={() => setTimeWindow(w)}>
+              <button
+                key={w}
+                type="button"
+                className={w === timeWindow ? 'on' : ''}
+                aria-pressed={w === timeWindow}
+                onClick={() => setTimeWindow(w)}
+              >
                 {t(`subscribe.windows.${w}`)}
               </button>
             ))}
@@ -139,11 +164,20 @@ function SubscribeForm({ plan, postcodes }: { plan: Plan; postcodes: Postcode[] 
 
         <div className="field">
           <label htmlFor="sub-address">{t('book.address')}</label>
-          <input id="sub-address" autoComplete="street-address" required maxLength={200} value={address} onChange={(e) => setAddress(e.target.value)} />
+          <input
+            id="sub-address"
+            autoComplete="street-address"
+            required
+            maxLength={200}
+            value={address}
+            {...form.describe('address')}
+            onChange={(e) => setAddress(e.target.value)}
+          />
+          <FieldError id="sub-address" message={form.message('address')} />
         </div>
         <div className="field">
           <label htmlFor="sub-postcode">{t('book.postcode')}</label>
-          <select id="sub-postcode" required value={postcode} onChange={(e) => setPostcode(e.target.value)}>
+          <select id="sub-postcode" required value={postcode} {...form.describe('postcode')} onChange={(e) => setPostcode(e.target.value)}>
             <option value="">{t('book.choosePostcode')}</option>
             {postcodes.map((p) => (
               <option key={p.code} value={p.code}>
@@ -151,6 +185,7 @@ function SubscribeForm({ plan, postcodes }: { plan: Plan; postcodes: Postcode[] 
               </option>
             ))}
           </select>
+          <FieldError id="sub-postcode" message={form.message('postcode')} />
         </div>
         <div className="field">
           <label htmlFor="sub-notes">{t('book.notes')}</label>
@@ -183,7 +218,7 @@ function SubscribeForm({ plan, postcodes }: { plan: Plan; postcodes: Postcode[] 
         <ErrorText error={error} />
       </div>
       <div className="cta-bar">
-        <button className="cta" type="submit" disabled={busy || !ready}>
+        <button className="cta" type="submit" disabled={busy || offSeason}>
           <Icon name="repeat" />{' '}
           {days.length !== needed
             ? t('subscribe.pickDays', { count: needed - days.length })

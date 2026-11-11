@@ -6,7 +6,9 @@ import { ApiError } from '../../api/client';
 import { ErrorText } from '../../components/ErrorText';
 import { Icon } from '../../components/Icon';
 import { useAction } from '../../lib/useAction';
-import { Field, isValidEmail, PasswordInput } from '../SignUpPage';
+import { useValidation } from '../../lib/useValidation';
+import { isValidEmail } from '../../lib/checks';
+import { Field, PasswordInput } from '../SignUpPage';
 import { MIN_PASSWORD_LENGTH } from './TeamPage';
 
 /**
@@ -21,32 +23,49 @@ export function AdminSignUpPage() {
   const ids = { first: useId(), last: useId(), email: useId(), password: useId(), confirm: useId() };
   const [form, setForm] = useState(EMPTY_FORM);
   const [emailTouched, setEmailTouched] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
   const [takenEmail, setTakenEmail] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
   const { run, busy, error } = useAction();
 
   const set = (key: keyof typeof form, value: string) => setForm((current) => ({ ...current, [key]: value }));
-  const anyEmpty = Object.values(form).some((value) => !value.trim());
-  const emailInvalid = (emailTouched || submitted) && form.email.trim() !== '' && !isValidEmail(form.email);
   const emailTaken = takenEmail !== null && takenEmail === form.email.trim().toLowerCase();
-  const passwordShort = form.password.length < MIN_PASSWORD_LENGTH;
-  const mismatch = submitted && form.confirm !== '' && form.password !== form.confirm;
-  const emailError = emailInvalid ? t('signUp.errors.email') : emailTaken ? t('signUp.errors.emailTaken') : null;
+  const v = useValidation(
+    {
+      firstName: !form.firstName.trim() && t('validation.firstNameMissing'),
+      lastName: !form.lastName.trim() && t('validation.lastNameMissing'),
+      email: !form.email.trim()
+        ? t('validation.emailMissing')
+        : !isValidEmail(form.email)
+          ? t('signUp.errors.email')
+          : emailTaken && t('signUp.errors.emailTaken'),
+      password: !form.password
+        ? t('validation.passwordMissing')
+        : form.password.length < MIN_PASSWORD_LENGTH && t('admin.signUp.passwordShort', { min: MIN_PASSWORD_LENGTH }),
+      confirm: !form.confirm ? t('validation.confirmMissing') : form.password !== form.confirm && t('signUp.errors.mismatch'),
+    },
+    { firstName: ids.first, lastName: ids.last, email: ids.email, password: ids.password, confirm: ids.confirm },
+  );
+  // The email format is also checked as soon as the field is left.
+  const emailError =
+    v.message('email') ??
+    (emailTouched && form.email.trim() !== '' && !isValidEmail(form.email)
+      ? t('signUp.errors.email')
+      : emailTaken
+        ? t('signUp.errors.emailTaken')
+        : null);
 
   /** Back to an empty form, to request an account for another email. */
   function startOver() {
     setForm(EMPTY_FORM);
     setEmailTouched(false);
-    setSubmitted(false);
+    v.reset();
     setTakenEmail(null);
     setSent(false);
   }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    setSubmitted(true);
-    if (anyEmpty || !isValidEmail(form.email) || passwordShort || form.password !== form.confirm) {
+    if (!v.check()) {
       return;
     }
     const result = await run(async () => {
@@ -99,11 +118,27 @@ export function AdminSignUpPage() {
               {t('signUp.requiredNote')}
             </p>
             <div className="two-col">
-              <Field id={ids.first} label={t('signUp.firstName')}>
-                <input id={ids.first} autoComplete="given-name" required maxLength={60} value={form.firstName} onChange={(e) => set('firstName', e.target.value)} />
+              <Field id={ids.first} label={t('signUp.firstName')} error={v.message('firstName')}>
+                <input
+                  id={ids.first}
+                  autoComplete="given-name"
+                  required
+                  maxLength={60}
+                  value={form.firstName}
+                  {...v.describe('firstName')}
+                  onChange={(e) => set('firstName', e.target.value)}
+                />
               </Field>
-              <Field id={ids.last} label={t('signUp.lastName')}>
-                <input id={ids.last} autoComplete="family-name" required maxLength={60} value={form.lastName} onChange={(e) => set('lastName', e.target.value)} />
+              <Field id={ids.last} label={t('signUp.lastName')} error={v.message('lastName')}>
+                <input
+                  id={ids.last}
+                  autoComplete="family-name"
+                  required
+                  maxLength={60}
+                  value={form.lastName}
+                  {...v.describe('lastName')}
+                  onChange={(e) => set('lastName', e.target.value)}
+                />
               </Field>
             </div>
             <Field id={ids.email} label={t('admin.signUp.email')} error={emailError}>
@@ -123,16 +158,28 @@ export function AdminSignUpPage() {
             <Field
               id={ids.password}
               label={t('signUp.password')}
-              error={submitted && passwordShort ? t('admin.signUp.passwordShort', { min: MIN_PASSWORD_LENGTH }) : null}
+              error={v.message('password')}
               hint={<span className="hint">{t('admin.team.passwordHint', { min: MIN_PASSWORD_LENGTH })}</span>}
             >
-              <PasswordInput id={ids.password} value={form.password} onChange={(v) => set('password', v)} invalid={submitted && passwordShort} />
+              <PasswordInput
+                id={ids.password}
+                value={form.password}
+                onChange={(value) => set('password', value)}
+                invalid={Boolean(v.message('password'))}
+                describedBy={v.message('password') ? `${ids.password}-error` : undefined}
+              />
             </Field>
-            <Field id={ids.confirm} label={t('signUp.confirm')} error={mismatch ? t('signUp.errors.mismatch') : null}>
-              <PasswordInput id={ids.confirm} value={form.confirm} onChange={(v) => set('confirm', v)} invalid={mismatch} />
+            <Field id={ids.confirm} label={t('signUp.confirm')} error={v.message('confirm')}>
+              <PasswordInput
+                id={ids.confirm}
+                value={form.confirm}
+                onChange={(value) => set('confirm', value)}
+                invalid={Boolean(v.message('confirm'))}
+                describedBy={v.message('confirm') ? `${ids.confirm}-error` : undefined}
+              />
             </Field>
             <ErrorText error={error} />
-            <button type="submit" className="abtn big" disabled={busy || anyEmpty}>
+            <button type="submit" className="abtn big" disabled={busy}>
               {busy ? t('common.sending') : t('admin.signUp.submit')}
             </button>
             <p className="small center">

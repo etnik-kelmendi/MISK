@@ -12,6 +12,8 @@ import { ResourceState } from '../../components/ResourceState';
 import { Stars, StatusBadge } from '../../components/StatusBadge';
 import { dateTime, euro, parseEuroToCents, proShare, time } from '../../lib/format';
 import { useAction } from '../../lib/useAction';
+import { useValidation } from '../../lib/useValidation';
+import { FieldError } from '../../components/FieldError';
 import { usePolling } from '../../lib/usePolling';
 import { CardPayment, confirmSavedCard } from '../../payments/CardPayment';
 import { AppHeader } from '../../shells/Shells';
@@ -96,9 +98,13 @@ function RatingForm({ booking, onRated }: { booking: CustomerBooking; onRated: (
   const [stars, setStars] = useState(0);
   const [tags, setTags] = useState<string[]>([]);
   const { run, busy, error } = useAction();
+  const form = useValidation({ stars: stars === 0 && t('validation.starsMissing') }, { stars: 'rating-star-1' });
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (!form.check()) {
+      return;
+    }
     const result = await run(() => api.post<{ booking: CustomerBooking }>(`/bookings/${booking.id}/rating`, { stars, tags }));
     if (result) {
       onRated(result.booking);
@@ -106,18 +112,26 @@ function RatingForm({ booking, onRated }: { booking: CustomerBooking; onRated: (
   }
 
   return (
-    <form className="card" onSubmit={submit}>
+    <form className="card" onSubmit={submit} noValidate>
       <h2 className="b">{t('rating.title', { name: booking.pro?.firstName ?? '' })}</h2>
-      <fieldset>
+      <fieldset {...form.describe('stars')}>
         <legend className="visually-hidden">{t('rating.stars')}</legend>
         <div className="bigstars">
           {[1, 2, 3, 4, 5].map((n) => (
             <label key={n} className={stars >= n ? 'on' : ''}>
-              <input type="radio" name="stars" className="visually-hidden" checked={stars === n} onChange={() => setStars(n)} />
+              <input
+                id={`rating-star-${n}`}
+                type="radio"
+                name="stars"
+                className="visually-hidden"
+                checked={stars === n}
+                onChange={() => setStars(n)}
+              />
               <Icon name="star" label={t('rating.starLabel', { count: n })} />
             </label>
           ))}
         </div>
+        <FieldError id="rating-star-1" message={form.message('stars')} />
       </fieldset>
       <fieldset>
         <legend className="h-sm">{t('rating.wentWell')}</legend>
@@ -136,7 +150,7 @@ function RatingForm({ booking, onRated }: { booking: CustomerBooking; onRated: (
         </div>
       </fieldset>
       <ErrorText error={error} />
-      <button className="cta" type="submit" disabled={busy || stars === 0}>
+      <button className="cta" type="submit" disabled={busy}>
         {t('rating.send')}
       </button>
     </form>
@@ -156,7 +170,10 @@ function ProblemForm({ booking, onReported }: { booking: CustomerBooking; onRepo
   const [files, setFiles] = useState<File[]>([]);
   const [tooBig, setTooBig] = useState(false);
   const { run, busy, error } = useAction();
-  const tooShort = note.trim().length < 3;
+  const form = useValidation(
+    { note: !note.trim() ? t('validation.problemMissing') : note.trim().length < 3 && t('validation.noteShort', { min: 3 }) },
+    { note: 'problem-note' },
+  );
 
   function choose(event: ChangeEvent<HTMLInputElement>) {
     const picked = Array.from(event.target.files ?? []);
@@ -168,6 +185,9 @@ function ProblemForm({ booking, onReported }: { booking: CustomerBooking; onRepo
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (!form.check()) {
+      return;
+    }
     const result = await run(async () => {
       let latest = (await api.post<{ booking: CustomerBooking }>(`/bookings/${booking.id}/problem`, { note: note.trim() })).booking;
       // The report is in; photos follow one by one. One that fails can be added again below the report.
@@ -201,7 +221,15 @@ function ProblemForm({ booking, onReported }: { booking: CustomerBooking; onRepo
       <h2 className="b">{t('problem.title')}</h2>
       <div className="field">
         <label htmlFor="problem-note">{t('problem.note')}</label>
-        <textarea id="problem-note" rows={4} maxLength={1000} value={note} onChange={(e) => setNote(e.target.value)} />
+        <textarea
+          id="problem-note"
+          rows={4}
+          maxLength={1000}
+          value={note}
+          {...form.describe('note')}
+          onChange={(e) => setNote(e.target.value)}
+        />
+        <FieldError id="problem-note" message={form.message('note')} />
       </div>
       <div className="stack">
         <span className="b small">{t('problem.photos', { max: MAX_PROBLEM_PHOTOS })}</span>
@@ -250,7 +278,7 @@ function ProblemForm({ booking, onReported }: { booking: CustomerBooking; onRepo
         <button type="button" className="btn btn-ghost" onClick={() => setOpen(false)}>
           {t('common.cancel')}
         </button>
-        <button className="cta" type="submit" disabled={busy || tooShort}>
+        <button className="cta" type="submit" disabled={busy}>
           {t('problem.send')}
         </button>
       </div>
@@ -273,16 +301,20 @@ function TipForm({ booking, onTipped }: { booking: CustomerBooking; onTipped: (b
   const cents = choice === 'other' ? parseEuroToCents(other) : choice;
   const valid = cents !== null && cents >= MIN_TIP_CENTS && cents <= MAX_TIP_CENTS;
   const name = booking.pro?.firstName ?? '';
+  const form = useValidation(
+    { amount: !valid && (other.trim() === '' ? t('validation.tipMissing') : t('tip.invalid')) },
+    { amount: 'tip-other' },
+  );
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!valid || cents === null) return;
+    if (!form.check() || cents === null) return;
     const result = await run(() => api.post<{ booking: CustomerBooking }>(`/bookings/${booking.id}/tip`, { amountCents: cents }));
     if (result) onTipped(result.booking);
   }
 
   return (
-    <form className="card stack" onSubmit={submit}>
+    <form className="card stack" onSubmit={submit} noValidate>
       <fieldset>
         <legend className="b">{t('tip.title', { name })}</legend>
         <div className="tip-chips">
@@ -301,13 +333,17 @@ function TipForm({ booking, onTipped }: { booking: CustomerBooking; onTipped: (b
       {choice === 'other' && (
         <div className="field">
           <label htmlFor="tip-other">{t('tip.other')}</label>
-          <input id="tip-other" inputMode="decimal" value={other} onChange={(e) => setOther(e.target.value)} />
-          {other.trim() !== '' && !valid && <span className="error-text small">{t('tip.invalid')}</span>}
+          <input id="tip-other" inputMode="decimal" value={other} {...form.describe('amount')} onChange={(e) => setOther(e.target.value)} />
+          {form.message('amount') ? (
+            <FieldError id="tip-other" message={form.message('amount')} />
+          ) : (
+            other.trim() !== '' && !valid && <span className="error-text small">{t('tip.invalid')}</span>
+          )}
         </div>
       )}
       {valid && cents !== null && <p className="small brand-text">{t('tip.split', { pro: euro(proShare(cents, proSharePct)), name })}</p>}
       <ErrorText error={error} />
-      <button className="btn btn-primary" type="submit" disabled={busy || !valid}>
+      <button className="btn btn-primary" type="submit" disabled={busy}>
         {t('tip.send', { amount: valid && cents !== null ? euro(cents) : '' })}
       </button>
     </form>

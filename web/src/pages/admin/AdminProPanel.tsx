@@ -10,6 +10,8 @@ import { Icon } from '../../components/Icon';
 import { ResourceState } from '../../components/ResourceState';
 import { dateTime, euro, longDate, zonedToIso } from '../../lib/format';
 import { useAction } from '../../lib/useAction';
+import { useValidation } from '../../lib/useValidation';
+import { FieldError } from '../../components/FieldError';
 import { fullName, LOW_ACCEPTANCE_PCT, LOW_ON_TIME_PCT, Pct } from './proFormat';
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -34,23 +36,31 @@ function NoteForm({
   const { t } = useTranslation();
   const id = useId();
   const [note, setNote] = useState('');
+  const form = useValidation(
+    { note: !note.trim() ? t('validation.noteMissing') : note.trim().length < 3 && t('validation.noteShort', { min: 3 }) },
+    { note: id },
+  );
   return (
     <form
       className="stack confirm"
+      noValidate
       onSubmit={(event: FormEvent) => {
         event.preventDefault();
-        onSubmit(note.trim());
+        if (form.check()) {
+          onSubmit(note.trim());
+        }
       }}
     >
       <div className="af">
         <label htmlFor={id}>{label}</label>
-        <textarea id={id} rows={3} maxLength={500} value={note} onChange={(e) => setNote(e.target.value)} />
+        <textarea id={id} rows={3} maxLength={500} value={note} {...form.describe('note')} onChange={(e) => setNote(e.target.value)} />
+        <FieldError id={id} message={form.message('note')} />
       </div>
       <div className="row gap8 wrap">
         <button type="button" className="abtn ghost" onClick={onCancel}>
           {t('admin.pros.panel.cancel')}
         </button>
-        <button type="submit" className={danger ? 'abtn danger' : 'abtn'} disabled={busy || note.trim().length < 3}>
+        <button type="submit" className={danger ? 'abtn danger' : 'abtn'} disabled={busy}>
           {submitLabel}
         </button>
       </div>
@@ -112,7 +122,12 @@ function CheckItem({ pro, check, onChanged }: { pro: AdminProDetail; check: ProC
           {' · '}
           {doc.expiresOn ? t('admin.pros.panel.expires', { date: longDate(doc.expiresOn, timezone) }) : t('admin.pros.panel.noExpiry')}
           {' · '}
-          <a href={api.fileUrl(doc.uploadId)} target="_blank" rel="noreferrer" aria-label={t('admin.pros.panel.viewLabel', { name: documentName })}>
+          <a
+            href={api.fileUrl(doc.uploadId)}
+            target="_blank"
+            rel="noreferrer"
+            aria-label={t('admin.pros.panel.viewLabel', { name: documentName })}
+          >
             {t('admin.pros.panel.view')}
           </a>
         </p>
@@ -278,7 +293,12 @@ function Actions({ pro, onChanged }: { pro: AdminProDetail; onChanged: Changed }
       <h3 id="actions-heading">{t('admin.pros.panel.actions')}</h3>
       {mode === 'idle' && (
         <div className="row gap8 wrap">
-          <button type="button" className="abtn ghost" disabled={action.busy} onClick={() => void post('watch-list', { on: !pro.watchListAt })}>
+          <button
+            type="button"
+            className="abtn ghost"
+            disabled={action.busy}
+            onClick={() => void post('watch-list', { on: !pro.watchListAt })}
+          >
             {pro.watchListAt ? t('admin.pros.panel.watchOff') : t('admin.pros.panel.watchOn')}
           </button>
           <button type="button" className="abtn ghost" onClick={() => setMode('coaching')}>
@@ -399,7 +419,9 @@ function ProDetails({ pro, notice, onChanged }: { pro: AdminProDetail; notice: s
     <>
       <div className="row between gap8">
         <div className="small muted">{pro.trades.join(', ')}</div>
-        <span className={`badge ${pro.status === 'approved' ? 'g' : pro.status === 'suspended' ? 'r' : 'a'}`}>{t(`proStatus.${pro.status}`)}</span>
+        <span className={`badge ${pro.status === 'approved' ? 'g' : pro.status === 'suspended' ? 'r' : 'a'}`}>
+          {t(`proStatus.${pro.status}`)}
+        </span>
       </div>
       {notice && (
         <p className="note" role="status">
@@ -413,7 +435,9 @@ function ProDetails({ pro, notice, onChanged }: { pro: AdminProDetail; notice: s
       )}
       {pro.jobsPausedAt && <p className="note warn-note">{t('admin.pros.panel.paused', { date: longDate(pro.jobsPausedAt, timezone) })}</p>}
       {pro.watchListAt && <p className="note">{t('admin.pros.panel.onWatch', { date: longDate(pro.watchListAt, timezone) })}</p>}
-      {pro.coachingCallAt && <p className="note">{t('admin.pros.panel.coachingBooked', { date: dateTime(pro.coachingCallAt, timezone) })}</p>}
+      {pro.coachingCallAt && (
+        <p className="note">{t('admin.pros.panel.coachingBooked', { date: dateTime(pro.coachingCallAt, timezone) })}</p>
+      )}
 
       {pro.qualityReasons.length > 0 && (
         <section className="quality" aria-labelledby="quality-heading">
@@ -486,7 +510,12 @@ function ProDetails({ pro, notice, onChanged }: { pro: AdminProDetail; notice: s
         <h3 id="checks-heading">{applying ? t('admin.pros.panel.checks') : t('admin.pros.panel.documents')}</h3>
         <ul className="check-list">
           {pro.checks.map((check) => (
-            <CheckItem key={`${check.kind}-${check.document?.uploadId ?? 'none'}-${check.state}`} pro={pro} check={check} onChanged={onChanged} />
+            <CheckItem
+              key={`${check.kind}-${check.document?.uploadId ?? 'none'}-${check.state}`}
+              pro={pro}
+              check={check}
+              onChanged={onChanged}
+            />
           ))}
         </ul>
       </section>

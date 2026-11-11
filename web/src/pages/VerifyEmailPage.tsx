@@ -8,7 +8,7 @@ import { ErrorText } from '../components/ErrorText';
 import { Icon } from '../components/Icon';
 import { ResendVerification } from '../components/ResendVerification';
 import { useAction } from '../lib/useAction';
-import { isValidEmail } from './SignUpPage';
+import { isValidEmail } from '../lib/checks';
 
 /** The token from the link's #fragment. */
 function readToken(): string {

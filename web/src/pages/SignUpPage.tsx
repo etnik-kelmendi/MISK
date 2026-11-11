@@ -9,13 +9,12 @@ import { Drawer } from '../components/Drawer';
 import { ErrorText } from '../components/ErrorText';
 import { Icon } from '../components/Icon';
 import { ResendVerification } from '../components/ResendVerification';
+import { isValidEmail } from '../lib/checks';
 import { useAction } from '../lib/useAction';
+import { useValidation } from '../lib/useValidation';
 import { TermsContent } from './TermsPage';
 
 export const MIN_PASSWORD_LENGTH = 8;
-const EMAIL_FORMAT = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
-
-export const isValidEmail = (email: string) => EMAIL_FORMAT.test(email.trim());
 
 export function passwordChecks(password: string) {
   return {
@@ -114,7 +113,6 @@ export function SignUpPage() {
   const [form, setForm] = useState({ firstName: '', lastName: '', email: '', password: '', confirm: '', acceptTerms: false });
   const [emailTouched, setEmailTouched] = useState(false);
   const [showRules, setShowRules] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
   // The email the API said is already registered; the message goes away once the email changes.
   const [takenEmail, setTakenEmail] = useState<string | null>(null);
   const { run, busy, error } = useAction();
@@ -122,26 +120,45 @@ export function SignUpPage() {
   // The address the confirmation link went to; the account signs in once it is confirmed.
   const [sentTo, setSentTo] = useState<string | null>(null);
 
-  if (state.status === 'signedIn') {
-    return <Navigate to={state.user.role ? HOME_OF[state.user.role] : '/signin'} replace />;
-  }
-
   const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) => {
     setForm((current) => ({ ...current, [key]: value }));
   };
   const emailTaken = takenEmail !== null && takenEmail === form.email.trim().toLowerCase();
   const checks = passwordChecks(form.password);
   const passwordOk = checks.length && checks.letter && checks.number;
-  const emailInvalid = (emailTouched || submitted) && form.email.trim() !== '' && !isValidEmail(form.email);
-  const mismatch = submitted && form.confirm !== '' && form.password !== form.confirm;
-  const anyEmpty = [form.firstName, form.lastName, form.email, form.password, form.confirm].some((v) => !v.trim());
-  const emailError = emailInvalid ? t('signUp.errors.email') : emailTaken ? t('signUp.errors.emailTaken') : null;
+  // What is missing or wrong in each field, in the order of the form.
+  const v = useValidation(
+    {
+      firstName: !form.firstName.trim() && t('validation.firstNameMissing'),
+      lastName: !form.lastName.trim() && t('validation.lastNameMissing'),
+      email: !form.email.trim()
+        ? t('validation.emailMissing')
+        : !isValidEmail(form.email)
+          ? t('signUp.errors.email')
+          : emailTaken && t('signUp.errors.emailTaken'),
+      password: !form.password ? t('validation.passwordMissing') : !passwordOk && t('validation.passwordWeak'),
+      confirm: !form.confirm ? t('validation.confirmMissing') : form.password !== form.confirm && t('signUp.errors.mismatch'),
+      terms: !form.acceptTerms && t('validation.termsMissing'),
+    },
+    { firstName: ids.first, lastName: ids.last, email: ids.email, password: ids.password, confirm: ids.confirm, terms: ids.terms },
+  );
+  // The email format is also checked as soon as the field is left, before Sign up.
+  const emailError =
+    v.message('email') ??
+    (emailTouched && form.email.trim() !== '' && !isValidEmail(form.email)
+      ? t('signUp.errors.email')
+      : emailTaken
+        ? t('signUp.errors.emailTaken')
+        : null);
+
+  if (state.status === 'signedIn') {
+    return <Navigate to={state.user.role ? HOME_OF[state.user.role] : '/signin'} replace />;
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    setSubmitted(true);
     setShowRules(true);
-    if (anyEmpty || !form.acceptTerms || !isValidEmail(form.email) || !passwordOk || form.password !== form.confirm) {
+    if (!v.check()) {
       return;
     }
     const result = await run(async () => {
@@ -219,22 +236,24 @@ export function SignUpPage() {
           </p>
 
           <div className="two-col">
-            <Field id={ids.first} label={t('signUp.firstName')}>
+            <Field id={ids.first} label={t('signUp.firstName')} error={v.message('firstName')}>
               <input
                 id={ids.first}
                 autoComplete="given-name"
                 required
                 maxLength={60}
+                {...v.describe('firstName')}
                 value={form.firstName}
                 onChange={(e) => set('firstName', e.target.value)}
               />
             </Field>
-            <Field id={ids.last} label={t('signUp.lastName')}>
+            <Field id={ids.last} label={t('signUp.lastName')} error={v.message('lastName')}>
               <input
                 id={ids.last}
                 autoComplete="family-name"
                 required
                 maxLength={60}
+                {...v.describe('lastName')}
                 value={form.lastName}
                 onChange={(e) => set('lastName', e.target.value)}
               />
@@ -260,11 +279,12 @@ export function SignUpPage() {
           <Field
             id={ids.password}
             label={t('signUp.password')}
+            error={v.message('password')}
             hint={
               (showRules || form.password !== '') && (
                 <ul id={ids.rules} className="rules" aria-label={t('signUp.rules.title')}>
                   {(['length', 'letter', 'number'] as const).map((rule) => (
-                    <li key={rule} className={checks[rule] ? 'ok' : submitted ? 'bad' : ''}>
+                    <li key={rule} className={checks[rule] ? 'ok' : v.tried ? 'bad' : ''}>
                       <Icon name={checks[rule] ? 'check' : 'x'} />
                       <span>{t(`signUp.rules.${rule}`, { min: MIN_PASSWORD_LENGTH })}</span>
                       <span className="visually-hidden">{checks[rule] ? t('signUp.rules.met') : t('signUp.rules.notMet')}</span>
@@ -277,20 +297,20 @@ export function SignUpPage() {
             <PasswordInput
               id={ids.password}
               value={form.password}
-              onChange={(v) => set('password', v)}
+              onChange={(value) => set('password', value)}
               onFocus={() => setShowRules(true)}
-              describedBy={ids.rules}
-              invalid={submitted && !passwordOk}
+              describedBy={v.message('password') ? `${ids.password}-error ${ids.rules}` : ids.rules}
+              invalid={Boolean(v.message('password'))}
             />
           </Field>
 
-          <Field id={ids.confirm} label={t('signUp.confirm')} error={mismatch ? t('signUp.errors.mismatch') : null}>
+          <Field id={ids.confirm} label={t('signUp.confirm')} error={v.message('confirm')}>
             <PasswordInput
               id={ids.confirm}
               value={form.confirm}
-              onChange={(v) => set('confirm', v)}
-              invalid={mismatch}
-              describedBy={mismatch ? `${ids.confirm}-error` : undefined}
+              onChange={(value) => set('confirm', value)}
+              invalid={Boolean(v.message('confirm'))}
+              describedBy={v.message('confirm') ? `${ids.confirm}-error` : undefined}
             />
           </Field>
 
@@ -300,6 +320,7 @@ export function SignUpPage() {
               type="checkbox"
               required
               checked={form.acceptTerms}
+              {...v.describe('terms')}
               onChange={(e) => set('acceptTerms', e.target.checked)}
             />
             <label htmlFor={ids.terms}>
@@ -312,6 +333,11 @@ export function SignUpPage() {
             <button type="button" className="link b" aria-haspopup="dialog" onClick={() => setTermsOpen(true)}>
               {t('signUp.readTerms')}
             </button>
+            {v.message('terms') && (
+              <span id={`${ids.terms}-error`} className="error-text terms-error">
+                {v.message('terms')}
+              </span>
+            )}
           </div>
           {termsOpen && (
             <Drawer title={t('terms.title')} closeLabel={t('common.close')} onClose={() => setTermsOpen(false)}>
@@ -330,10 +356,9 @@ export function SignUpPage() {
           )}
 
           <ErrorText error={error} />
-          <button className="cta" type="submit" disabled={busy || anyEmpty || !form.acceptTerms}>
+          <button className="cta" type="submit" disabled={busy}>
             {busy ? t('signUp.creating') : t('signUp.submit')}
           </button>
-          {(anyEmpty || !form.acceptTerms) && <p className="tiny muted center">{t('signUp.fillAll')}</p>}
 
           <div className="switch-account">
             <span className="small">{t('signUp.haveAccount')}</span>

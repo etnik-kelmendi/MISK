@@ -2,11 +2,14 @@
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string | undefined;
+  /** With `validation_failed`: the field the API refused, such as "email" or "priceCents". */
+  readonly field: string | undefined;
 
-  constructor(status: number, code?: string) {
+  constructor(status: number, code?: string, field?: string) {
     super(`API responded with status ${status}`);
     this.status = status;
     this.code = code;
+    this.field = field;
   }
 }
 
@@ -27,8 +30,8 @@ export function createApi(baseUrl: string): Api {
   async function send<T>(path: string, init: RequestInit): Promise<T> {
     const response = await fetch(`${baseUrl}${path}`, { ...init, credentials: 'include' });
     if (!response.ok) {
-      const body = (await response.json().catch(() => null)) as { error?: string } | null;
-      throw new ApiError(response.status, body?.error);
+      const body = (await response.json().catch(() => null)) as { error?: string; field?: string } | null;
+      throw new ApiError(response.status, body?.error, body?.field);
     }
     if (response.status === 204) {
       return undefined as T;

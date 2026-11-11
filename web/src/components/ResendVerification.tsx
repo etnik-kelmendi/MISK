@@ -11,9 +11,15 @@ export function ResendVerification({ email, className = 'btn btn-ghost' }: { ema
   const api = useApi();
   const { run, busy, error } = useAction();
   const [sent, setSent] = useState(false);
+  const [missing, setMissing] = useState(false);
 
   async function resend() {
     setSent(false);
+    if (!email.trim()) {
+      setMissing(true);
+      return;
+    }
+    setMissing(false);
     const ok = await run(() => api.post('/auth/verify-email/resend', { email: email.trim() }).then(() => true));
     setSent(Boolean(ok));
   }
@@ -25,8 +31,13 @@ export function ResendVerification({ email, className = 'btn btn-ghost' }: { ema
           <Icon name="check" /> {t('verifyEmail.resent')}
         </p>
       )}
+      {missing && (
+        <p className="error-text" role="alert">
+          {t('validation.resendEmailMissing')}
+        </p>
+      )}
       <ErrorText error={error} />
-      <button type="button" className={className} disabled={busy || !email.trim()} onClick={() => void resend()}>
+      <button type="button" className={className} disabled={busy} onClick={() => void resend()}>
         {busy ? t('common.sending') : t('verifyEmail.resend')}
       </button>
     </div>

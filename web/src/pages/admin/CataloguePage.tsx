@@ -10,6 +10,8 @@ import { Icon } from '../../components/Icon';
 import { ResourceState } from '../../components/ResourceState';
 import { dateTime, euro, parseEuroToCents, proShare, sizePrice } from '../../lib/format';
 import { useAction } from '../../lib/useAction';
+import { useValidation } from '../../lib/useValidation';
+import { FieldError } from '../../components/FieldError';
 import { useMarket } from '../../api/MarketContext';
 import { CategoryView } from '../customer/CategoryPage';
 
@@ -205,14 +207,20 @@ function AddServiceRow({ categoryId, onDone }: { categoryId: string; onDone: (ad
   const problems = {
     name: name.trim() === '' ? t('admin.catalogue.nameRequired') : null,
     price: validPrice(cents) ? null : t('admin.catalogue.priceInvalid'),
-    duration: Number.isInteger(duration) && duration >= 15 && duration <= 600 && duration % 15 === 0 ? null : t('admin.catalogue.durationInvalid'),
+    duration:
+      Number.isInteger(duration) && duration >= 15 && duration <= 600 && duration % 15 === 0 ? null : t('admin.catalogue.durationInvalid'),
   };
   const ready = !problems.name && !problems.price && !problems.duration;
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     setShown(true);
-    if (!ready || cents === null) return;
+    if (!ready || cents === null) {
+      // The cursor goes to the first field to fix.
+      const first = (['name', 'price', 'duration'] as const).find((key) => problems[key]);
+      if (first) document.getElementById(`new-${first}`)?.focus();
+      return;
+    }
     const result = await action.run(() =>
       api.post('/admin/services', {
         categoryId,
@@ -296,7 +304,7 @@ function AddServiceRow({ categoryId, onDone }: { categoryId: string; onDone: (ad
         <button type="button" className="abtn ghost" onClick={() => onDone(false)}>
           {t('admin.catalogue.cancel')}
         </button>
-        <button type="submit" className="abtn" disabled={action.busy || (shown && !ready)}>
+        <button type="submit" className="abtn" disabled={action.busy}>
           {t('admin.catalogue.add')}
         </button>
       </div>
@@ -351,7 +359,9 @@ function ChangeLog({ changes }: { changes: CatalogueChange[] }) {
                 from: c.details.from === undefined ? '' : euro(c.details.from),
                 to: c.details.to === undefined ? '' : euro(c.details.to),
               })}
-              <div className="small muted">{t('admin.catalogue.logBy', { name: c.adminName ?? '–', date: dateTime(c.createdAt, timezone) })}</div>
+              <div className="small muted">
+                {t('admin.catalogue.logBy', { name: c.adminName ?? '–', date: dateTime(c.createdAt, timezone) })}
+              </div>
             </li>
           ))}
         </ul>
@@ -405,26 +415,35 @@ function NewTradeForm({ onCreated, onCancel }: { onCreated: (category: AdminCate
   const action = useAction();
   const [name, setName] = useState('');
   const [icon, setIcon] = useState<IconName>('leaf');
+  const form = useValidation({ name: !name.trim() && t('validation.tradeNameMissing') }, { name: 'trade-name' });
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (!form.check()) return;
     const result = await action.run(() => api.post<{ category: AdminCategory }>('/admin/categories', { name: name.trim(), icon }));
     if (result) onCreated(result.category);
   }
 
   return (
-    <form className="panel stack" onSubmit={submit} aria-labelledby="new-trade-heading">
+    <form className="panel stack" onSubmit={submit} noValidate aria-labelledby="new-trade-heading">
       <h2 id="new-trade-heading">{t('admin.catalogue.newTradeTitle')}</h2>
       <div className="af">
         <label htmlFor="trade-name">{t('admin.catalogue.tradeName')}</label>
-        <input id="trade-name" maxLength={60} value={name} onChange={(e) => setName(e.target.value)} />
+        <input id="trade-name" maxLength={60} value={name} {...form.describe('name')} onChange={(e) => setName(e.target.value)} />
+        <FieldError id="trade-name" message={form.message('name')} />
       </div>
       <fieldset className="af">
         <legend>{t('admin.catalogue.icon')}</legend>
         <div className="row gap8 wrap">
           {ICONS.map((option) => (
             <label key={option} className={`icon-pick ${icon === option ? 'on' : ''}`}>
-              <input type="radio" name="trade-icon" className="visually-hidden" checked={icon === option} onChange={() => setIcon(option)} />
+              <input
+                type="radio"
+                name="trade-icon"
+                className="visually-hidden"
+                checked={icon === option}
+                onChange={() => setIcon(option)}
+              />
               <Icon name={option} label={t('admin.catalogue.iconLabel', { icon: t(`admin.catalogue.icons.${option}`) })} />
             </label>
           ))}
@@ -436,7 +455,7 @@ function NewTradeForm({ onCreated, onCancel }: { onCreated: (category: AdminCate
         <button type="button" className="abtn ghost" onClick={onCancel}>
           {t('admin.catalogue.cancel')}
         </button>
-        <button type="submit" className="abtn" disabled={action.busy || !name.trim()}>
+        <button type="submit" className="abtn" disabled={action.busy}>
           {t('admin.catalogue.createTrade')}
         </button>
       </div>

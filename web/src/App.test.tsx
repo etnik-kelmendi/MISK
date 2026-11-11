@@ -79,6 +79,39 @@ describe('log in', () => {
     expect(api.bodies['POST /auth/verify-email/resend']).toEqual({ email: 'sara@example.com' });
   });
 
+  it('says what is missing or wrong before sending the log-in', async () => {
+    const api = fakeApi(null);
+    renderAt('/signin');
+    await user().click(await screen.findByRole('button', { name: 'Log in' }));
+    expect(screen.getByText('Enter your email address.')).toBeInTheDocument();
+    expect(screen.getByText('Enter a password.')).toBeInTheDocument();
+    expect(screen.getByLabelText('Email address')).toHaveFocus();
+    await user().type(screen.getByLabelText('Email address'), 'sara@example');
+    expect(screen.getByText('Enter an email address like name@example.com.')).toBeInTheDocument();
+    expect(api.calls).not.toContain('POST /auth/login');
+  });
+
+  it('says how to write the mobile number and the code', async () => {
+    const api = fakeApi(null);
+    api.on('POST /auth/phone/start', { status: 202, body: { phone: '+4915112345678' } });
+    renderAt('/signin?method=phone');
+    const send = await screen.findByRole('button', { name: /Send me a sign-in code/ });
+    await user().click(send);
+    expect(screen.getByText(/Enter your mobile number, starting with the country code/)).toBeInTheDocument();
+    await user().type(screen.getByLabelText('Mobile number'), '0151 1234');
+    await user().click(send);
+    expect(screen.getByText('Enter an international phone number, e.g. +49 151 23456789.')).toBeInTheDocument();
+    expect(api.calls).not.toContain('POST /auth/phone/start');
+
+    await user().clear(screen.getByLabelText('Mobile number'));
+    await user().type(screen.getByLabelText('Mobile number'), '+49 151 12345678');
+    await user().click(send);
+    await user().type(await screen.findByLabelText('6-digit code'), '123');
+    await user().click(screen.getByRole('button', { name: 'Sign in' }));
+    expect(screen.getByText('The code has 6 digits. Check the text message and enter all of them.')).toBeInTheDocument();
+    expect(api.calls).not.toContain('POST /auth/phone/verify');
+  });
+
   it('explains a wrong email or password', async () => {
     const api = fakeApi(null);
     api.on('POST /auth/login', { status: 401, body: { error: 'invalid_login' } });
@@ -137,7 +170,7 @@ describe('log in', () => {
 
 describe('sign up', () => {
   type Label = 'First name' | 'Last name' | 'Email address' | 'Password' | 'Confirm password';
-  const field = (label: Label) => screen.getByLabelText(new RegExp(`^${label}`));
+  const field = (label: Label) => screen.getByLabelText(new RegExp(`^${label}`), { selector: 'input' });
   const fill = async (values: Partial<Record<Label, string>>) => {
     for (const [label, value] of Object.entries(values) as [Label, string][]) {
       await user().type(field(label), value);
@@ -207,8 +240,8 @@ describe('sign up', () => {
     expect(screen.getByRole('heading', { level: 2, name: '1. What MISK is' })).toBeInTheDocument();
   });
 
-  it('marks required fields and keeps Sign up disabled until all are filled and the terms accepted', async () => {
-    fakeApi(null);
+  it('marks required fields and says under each one what is missing when Sign up is clicked', async () => {
+    const api = fakeApi(null);
     renderAt('/signup');
     await screen.findByRole('heading', { name: 'Create your account' });
     for (const label of Object.keys(complete) as Label[]) {
@@ -216,13 +249,30 @@ describe('sign up', () => {
       expect(field(label).closest('.field')?.querySelector('label .required')).toHaveTextContent('*');
     }
     const submit = screen.getByRole('button', { name: 'Sign up' });
-    expect(submit).toBeDisabled();
-    await fill(complete);
-    expect(submit).toBeDisabled();
-    await user().click(screen.getByRole('checkbox', { name: /I accept the terms and conditions/ }));
     expect(submit).toBeEnabled();
-    await user().clear(field('Last name'));
-    expect(submit).toBeDisabled();
+    expect(screen.queryByText('Enter your first name.')).not.toBeInTheDocument();
+    await user().click(submit);
+    for (const message of [
+      'Enter your first name.',
+      'Enter your last name.',
+      'Enter your email address.',
+      'Enter a password.',
+      'Enter the password a second time to confirm it.',
+      'Tick the box to accept the terms and conditions.',
+    ]) {
+      expect(screen.getByText(message)).toBeInTheDocument();
+    }
+    expect(field('First name')).toHaveFocus();
+    expect(field('First name')).toHaveAttribute('aria-invalid', 'true');
+    expect(field('First name')).toHaveAccessibleDescription('Enter your first name.');
+    expect(api.calls).not.toContain('POST /auth/register');
+
+    await fill({ 'First name': 'Sara' });
+    expect(screen.queryByText('Enter your first name.')).not.toBeInTheDocument();
+    await fill({ 'Last name': 'Meier', 'Email address': 'sara@example.com', Password: 'garden42', 'Confirm password': 'garden42' });
+    await user().click(submit);
+    expect(screen.getByRole('checkbox', { name: /I accept the terms and conditions/ })).toHaveFocus();
+    expect(api.calls).not.toContain('POST /auth/register');
   });
 
   it('says when the email is already registered', async () => {
@@ -329,7 +379,9 @@ describe('confirming an email', () => {
     renderAt('/verify-email');
     expect(await screen.findByRole('alert')).toHaveTextContent('This link has expired or was already used.');
     const send = screen.getByRole('button', { name: 'Send the link again' });
-    expect(send).toBeDisabled();
+    await user().click(send);
+    expect(screen.getByText('Enter a valid email address to get a new link.')).toBeInTheDocument();
+    expect(api.calls).not.toContain('POST /auth/verify-email/resend');
     await user().type(screen.getByLabelText('Email address'), 'sara@example.com');
     await user().click(send);
     expect(await screen.findByText(/A new link is on its way/)).toBeInTheDocument();
@@ -538,8 +590,11 @@ describe('a booking', () => {
     });
     renderAt('/bookings/b1');
     const send = await screen.findByRole('button', { name: 'Send rating' });
-    expect(send).toBeDisabled();
+    await user().click(send);
+    expect(screen.getByText('Choose from 1 to 5 stars.')).toBeInTheDocument();
+    expect(api.calls).not.toContain('POST /bookings/b1/rating');
     await user().click(screen.getByRole('radio', { name: '5 stars' }));
+    expect(screen.queryByText('Choose from 1 to 5 stars.')).not.toBeInTheDocument();
     await user().click(screen.getByRole('checkbox', { name: 'Tidy work' }));
     await user().click(send);
     expect(await screen.findByText('You gave 5 stars. Thank you!')).toBeInTheDocument();
@@ -558,7 +613,13 @@ describe('a booking', () => {
     expect(await screen.findByText('We charge your card on Sat 7 Nov, 11:00. Not happy with the job? Tell us before then.')).toBeInTheDocument();
     await user().click(screen.getByRole('button', { name: 'Report a problem' }));
     const send = screen.getByRole('button', { name: 'Send to MISK' });
-    expect(send).toBeDisabled();
+    await user().click(send);
+    expect(screen.getByText('Tell us what went wrong.')).toBeInTheDocument();
+    expect(screen.getByLabelText('Tell us what was not done right')).toHaveFocus();
+    await user().type(screen.getByLabelText('Tell us what was not done right'), 'No');
+    expect(screen.getByText('Write at least 3 characters.')).toBeInTheDocument();
+    expect(api.calls).not.toContain('POST /bookings/b1/problem');
+    await user().clear(screen.getByLabelText('Tell us what was not done right'));
     await user().type(screen.getByLabelText('Tell us what was not done right'), '  Back lawn not mowed ');
     await user().click(send);
     expect(await screen.findByText(/we got your report/)).toBeInTheDocument();
@@ -797,7 +858,11 @@ describe('monthly plans in the apps', () => {
     expect(within(summary).getByText('€64')).toBeInTheDocument();
 
     const submit = screen.getByRole('button', { name: /Pick 2 more days/ });
-    expect(submit).toBeDisabled();
+    await user().click(submit);
+    expect(screen.getByText('Choose 2 days for the visits.')).toBeInTheDocument();
+    expect(screen.getByText('Enter the street and house number where the job is.')).toBeInTheDocument();
+    expect(screen.getByText('Choose your postcode.')).toBeInTheDocument();
+    expect(api.calls).not.toContain('POST /subscriptions');
     await user().click(screen.getByRole('checkbox', { name: 'Tue' }));
     await user().click(screen.getByRole('checkbox', { name: 'Thu' }));
     await user().type(screen.getByLabelText('Street and house number'), '12 Linden Street');
@@ -1297,7 +1362,11 @@ describe('admin', () => {
     expect(await screen.findByRole('heading', { name: 'Request an admin account' })).toBeInTheDocument();
 
     const submit = screen.getByRole('button', { name: 'Request account' });
-    expect(submit).toBeDisabled();
+    await user().click(submit);
+    expect(screen.getByText('Enter your first name.')).toBeInTheDocument();
+    expect(screen.getByText('Enter your email address.')).toBeInTheDocument();
+    expect(screen.getByLabelText(/^First name/)).toHaveFocus();
+    expect(api.calls).not.toContain('POST /auth/admin/register');
     await user().type(screen.getByLabelText(/^First name/), 'Lina');
     await user().type(screen.getByLabelText(/^Last name/), 'Hoxha');
     await user().type(screen.getByLabelText(/^Work email address/), 'lina@misk.test');
@@ -1470,7 +1539,9 @@ describe('admin', () => {
     await user().type(within(form).getByLabelText('Password'), 'a brand new long password');
     await user().type(within(form).getByLabelText('Repeat password'), 'a brand new long passwor');
     expect(within(form).getByText('The passwords do not match.')).toBeInTheDocument();
-    expect(submit).toBeDisabled();
+    await user().click(submit);
+    expect(api.calls).not.toContain('POST /admin/team/u-elion/password');
+    expect(within(form).getByLabelText('Repeat password')).toHaveFocus();
     await user().type(within(form).getByLabelText('Repeat password'), 'd');
     await user().click(submit);
     expect(await screen.findByRole('status')).toHaveTextContent('Password changed for elion.');

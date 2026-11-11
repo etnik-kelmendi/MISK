@@ -18,11 +18,26 @@ import { ErrorText } from '../../components/ErrorText';
 import { ResourceState } from '../../components/ResourceState';
 import { dateTime, euro } from '../../lib/format';
 import { useAction } from '../../lib/useAction';
+import { isValidEmail } from '../../lib/checks';
+import { useValidation } from '../../lib/useValidation';
+import { FieldError } from '../../components/FieldError';
 import { useSave } from './settings/SaveStatus';
 
 export const MIN_PASSWORD_LENGTH = 12;
 
-function PasswordFields({ id, value, onChange }: { id: string; value: { first: string; second: string }; onChange: (v: { first: string; second: string }) => void }) {
+type PasswordPair = { first: string; second: string };
+
+function PasswordFields({
+  id,
+  value,
+  onChange,
+  form,
+}: {
+  id: string;
+  value: PasswordPair;
+  onChange: (v: PasswordPair) => void;
+  form: ReturnType<typeof useValidation<'first' | 'second'>>;
+}) {
   const { t } = useTranslation();
   const mismatch = value.second.length > 0 && value.first !== value.second;
   return (
@@ -36,8 +51,10 @@ function PasswordFields({ id, value, onChange }: { id: string; value: { first: s
           required
           minLength={MIN_PASSWORD_LENGTH}
           value={value.first}
+          {...form.describe('first')}
           onChange={(e) => onChange({ ...value, first: e.target.value })}
         />
+        <FieldError id={`${id}-password`} message={form.message('first')} />
         <span className="hint">{t('admin.team.passwordHint', { min: MIN_PASSWORD_LENGTH })}</span>
       </div>
       <div className="af">
@@ -48,15 +65,19 @@ function PasswordFields({ id, value, onChange }: { id: string; value: { first: s
           autoComplete="new-password"
           required
           value={value.second}
+          {...form.describe('second')}
           onChange={(e) => onChange({ ...value, second: e.target.value })}
         />
-        {mismatch && <span className="error-text">{t('admin.team.mismatch')}</span>}
+        {form.message('second') ? (
+          <FieldError id={`${id}-repeat`} message={form.message('second')} />
+        ) : (
+          mismatch && <span className="error-text">{t('admin.team.mismatch')}</span>
+        )}
       </div>
     </>
   );
 }
 
-const valid = (p: { first: string; second: string }) => p.first.length >= MIN_PASSWORD_LENGTH && p.first === p.second;
 const empty = { first: '', second: '' };
 
 function ResetForm({ admin, onDone, onCancel }: { admin: AdminAccount; onDone: () => void; onCancel: () => void }) {
@@ -65,9 +86,22 @@ function ResetForm({ admin, onDone, onCancel }: { admin: AdminAccount; onDone: (
   const me = useUser();
   const { run, busy, error } = useAction();
   const [password, setPassword] = useState(empty);
+  const fieldId = `reset-${admin.id}`;
+  const form = useValidation(
+    {
+      first: !password.first
+        ? t('validation.passwordMissing')
+        : password.first.length < MIN_PASSWORD_LENGTH && t('admin.signUp.passwordShort', { min: MIN_PASSWORD_LENGTH }),
+      second: !password.second ? t('validation.confirmMissing') : password.first !== password.second && t('admin.team.mismatch'),
+    },
+    { first: `${fieldId}-password`, second: `${fieldId}-repeat` },
+  );
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (!form.check()) {
+      return;
+    }
     const done = await run(() => api.post(`/admin/team/${admin.id}/password`, { password: password.first }).then(() => true));
     if (done) {
       onDone();
@@ -75,14 +109,14 @@ function ResetForm({ admin, onDone, onCancel }: { admin: AdminAccount; onDone: (
   }
 
   return (
-    <form className="fgrid service-form" onSubmit={submit} aria-label={t('admin.team.resetFor', { name: admin.username })}>
-      <PasswordFields id={`reset-${admin.id}`} value={password} onChange={setPassword} />
+    <form className="fgrid service-form" onSubmit={submit} noValidate aria-label={t('admin.team.resetFor', { name: admin.username })}>
+      <PasswordFields id={fieldId} value={password} onChange={setPassword} form={form} />
       <p className="small muted full">{admin.id === me.id ? t('admin.team.resetOwn') : t('admin.team.resetOther')}</p>
       <div className="row gap8 full">
         <button type="button" className="abtn ghost" onClick={onCancel}>
           {t('common.cancel')}
         </button>
-        <button type="submit" className="abtn" disabled={busy || !valid(password)}>
+        <button type="submit" className="abtn" disabled={busy}>
           {t('admin.team.setPassword')}
         </button>
       </div>
@@ -96,9 +130,14 @@ function EmailForm({ admin, onSaved, onCancel }: { admin: AdminAccount; onSaved:
   const api = useApi();
   const { run, busy, error } = useAction();
   const [email, setEmail] = useState(admin.email ?? '');
+  const emailId = `email-${admin.id}`;
+  const form = useValidation({ email: email.trim() !== '' && !isValidEmail(email) && t('signUp.errors.email') }, { email: emailId });
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (!form.check()) {
+      return;
+    }
     const result = await run(() => api.patch<{ admin: AdminAccount }>(`/admin/team/${admin.id}`, { email: email.trim() || null }));
     if (result) {
       onSaved(result.admin);
@@ -106,10 +145,18 @@ function EmailForm({ admin, onSaved, onCancel }: { admin: AdminAccount; onSaved:
   }
 
   return (
-    <form className="fgrid service-form" onSubmit={submit}>
+    <form className="fgrid service-form" onSubmit={submit} noValidate>
       <div className="af full">
-        <label htmlFor={`email-${admin.id}`}>{t('admin.team.email')}</label>
-        <input id={`email-${admin.id}`} type="email" maxLength={254} value={email} onChange={(e) => setEmail(e.target.value)} />
+        <label htmlFor={emailId}>{t('admin.team.email')}</label>
+        <input
+          id={emailId}
+          type="email"
+          maxLength={254}
+          value={email}
+          {...form.describe('email')}
+          onChange={(e) => setEmail(e.target.value)}
+        />
+        <FieldError id={emailId} message={form.message('email')} />
         <span className="hint">{t('admin.team.emailHint')}</span>
       </div>
       <div className="row gap8 full">
@@ -171,8 +218,6 @@ function name(member: { firstName: string | null; lastName: string | null; usern
   return [member.firstName, member.lastName].filter(Boolean).join(' ') || member.username;
 }
 
-const EMAIL_FORMAT = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
-
 function InviteForm({ onSent, onCancel }: { onSent: (email: string) => void; onCancel: () => void }) {
   const { t } = useTranslation();
   const api = useApi();
@@ -180,11 +225,14 @@ function InviteForm({ onSent, onCancel }: { onSent: (email: string) => void; onC
   const [email, setEmail] = useState('');
   const [firstName, setFirstName] = useState('');
   const [role, setRole] = useState<AdminRole>('support');
-  const valid = EMAIL_FORMAT.test(email.trim());
+  const form = useValidation(
+    { email: !email.trim() ? t('validation.inviteEmailMissing') : !isValidEmail(email) && t('signUp.errors.email') },
+    { email: 'invite-email' },
+  );
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!valid) return;
+    if (!form.check()) return;
     const result = await track(() =>
       api.post<{ member: TeamMember }>('/admin/team/invite', {
         email: email.trim(),
@@ -201,7 +249,16 @@ function InviteForm({ onSent, onCancel }: { onSent: (email: string) => void; onC
       <div className="row gap8 wrap filters">
         <div className="af grow">
           <label htmlFor="invite-email">{t('admin.settings.team.inviteEmail')}</label>
-          <input id="invite-email" type="email" autoComplete="off" maxLength={254} value={email} onChange={(e) => setEmail(e.target.value)} />
+          <input
+            id="invite-email"
+            type="email"
+            autoComplete="off"
+            maxLength={254}
+            value={email}
+            {...form.describe('email')}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+          <FieldError id="invite-email" message={form.message('email')} />
         </div>
         <div className="af">
           <label htmlFor="invite-name">{t('admin.settings.team.inviteName')}</label>
@@ -222,7 +279,7 @@ function InviteForm({ onSent, onCancel }: { onSent: (email: string) => void; onC
         <button type="button" className="abtn ghost" onClick={onCancel}>
           {t('admin.settings.team.cancel')}
         </button>
-        <button type="submit" className="abtn" disabled={!valid}>
+        <button type="submit" className="abtn">
           {t('admin.settings.team.inviteSend')}
         </button>
       </div>
@@ -283,7 +340,8 @@ function Members({ onNotice }: { onNotice: (notice: string) => void }) {
                     .map((member) => (
                       <tr key={member.id}>
                         <td>
-                          <span className="b">{name(member)}</span> {member.id === me.id && <span className="badge g">{t('admin.team.you')}</span>}{' '}
+                          <span className="b">{name(member)}</span>{' '}
+                          {member.id === me.id && <span className="badge g">{t('admin.team.you')}</span>}{' '}
                           {member.invitedAt && !member.lastActive && <span className="badge a">{t('admin.settings.team.invited')}</span>}
                           <div className="small muted">{member.email ?? member.username}</div>
                         </td>
@@ -303,7 +361,9 @@ function Members({ onNotice }: { onNotice: (notice: string) => void }) {
                         <td>
                           <AccessList role={member.role} access={access} />
                         </td>
-                        <td className="small">{member.lastActive ? dateTime(member.lastActive, timezone) : t('admin.settings.team.never')}</td>
+                        <td className="small">
+                          {member.lastActive ? dateTime(member.lastActive, timezone) : t('admin.settings.team.never')}
+                        </td>
                         <td>
                           {resetting === member.id ? (
                             <ResetForm

@@ -295,7 +295,9 @@ describe('pro side panel', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Erion Krasniqi' });
     await user().click(within(dialog).getByRole('button', { name: 'Request more info' }));
     const send = within(dialog).getByRole('button', { name: 'Send request' });
-    expect(send).toBeDisabled();
+    await user().click(send);
+    expect(within(dialog).getByText('Write a short note.')).toBeInTheDocument();
+    expect(api.calls).not.toContain(`POST /admin/pros/${PRO_ID}/request-info`);
     await user().type(within(dialog).getByLabelText(/What do you need/), 'Send the back of your ID.');
     await user().click(send);
     expect(api.bodies[`POST /admin/pros/${PRO_ID}/request-info`]).toEqual({ message: 'Send the back of your ID.' });

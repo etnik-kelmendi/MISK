@@ -5,6 +5,8 @@ import { useApi } from '../../api/ApiContext';
 import { ErrorText } from '../../components/ErrorText';
 import { Icon } from '../../components/Icon';
 import { useAction } from '../../lib/useAction';
+import { useValidation } from '../../lib/useValidation';
+import { FieldError } from '../../components/FieldError';
 import { MIN_PASSWORD_LENGTH } from './TeamPage';
 
 /** Reads the token from the link's #fragment once, then removes it from the address bar and history. */
@@ -25,9 +27,21 @@ export function ResetPasswordPage() {
   const [done, setDone] = useState(false);
   const { run, busy, error } = useAction();
   const mismatch = repeat.length > 0 && password !== repeat;
+  const form = useValidation(
+    {
+      password: !password
+        ? t('validation.passwordMissing')
+        : password.length < MIN_PASSWORD_LENGTH && t('admin.signUp.passwordShort', { min: MIN_PASSWORD_LENGTH }),
+      repeat: !repeat ? t('validation.confirmMissing') : mismatch && t('admin.team.mismatch'),
+    },
+    { password: 'new-password', repeat: 'repeat-password' },
+  );
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (!form.check()) {
+      return;
+    }
     const result = await run(() => api.post('/auth/admin/reset', { token, password }).then(() => true));
     if (result) {
       setDone(true);
@@ -56,7 +70,7 @@ export function ResetPasswordPage() {
             <Link to="/admin/login">{t('admin.reset.back')}</Link>
           </>
         ) : (
-          <form className="stack" onSubmit={submit}>
+          <form className="stack" onSubmit={submit} noValidate>
             <div className="af">
               <label htmlFor="new-password">{t('admin.team.password')}</label>
               <input
@@ -66,8 +80,10 @@ export function ResetPasswordPage() {
                 required
                 minLength={MIN_PASSWORD_LENGTH}
                 value={password}
+                {...form.describe('password')}
                 onChange={(e) => setPassword(e.target.value)}
               />
+              <FieldError id="new-password" message={form.message('password')} />
               <span className="hint">{t('admin.team.passwordHint', { min: MIN_PASSWORD_LENGTH })}</span>
             </div>
             <div className="af">
@@ -78,16 +94,17 @@ export function ResetPasswordPage() {
                 autoComplete="new-password"
                 required
                 value={repeat}
+                {...form.describe('repeat')}
                 onChange={(e) => setRepeat(e.target.value)}
               />
-              {mismatch && <span className="error-text">{t('admin.team.mismatch')}</span>}
+              {form.message('repeat') ? (
+                <FieldError id="repeat-password" message={form.message('repeat')} />
+              ) : (
+                mismatch && <span className="error-text">{t('admin.team.mismatch')}</span>
+              )}
             </div>
             <ErrorText error={error} />
-            <button
-              type="submit"
-              className="abtn big"
-              disabled={busy || password.length < MIN_PASSWORD_LENGTH || password !== repeat}
-            >
+            <button type="submit" className="abtn big" disabled={busy}>
               {t('admin.reset.submit')}
             </button>
             <Link to="/admin/login">{t('admin.reset.back')}</Link>

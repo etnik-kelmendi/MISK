@@ -12,6 +12,8 @@ import { ResourceState } from '../../components/ResourceState';
 import { StatusBadge } from '../../components/StatusBadge';
 import { dateTime, euro, parseEuroToCents } from '../../lib/format';
 import { useAction } from '../../lib/useAction';
+import { useValidation } from '../../lib/useValidation';
+import { FieldError } from '../../components/FieldError';
 import { usePolling } from '../../lib/usePolling';
 import { AppHeader } from '../../shells/Shells';
 
@@ -29,13 +31,24 @@ function ExtraForm({ job, onChanged }: { job: ProJob; onChanged: (j: ProJob) => 
   const [price, setPrice] = useState('');
   const { run, busy, error } = useAction();
   const cents = parseEuroToCents(price);
+  const form = useValidation(
+    {
+      description: !description.trim()
+        ? t('validation.extraWhatMissing')
+        : description.trim().length < 3 && t('validation.noteShort', { min: 3 }),
+      price: !price.trim() ? t('validation.extraPriceMissing') : cents === null && t('job.extraPriceInvalid'),
+    },
+    { description: 'extra-description', price: 'extra-price' },
+  );
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (cents === null) {
+    if (!form.check() || cents === null) {
       return;
     }
-    const result = await run(() => api.post<{ job: ProJob }>(`/pro/jobs/${job.id}/extras`, { description, priceCents: cents }));
+    const result = await run(() =>
+      api.post<{ job: ProJob }>(`/pro/jobs/${job.id}/extras`, { description: description.trim(), priceCents: cents }),
+    );
     if (result) {
       onChanged(result.job);
       setOpen(false);
@@ -52,7 +65,7 @@ function ExtraForm({ job, onChanged }: { job: ProJob; onChanged: (j: ProJob) => 
     );
   }
   return (
-    <form className="card stack" onSubmit={submit}>
+    <form className="card stack" onSubmit={submit} noValidate>
       <div className="field">
         <label htmlFor="extra-description">{t('job.extraWhat')}</label>
         <input
@@ -61,13 +74,26 @@ function ExtraForm({ job, onChanged }: { job: ProJob; onChanged: (j: ProJob) => 
           minLength={3}
           maxLength={200}
           value={description}
+          {...form.describe('description')}
           onChange={(event) => setDescription(event.target.value)}
         />
+        <FieldError id="extra-description" message={form.message('description')} />
       </div>
       <div className="field">
         <label htmlFor="extra-price">{t('job.extraPrice')}</label>
-        <input id="extra-price" inputMode="decimal" required value={price} onChange={(event) => setPrice(event.target.value)} />
-        {price && cents === null && <span className="error-text">{t('job.extraPriceInvalid')}</span>}
+        <input
+          id="extra-price"
+          inputMode="decimal"
+          required
+          value={price}
+          {...form.describe('price')}
+          onChange={(event) => setPrice(event.target.value)}
+        />
+        {form.message('price') ? (
+          <FieldError id="extra-price" message={form.message('price')} />
+        ) : (
+          price && cents === null && <span className="error-text">{t('job.extraPriceInvalid')}</span>
+        )}
       </div>
       <p className="tiny muted">{t('job.extraExplained')}</p>
       <ErrorText error={error} />
@@ -75,7 +101,7 @@ function ExtraForm({ job, onChanged }: { job: ProJob; onChanged: (j: ProJob) => 
         <button type="button" className="btn btn-ghost" onClick={() => setOpen(false)}>
           {t('common.cancel')}
         </button>
-        <button type="submit" className="btn btn-primary" disabled={busy || cents === null || description.trim().length < 3}>
+        <button type="submit" className="btn btn-primary" disabled={busy}>
           {t('job.sendExtra')}
         </button>
       </div>

@@ -43,6 +43,16 @@ export interface AppDependencies {
   logger?: FastifyServerOptions['logger'];
 }
 
+/** The name of the first field a request failed validation on, from Fastify's (Ajv's) error list. */
+export function validationField(validation: unknown): string | null {
+  const first = Array.isArray(validation) ? (validation[0] as { instancePath?: string; params?: { missingProperty?: string } }) : null;
+  if (!first) {
+    return null;
+  }
+  const name = first.params?.missingProperty ?? first.instancePath?.split('/').find(Boolean) ?? null;
+  return name && /^[A-Za-z][A-Za-z0-9]{0,40}$/.test(name) ? name : null;
+}
+
 export async function buildApp({ config, pool, gateway, sms, email = null, storage, logger = false }: AppDependencies): Promise<FastifyInstance> {
   const app = Fastify({
     logger,
@@ -116,7 +126,9 @@ export async function buildApp({ config, pool, gateway, sms, email = null, stora
       return reply.code(error.statusCode).send({ error: error.code });
     }
     if (error.validation) {
-      return reply.code(400).send({ error: 'validation_failed' });
+      // The first field that failed, so the app can say which one to fix ("note", "priceCents", ...).
+      const field = validationField(error.validation);
+      return reply.code(400).send(field ? { error: 'validation_failed', field } : { error: 'validation_failed' });
     }
     const status = error.statusCode ?? 500;
     if (status >= 500) {

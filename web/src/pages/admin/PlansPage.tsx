@@ -216,6 +216,8 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
   function addTask() {
     const task = draft.newTask.trim();
     if (!task) {
+      setTaskNotice(t('validation.taskEmpty'));
+      document.getElementById('plan-new-task')?.focus();
       return;
     }
     if (draft.tasks.some((x) => x.toLowerCase() === task.toLowerCase())) {
@@ -503,13 +505,7 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
                   }
                 }}
               />
-              <button
-                type="button"
-                className="abtn ghost icon-only"
-                aria-label={t('admin.plans.addTask')}
-                onClick={addTask}
-                disabled={!draft.newTask.trim()}
-              >
+              <button type="button" className="abtn ghost icon-only" aria-label={t('admin.plans.addTask')} onClick={addTask}>
                 <Icon name="plus" />
               </button>
             </div>

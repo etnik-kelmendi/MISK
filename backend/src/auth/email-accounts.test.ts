@@ -140,7 +140,9 @@ describe('registration', () => {
     expect((await register({ ...valid, firstName: '   ' })).statusCode).toBe(400);
     const { lastName: _omit, ...withoutLastName } = valid;
     void _omit;
-    expect((await register(withoutLastName)).statusCode).toBe(400);
+    expect((await register(withoutLastName)).json()).toEqual({ error: 'validation_failed', field: 'lastName' });
+    expect((await register({ ...valid, firstName: '   ' })).json()).toEqual({ error: 'validation_failed', field: 'firstName' });
+    expect((await register({ ...valid, email: 'x'.repeat(300) })).json()).toEqual({ error: 'validation_failed', field: 'email' });
   });
 });
 

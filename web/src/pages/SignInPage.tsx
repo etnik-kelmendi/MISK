@@ -7,9 +7,12 @@ import type { User } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import { HOME_OF } from '../auth/RequireRole';
 import { ErrorText } from '../components/ErrorText';
+import { FieldError } from '../components/FieldError';
 import { Icon } from '../components/Icon';
 import { ResendVerification } from '../components/ResendVerification';
+import { isValidEmail, isValidPhone } from '../lib/checks';
 import { useAction } from '../lib/useAction';
+import { useValidation } from '../lib/useValidation';
 import { invitedAsPro, rememberInvite } from '../lib/invite';
 
 export type Method = 'email' | 'phone';
@@ -45,17 +48,27 @@ function EmailLogin() {
   const [password, setPassword] = useState('');
   const [visible, setVisible] = useState(false);
   const { run, busy, error } = useAction();
+  const form = useValidation(
+    {
+      email: !email.trim() ? t('validation.emailMissing') : !isValidEmail(email) && t('validation.emailInvalid'),
+      password: !password && t('validation.passwordMissing'),
+    },
+    { email: 'login-email', password: 'login-password' },
+  );
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    const result = await run(() => api.post<{ user: User }>('/auth/login', { email, password }));
+    if (!form.check()) {
+      return;
+    }
+    const result = await run(() => api.post<{ user: User }>('/auth/login', { email: email.trim(), password }));
     if (result) {
       setUser(result.user);
     }
   }
 
   return (
-    <form className="stack" onSubmit={submit}>
+    <form className="stack" onSubmit={submit} noValidate>
       <div className="field">
         <label htmlFor="login-email">{t('signUp.email')}</label>
         <input
@@ -65,8 +78,10 @@ function EmailLogin() {
           autoComplete="email"
           required
           value={email}
+          {...form.describe('email')}
           onChange={(event) => setEmail(event.target.value)}
         />
+        <FieldError id="login-email" message={form.message('email')} />
       </div>
       <div className="field">
         <label htmlFor="login-password">{t('signUp.password')}</label>
@@ -77,6 +92,7 @@ function EmailLogin() {
             autoComplete="current-password"
             required
             value={password}
+            {...form.describe('password')}
             onChange={(event) => setPassword(event.target.value)}
           />
           <button
@@ -90,6 +106,7 @@ function EmailLogin() {
             {visible ? t('signUp.hide') : t('signUp.show')}
           </button>
         </div>
+        <FieldError id="login-password" message={form.message('password')} />
       </div>
       {error instanceof ApiError && error.code === 'email_not_verified' ? (
         <div className="stack">
@@ -101,7 +118,7 @@ function EmailLogin() {
       ) : (
         <ErrorText error={error} />
       )}
-      <button className="cta" type="submit" disabled={busy || !email.trim() || !password}>
+      <button className="cta" type="submit" disabled={busy}>
         {busy ? t('common.checking') : t('signIn.logIn')}
       </button>
     </form>
@@ -113,9 +130,16 @@ function PhoneLogin({ onSent }: { onSent: (phone: string) => void }) {
   const api = useApi();
   const [phone, setPhone] = useState('');
   const { run, busy, error } = useAction();
+  const form = useValidation(
+    { phone: !phone.trim() ? t('validation.phoneMissing') : !isValidPhone(phone) && t('errors.invalid_phone') },
+    { phone: 'phone' },
+  );
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (!form.check()) {
+      return;
+    }
     const result = await run(() => api.post<{ phone: string }>('/auth/phone/start', { phone }));
     if (result) {
       onSent(result.phone);
@@ -123,7 +147,7 @@ function PhoneLogin({ onSent }: { onSent: (phone: string) => void }) {
   }
 
   return (
-    <form className="stack" onSubmit={submit}>
+    <form className="stack" onSubmit={submit} noValidate>
       <div className="field">
         <label htmlFor="phone">{t('signIn.phone')}</label>
         <input
@@ -134,12 +158,14 @@ function PhoneLogin({ onSent }: { onSent: (phone: string) => void }) {
           required
           placeholder={t('signIn.phonePlaceholder')}
           value={phone}
+          {...form.describe('phone')}
           onChange={(event) => setPhone(event.target.value)}
         />
+        <FieldError id="phone" message={form.message('phone')} />
         <span className="hint">{t('signIn.phoneHint')}</span>
       </div>
       <ErrorText error={error} />
-      <button className="cta" type="submit" disabled={busy || !phone.trim()}>
+      <button className="cta" type="submit" disabled={busy}>
         <Icon name="phone" /> {busy ? t('common.sending') : t('signIn.sendCode')}
       </button>
     </form>
@@ -187,9 +213,16 @@ function CodeStep({ phone, onBack }: { phone: string; onBack: () => void }) {
   const { run, busy, error } = useAction();
   const resend = useAction();
   const [resent, setResent] = useState(false);
+  const form = useValidation(
+    { code: code.length === 0 ? t('validation.codeMissing') : code.length !== 6 && t('validation.codeLength') },
+    { code: 'code' },
+  );
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (!form.check()) {
+      return;
+    }
     const result = await run(() => api.post<{ user: User }>('/auth/phone/verify', { phone, code }));
     if (result) {
       setUser(result.user);
@@ -197,7 +230,7 @@ function CodeStep({ phone, onBack }: { phone: string; onBack: () => void }) {
   }
 
   return (
-    <form className="signin" onSubmit={submit}>
+    <form className="signin" onSubmit={submit} noValidate>
       <h1>{t('signIn.codeTitle')}</h1>
       <p className="muted">{t('signIn.codeSent', { phone })}</p>
       <div className="field">
@@ -211,11 +244,13 @@ function CodeStep({ phone, onBack }: { phone: string; onBack: () => void }) {
           maxLength={6}
           required
           value={code}
+          {...form.describe('code')}
           onChange={(event) => setCode(event.target.value.replace(/\D/g, ''))}
         />
+        <FieldError id="code" message={form.message('code')} />
       </div>
       <ErrorText error={error ?? resend.error} />
-      <button className="cta" type="submit" disabled={busy || code.length !== 6}>
+      <button className="cta" type="submit" disabled={busy}>
         {busy ? t('common.checking') : t('signIn.verify')}
       </button>
       <div className="row between">
@@ -243,10 +278,14 @@ function RoleStep() {
   // People who signed up with email already gave their name.
   const [firstName, setFirstName] = useState(state.status === 'signedIn' ? (state.user.firstName ?? '') : '');
   const { run, busy, error } = useAction();
+  const form = useValidation({ firstName: !firstName.trim() && t('validation.firstNameMissing') }, { firstName: 'firstName' });
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    const result = await run(() => api.post<{ user: User }>('/account/role', { role, firstName }));
+    if (!form.check()) {
+      return;
+    }
+    const result = await run(() => api.post<{ user: User }>('/account/role', { role, firstName: firstName.trim() }));
     if (result) {
       setUser(result.user);
     }
@@ -258,7 +297,7 @@ function RoleStep() {
   ];
 
   return (
-    <form className="signin" onSubmit={submit}>
+    <form className="signin" onSubmit={submit} noValidate>
       <h1>{t('signIn.welcome')}</h1>
       <fieldset className="choices">
         <legend className="muted">{t('signIn.roleQuestion')}</legend>
@@ -292,11 +331,13 @@ function RoleStep() {
           required
           maxLength={60}
           value={firstName}
+          {...form.describe('firstName')}
           onChange={(event) => setFirstName(event.target.value)}
         />
+        <FieldError id="firstName" message={form.message('firstName')} />
       </div>
       <ErrorText error={error} />
-      <button className={`cta ${role === 'pro' ? 'dark' : ''}`} type="submit" disabled={busy || !firstName.trim()}>
+      <button className={`cta ${role === 'pro' ? 'dark' : ''}`} type="submit" disabled={busy}>
         {role === 'pro' ? t('signIn.openPro') : t('signIn.openCustomer')} <Icon name="arrowR" />
       </button>
     </form>

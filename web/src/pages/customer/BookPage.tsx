@@ -11,6 +11,8 @@ import { Waitlist } from '../../components/Waitlist';
 import { ResourceState } from '../../components/ResourceState';
 import { dateTime, dayKey, dayParts, euro, sizePrice, time } from '../../lib/format';
 import { useAction } from '../../lib/useAction';
+import { useValidation } from '../../lib/useValidation';
+import { FieldError } from '../../components/FieldError';
 import { CardPayment } from '../../payments/CardPayment';
 import { AppHeader } from '../../shells/Shells';
 
@@ -41,14 +43,23 @@ function DetailsStep({
   const loadPostcodes = useCallback(() => api.get<{ postcodes: Postcode[] }>('/postcodes'), [api]);
   const postcodes = useResource(loadPostcodes);
   const sizeGroup = isGarden ? 'garden' : 'job';
+  const form = useValidation(
+    {
+      address: !details.address.trim() ? t('validation.addressMissing') : details.address.trim().length < 3 && t('validation.addressShort'),
+      postcode: !details.postcode && t('validation.postcodeMissing'),
+    },
+    { address: 'address', postcode: 'postcode' },
+  );
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    onNext();
+    if (form.check()) {
+      onNext();
+    }
   }
 
   return (
-    <form onSubmit={submit}>
+    <form onSubmit={submit} noValidate>
       <div className="body">
         <div className="field">
           <label htmlFor="address">{t('book.address')}</label>
@@ -59,8 +70,10 @@ function DetailsStep({
             minLength={3}
             maxLength={200}
             value={details.address}
+            {...form.describe('address')}
             onChange={(event) => onChange({ ...details, address: event.target.value })}
           />
+          <FieldError id="address" message={form.message('address')} />
         </div>
         <ResourceState state={postcodes.state} reload={postcodes.reload}>
           {({ postcodes: list }) => (
@@ -70,6 +83,7 @@ function DetailsStep({
                 id="postcode"
                 required
                 value={details.postcode}
+                {...form.describe('postcode')}
                 onChange={(event) => onChange({ ...details, postcode: event.target.value })}
               >
                 <option value="">{t('book.choosePostcode')}</option>
@@ -79,6 +93,7 @@ function DetailsStep({
                   </option>
                 ))}
               </select>
+              <FieldError id="postcode" message={form.message('postcode')} />
               <span className="hint">{t('book.postcodeHint')}</span>
             </div>
           )}
@@ -132,7 +147,7 @@ function DetailsStep({
         </div>
       </div>
       <div className="cta-bar">
-        <button className="cta" type="submit" disabled={!details.address.trim() || !details.postcode}>
+        <button className="cta" type="submit">
           {t('book.continuePrice', {
             price: euro(sizePrice(service, details.size)),
           })}

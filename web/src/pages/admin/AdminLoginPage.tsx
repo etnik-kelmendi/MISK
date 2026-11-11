@@ -8,7 +8,7 @@ import { HOME_OF } from '../../auth/RequireRole';
 import { ErrorText } from '../../components/ErrorText';
 import { Icon } from '../../components/Icon';
 import { useAction } from '../../lib/useAction';
-import { isValidEmail } from '../SignUpPage';
+import { isValidEmail } from '../../lib/checks';
 
 /** Emails a reset link to the admin's address. The answer never says whether the account exists. */
 function ForgotPassword({ initial }: { initial: string }) {
@@ -19,7 +19,13 @@ function ForgotPassword({ initial }: { initial: string }) {
   const [touched, setTouched] = useState(false);
   const [sent, setSent] = useState(false);
   const { run, busy, error } = useAction();
-  const emailError = touched && !isValidEmail(email) ? t('signUp.errors.email') : null;
+  const emailError = !touched
+    ? null
+    : !email.trim()
+      ? t('validation.emailMissing')
+      : !isValidEmail(email)
+        ? t('signUp.errors.email')
+        : null;
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -63,7 +69,7 @@ function ForgotPassword({ initial }: { initial: string }) {
             )}
           </div>
           <ErrorText error={error} />
-          <button type="submit" className="abtn" disabled={busy || email.trim() === ''}>
+          <button type="submit" className="abtn" disabled={busy}>
             {busy ? t('common.sending') : t('admin.login.forgotSend')}
           </button>
         </form>
