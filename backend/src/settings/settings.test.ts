@@ -155,6 +155,34 @@ describe('service area', () => {
     expect((await post('/admin/zones/00000/pause')).json()).toEqual({ error: 'zone_not_found' });
     expect((await activity()).map((a) => a.action)).toEqual(['zone_paused', 'zone_live', 'zone_added']);
   });
+
+  it('refuses the same number as latitude and longitude, out-of-range values and points far from the other zones', async () => {
+    const put = (code: string, body: unknown) => call(t, 'PUT', `/admin/zones/${code}`, { cookie: admin, body });
+    const same = await put('10178', { name: 'Alexanderplatz', lat: 52.5219, lng: 52.5219 });
+    expect(same.statusCode).toBe(400);
+    expect(same.json()).toEqual({ error: 'coordinates_identical' });
+    expect((await put('10178', { name: 'Null Island', lat: 0, lng: 0 })).json()).toEqual({ error: 'coordinates_identical' });
+    expect((await put('10178', { name: 'Alexanderplatz', lat: 91, lng: 13.4 })).statusCode).toBe(400);
+    expect((await put('10178', { name: 'Alexanderplatz', lat: 52.5, lng: 181 })).statusCode).toBe(400);
+
+    // Latitude and longitude swapped puts Berlin in the Arabian Sea.
+    const swapped = await put('10178', { name: 'Alexanderplatz', lat: 13.4132, lng: 52.5219 });
+    expect(swapped.json()).toEqual({ error: 'zone_too_far' });
+    // Editing a zone measures against the others, not against its own earlier point.
+    expect((await put('10115', { name: 'Mitte', lat: 13.3846, lng: 52.5323 })).json()).toEqual({ error: 'zone_too_far' });
+
+    const zones = await t.pool.query("SELECT count(*)::int AS n FROM postcodes WHERE code = '10178'");
+    expect(zones.rows[0]?.n).toBe(0);
+    expect(await activity()).toEqual([]);
+
+    expect((await put('10178', { name: 'Alexanderplatz', lat: 52.5219, lng: 13.4132 })).statusCode).toBe(200);
+  });
+
+  it('accepts the first zone anywhere, since there is nothing to compare it with', async () => {
+    await t.pool.query('DELETE FROM postcodes');
+    const first = await call(t, 'PUT', '/admin/zones/80331', { cookie: admin, body: { name: 'Munich Altstadt', lat: 48.1374, lng: 11.5755 } });
+    expect(first.statusCode).toBe(200);
+  });
 });
 
 describe('notifications', () => {

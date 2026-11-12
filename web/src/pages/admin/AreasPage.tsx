@@ -1,10 +1,11 @@
-import { useCallback, useState, type FormEvent } from 'react';
+import { useCallback, useState, type ClipboardEvent, type FormEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useApi } from '../../api/ApiContext';
 import type { Zone } from '../../api/types';
 import { useResource } from '../../api/useResource';
 import { ResourceState } from '../../components/ResourceState';
 import { useSave } from './settings/SaveStatus';
+import { parseCoordinate, splitPair, zoneProblems, type ZoneField, type ZoneInput, type ZoneProblem } from './settings/zoneForm';
 
 interface ZonesResponse {
   zones: Zone[];
@@ -133,75 +134,121 @@ function ZoneRow({ zone, onChanged }: { zone: Zone; onChanged: (notice: string) 
   );
 }
 
-function AddZone({ onAdded }: { onAdded: (notice: string) => void }) {
+function AddZone({ zones, onAdded }: { zones: Zone[]; onAdded: (notice: string) => void }) {
   const { t } = useTranslation();
   const api = useApi();
   const { track } = useSave();
-  const [code, setCode] = useState('');
-  const [name, setName] = useState('');
-  const [lat, setLat] = useState('');
-  const [lng, setLng] = useState('');
-  const [invalid, setInvalid] = useState(false);
+  const [values, setValues] = useState<ZoneInput>({ code: '', name: '', lat: '', lng: '' });
+  const [shown, setShown] = useState(false);
+  const problems = zoneProblems(values, zones);
+  const problemOf = (field: ZoneField) => problems.find((p) => p.field === field);
+
+  const message = (problem: ZoneProblem) =>
+    problem.key === 'tooFar'
+      ? t('admin.settings.area.errors.tooFar', { km: problem.km, code: problem.nearest })
+      : t(`admin.settings.area.errors.${problem.key}`);
+
+  const set = (field: ZoneField, value: string) => setValues((current) => ({ ...current, [field]: value }));
+
+  // A map copies "52.5200, 13.4050" as one text; pasted into either field it fills both.
+  function pasteCoordinates(event: ClipboardEvent<HTMLInputElement>) {
+    const pair = splitPair(event.clipboardData.getData('text'));
+    if (!pair) return;
+    event.preventDefault();
+    setValues((current) => ({ ...current, ...pair }));
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    const latitude = Number(lat.replace(',', '.'));
-    const longitude = Number(lng.replace(',', '.'));
-    const ok =
-      /^[A-Za-z0-9][A-Za-z0-9 -]{1,9}$/.test(code.trim()) &&
-      name.trim() !== '' &&
-      lat.trim() !== '' &&
-      lng.trim() !== '' &&
-      Math.abs(latitude) <= 90 &&
-      Math.abs(longitude) <= 180;
-    setInvalid(!ok);
-    if (!ok) return;
-    const result = await track(() =>
-      api.put<{ zone: Zone }>(`/admin/zones/${encodeURIComponent(code.trim())}`, { name: name.trim(), lat: latitude, lng: longitude }),
-    );
+    setShown(true);
+    const first = problems[0];
+    if (first) {
+      // The cursor goes to the first field to fix (D42).
+      document.getElementById(`zone-${first.field}`)?.focus();
+      return;
+    }
+    const lat = parseCoordinate(values.lat);
+    const lng = parseCoordinate(values.lng);
+    if (lat === null || lng === null) return;
+    const code = values.code.trim();
+    const result = await track(() => api.put<{ zone: Zone }>(`/admin/zones/${encodeURIComponent(code)}`, { name: values.name.trim(), lat, lng }));
     if (result) {
-      setCode('');
-      setName('');
-      setLat('');
-      setLng('');
+      setValues({ code: '', name: '', lat: '', lng: '' });
+      setShown(false);
       onAdded(t('admin.settings.area.added', { code: result.zone.code }));
     }
   }
+
+  const field = (id: ZoneField, input: (invalid: boolean, describedBy: string | undefined) => ReactNode, grow = false) => {
+    const problem = shown ? problemOf(id) : undefined;
+    return (
+      <div className={grow ? 'af grow' : 'af'}>
+        <label htmlFor={`zone-${id}`}>{t(`admin.settings.area.${id}`)}</label>
+        {input(Boolean(problem), problem ? `zone-${id}-error` : undefined)}
+        {problem && (
+          <span id={`zone-${id}-error`} className="error-text small" role="alert">
+            {message(problem)}
+          </span>
+        )}
+      </div>
+    );
+  };
+
+  const coordinate = (id: 'lat' | 'lng', placeholder: string) =>
+    field(id, (invalid, describedBy) => (
+      <input
+        id={`zone-${id}`}
+        inputMode="decimal"
+        autoComplete="off"
+        maxLength={20}
+        placeholder={placeholder}
+        value={values[id]}
+        aria-invalid={invalid}
+        aria-describedby={describedBy}
+        onPaste={pasteCoordinates}
+        onChange={(e) => set(id, e.target.value)}
+      />
+    ));
 
   return (
     <form className="panel stack" onSubmit={submit} noValidate aria-labelledby="add-zone-heading">
       <h2 id="add-zone-heading">{t('admin.settings.area.add')}</h2>
       <p className="small muted">{t('admin.settings.area.addHint')}</p>
-      <div className="row gap8 wrap filters">
-        <div className="af">
-          <label htmlFor="zone-code">{t('admin.settings.area.code')}</label>
-          <input id="zone-code" maxLength={10} value={code} onChange={(e) => setCode(e.target.value)} />
-        </div>
-        <div className="af grow">
-          <label htmlFor="zone-name">{t('admin.settings.area.name')}</label>
-          <input id="zone-name" maxLength={80} value={name} onChange={(e) => setName(e.target.value)} />
-        </div>
-        <div className="af">
-          <label htmlFor="zone-lat">{t('admin.settings.area.lat')}</label>
-          <input id="zone-lat" inputMode="decimal" value={lat} onChange={(e) => setLat(e.target.value)} />
-        </div>
-        <div className="af">
-          <label htmlFor="zone-lng">{t('admin.settings.area.lng')}</label>
-          <input id="zone-lng" inputMode="decimal" value={lng} onChange={(e) => setLng(e.target.value)} />
-        </div>
+      <div className="row gap8 wrap filters zone-form">
+        {field('code', (invalid, describedBy) => (
+          <input
+            id="zone-code"
+            maxLength={10}
+            value={values.code}
+            aria-invalid={invalid}
+            aria-describedby={describedBy}
+            onChange={(e) => set('code', e.target.value)}
+          />
+        ))}
+        {field(
+          'name',
+          (invalid, describedBy) => (
+            <input
+              id="zone-name"
+              maxLength={80}
+              value={values.name}
+              aria-invalid={invalid}
+              aria-describedby={describedBy}
+              onChange={(e) => set('name', e.target.value)}
+            />
+          ),
+          true,
+        )}
+        {coordinate('lat', '52.5200')}
+        {coordinate('lng', '13.4050')}
         <button type="submit" className="abtn">
           {t('admin.settings.area.addButton')}
         </button>
       </div>
-      {invalid && (
-        <p className="error-text" role="alert">
-          {t('admin.settings.area.invalid')}
-        </p>
-      )}
+      <p className="small muted">{t('admin.settings.area.coordsHint')}</p>
     </form>
   );
 }
-
 /** Settings → Service area. */
 export function AreasPage() {
   const { t } = useTranslation();
@@ -250,7 +297,7 @@ export function AreasPage() {
           </>
         )}
       </ResourceState>
-      <AddZone onAdded={changed} />
+      <AddZone zones={state.status === 'ready' ? state.data.zones : []} onAdded={changed} />
     </div>
   );
 }

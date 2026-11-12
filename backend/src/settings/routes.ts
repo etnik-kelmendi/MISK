@@ -23,6 +23,11 @@ export const COMMISSION_MIN = 10;
 export const COMMISSION_MAX = 30;
 /** An invite link lets the new teammate choose a password within this many days. */
 export const INVITE_DAYS = 7;
+/**
+ * A zone's centre may lie at most this far from the nearest other zone. MISK serves one city, so a point
+ * further away is almost always a typo or latitude and longitude swapped (D47).
+ */
+export const ZONE_MAX_DISTANCE_KM = 100;
 /** Test messages per admin per 15 minutes, so a stuck button cannot flood a phone. */
 const MAX_TESTS = 20;
 
@@ -169,7 +174,20 @@ export async function settingsRoutes(app: FastifyInstance, ctx: AppContext) {
     async (request) => {
       const code = normalizePostcode(request.params.code);
       const { name, lat, lng, live } = request.body;
+      // The same number in both fields (including 0, 0) is a copy-paste mistake, never a real centre point.
+      if (lat === lng) {
+        throw badRequest('coordinates_identical');
+      }
       const saved = await withTransaction(pool, async (client) => {
+        const nearest = await client.query<{ km: number }>(
+          `SELECT distance_km(lat, lng, $2, $3) AS km FROM postcodes WHERE code <> $1 ORDER BY km LIMIT 1`,
+          [code, lat, lng],
+        );
+        const km = nearest.rows[0]?.km;
+        if (km !== undefined && km > ZONE_MAX_DISTANCE_KM) {
+          request.log.info({ event: 'zone_rejected_far', code, km: Math.round(km) });
+          throw badRequest('zone_too_far');
+        }
         const result = await client.query<{ inserted: boolean }>(
           `INSERT INTO postcodes (code, name, lat, lng, active) VALUES ($1, $2, $3, $4, COALESCE($5, false))
            ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name, lat = EXCLUDED.lat, lng = EXCLUDED.lng

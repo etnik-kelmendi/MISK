@@ -135,7 +135,9 @@
     "trade_has_bookings": "This trade has bookings or monthly plans, so it cannot be removed. Unpublish it to hide it from customers; the bookings keep their history.",
     "trade_has_plans": "Monthly plans belong to this trade. Delete them on the Plans page first, or unpublish the trade to hide it from customers.",
     "trade_has_pros": "Pros offer this trade, so it cannot be removed. Unpublish it to hide it from customers; the pros keep their other trades.",
-    "trade_in_use": "Something started using this trade just now, so it was not removed. Check its bookings, plans and pros."
+    "trade_in_use": "Something started using this trade just now, so it was not removed. Check its bookings, plans and pros.",
+    "coordinates_identical": "Latitude and longitude cannot be the same number. Copy both from the map again.",
+    "zone_too_far": "This point is more than 100 km from your other zones. Check that latitude and longitude are not swapped."
   },
   "nav": {
     "customer": "Main menu",
@@ -1218,7 +1220,20 @@
         "lng": "Longitude",
         "addButton": "Add zone",
         "added": "Zone {{code}} added to the waitlist.",
-        "invalid": "Fill in all four fields with a real postcode and coordinates."
+        "coordsHint": "Find the centre on any map: right-click the middle of the postcode area and copy its coordinates. Pasting both numbers into one field fills both.",
+        "errors": {
+          "codeRequired": "Enter the postcode, for example 10115.",
+          "codeInvalid": "A postcode has 2 to 10 letters or digits.",
+          "nameRequired": "Enter the area name.",
+          "latRequired": "Enter the latitude.",
+          "latFormat": "Enter a decimal number, for example 52.5200.",
+          "latRange": "Latitude must be between -90 and 90.",
+          "lngRequired": "Enter the longitude.",
+          "lngFormat": "Enter a decimal number, for example 13.4050.",
+          "lngRange": "Longitude must be between -180 and 180.",
+          "sameAsLat": "Longitude cannot be the same as latitude. Copy both numbers from the map again.",
+          "tooFar": "This point is {{km}} km from your nearest zone ({{code}}). Check that latitude and longitude are not swapped."
+        }
       },
       "notifications": {
         "intro": "Choose how each message reaches people. Changes apply to the next message sent.",

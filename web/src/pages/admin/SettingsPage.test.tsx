@@ -102,6 +102,55 @@ describe('settings: service area', () => {
     await user().click(screen.getByRole('button', { name: 'Pause zone' }));
     expect(await screen.findByText(/10115 is paused/)).toBeInTheDocument();
   });
+
+  it('says under the field what is wrong when latitude and longitude are the same, and sends nothing', async () => {
+    const api = adminApi();
+    api.on('GET /admin/zones', { body: { zones, elsewhere: [] } });
+    renderAt('/admin/settings/area');
+    await user().type(await screen.findByLabelText('Postcode'), '10179');
+    await user().type(screen.getByLabelText('Area name'), 'Mitte East');
+    await user().type(screen.getByLabelText('Latitude'), '52.5115');
+    await user().type(screen.getByLabelText('Longitude'), '52.5115');
+    await user().click(screen.getByRole('button', { name: 'Add zone' }));
+
+    const longitude = screen.getByLabelText('Longitude');
+    expect(longitude).toHaveAttribute('aria-invalid', 'true');
+    expect(longitude).toHaveAccessibleDescription('Longitude cannot be the same as latitude. Copy both numbers from the map again.');
+    expect(longitude).toHaveFocus();
+    expect(screen.getByLabelText('Latitude')).toHaveAttribute('aria-invalid', 'false');
+    expect(api.calls.filter((c) => c.startsWith('PUT'))).toEqual([]);
+  });
+
+  it('warns that swapped coordinates are far from the other zones', async () => {
+    const api = adminApi();
+    api.on('GET /admin/zones', { body: { zones, elsewhere: [] } });
+    renderAt('/admin/settings/area');
+    await user().type(await screen.findByLabelText('Postcode'), '10179');
+    await user().type(screen.getByLabelText('Area name'), 'Mitte East');
+    await user().type(screen.getByLabelText('Latitude'), '13.4167');
+    await user().type(screen.getByLabelText('Longitude'), '52.5115');
+    await user().click(screen.getByRole('button', { name: 'Add zone' }));
+    expect(await screen.findByText(/km from your nearest zone \(10178\)\. Check that latitude and longitude are not swapped\./)).toBeInTheDocument();
+    expect(api.calls.filter((c) => c.startsWith('PUT'))).toEqual([]);
+  });
+
+  it('fills both fields from coordinates pasted from a map, then saves the zone', async () => {
+    const api = adminApi();
+    api.on('GET /admin/zones', { body: { zones, elsewhere: [] } });
+    api.on('PUT /admin/zones/10179', ({ body }) => ({
+      body: { zone: { code: '10179', ...(body as object), live: false, pros: 0, bookingsPerWeek: 0, waiting: 0 } },
+    }));
+    renderAt('/admin/settings/area');
+    await user().type(await screen.findByLabelText('Postcode'), '10179');
+    await user().type(screen.getByLabelText('Area name'), 'Mitte East');
+    await user().click(screen.getByLabelText('Latitude'));
+    await user().paste('52.5115, 13.4167');
+    expect(screen.getByLabelText('Latitude')).toHaveValue('52.5115');
+    expect(screen.getByLabelText('Longitude')).toHaveValue('13.4167');
+    await user().click(screen.getByRole('button', { name: 'Add zone' }));
+    expect(await screen.findByText('Zone 10179 added to the waitlist.')).toBeInTheDocument();
+    expect(api.bodies['PUT /admin/zones/10179']).toEqual({ name: 'Mitte East', lat: 52.5115, lng: 13.4167 });
+  });
 });
 
 describe('settings: notifications', () => {
