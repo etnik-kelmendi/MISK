@@ -661,6 +661,61 @@ describe('a booking', () => {
   });
 });
 
+describe('messages', () => {
+  const message = (id: string, body: string, read: boolean, kind = 'job_offer') => ({
+    id,
+    kind,
+    body,
+    read,
+    createdAt: '2026-11-11T09:00:00.000Z',
+  });
+
+  it('shows the pro how many messages are new and lists them, marking them read on opening', async () => {
+    const api = fakeApi(users.pro);
+    api.on('GET /pro/offers', { body: { offers: [] } });
+    api.on('GET /pro/jobs', { body: { jobs: [] } });
+    api.on('GET /pro/profile', { body: { profile: { status: 'approved', payoutsEnabled: true } } });
+    api.on('GET /inbox', {
+      body: {
+        messages: [
+          message('m2', 'MISK: the Lawn mowing job on Wed 11 Nov, 10:00 was cancelled.', false, 'booking_cancelled'),
+          message('m1', 'MISK: the team gave you a job, Lawn mowing on Wed 11 Nov, 10:00. See the app for details.', false),
+          message('m0', 'MISK: your payout of €37.31 is on its way.', true, 'payout_sent'),
+        ],
+        unread: 2,
+      },
+    });
+    api.on('POST /inbox/read', { status: 204 });
+    renderAt('/pro/week');
+    const nav = await screen.findByRole('navigation', { name: 'Pro menu' });
+    const tab = within(nav).getByRole('link', { name: /Messages/ });
+    await waitFor(() => expect(tab).toHaveTextContent('2'));
+    expect(tab).toHaveAccessibleName('Messages, 2');
+
+    await user().click(tab);
+    const list = await screen.findByRole('list', { name: 'Messages' });
+    const items = within(list).getAllByRole('listitem');
+    expect(items[0]).toHaveTextContent('The Lawn mowing job on Wed 11 Nov, 10:00 was cancelled.');
+    expect(items[1]).toHaveTextContent('The team gave you a job');
+    const [first, , oldest] = items;
+    if (!first || !oldest) throw new Error('Messages missing');
+    expect(within(first).getByText('New')).toBeInTheDocument();
+    expect(within(oldest).queryByText('New')).not.toBeInTheDocument();
+    await waitFor(() => expect(api.calls).toContain('POST /inbox/read'));
+    await waitFor(() => expect(within(nav).getByRole('link', { name: 'Messages' })).toBeInTheDocument());
+  });
+
+  it('gives customers Messages too, with an explanation when there are none', async () => {
+    fakeApi(users.customer);
+    renderAt('/messages');
+    expect(await screen.findByText(/No messages yet/)).toBeInTheDocument();
+    expect(within(screen.getByRole('navigation', { name: 'Main menu' })).getByRole('link', { name: 'Messages' })).toHaveAttribute(
+      'href',
+      '/messages',
+    );
+  });
+});
+
 describe('pro app', () => {
   const draft: ProProfile = {
     status: 'draft',

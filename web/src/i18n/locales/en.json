@@ -142,7 +142,8 @@
     "jobs": "Jobs",
     "week": "Week",
     "profile": "Profile",
-    "plans": "Plans"
+    "plans": "Plans",
+    "messages": "Messages"
   },
   "signIn": {
     "tagline": "Trusted help for your home and garden",
@@ -641,7 +642,7 @@
       "typeBooking": "One-off",
       "typeVisit": "Plan visit",
       "export": "Export",
-      "exportFile": "misk-bookings-{{date}}.csv",
+      "exportFile": "misk-bookings{{filters}}-{{date}}.csv",
       "none": "No bookings match these filters",
       "truncated": "Showing the first {{count}}. Narrow the search to see the rest.",
       "number": "Number",
@@ -673,7 +674,14 @@
         "pro": "Pro",
         "status": "Status",
         "value": "Value (EUR)",
-        "payment": "Payment status"
+        "payment": "Payment status",
+        "tab": "Tab",
+        "search": "Search",
+        "tradeFilter": "Trade filter",
+        "typeFilter": "Type filter",
+        "exported": "Exported",
+        "count": "Bookings in this file",
+        "none": "None"
       },
       "subscription": {
         "awaiting_payment": "Plan waiting for payment",
@@ -737,7 +745,6 @@
         "line": "{{km}} km away · rating {{rating}}",
         "button": "Assign",
         "buttonLabel": "Assign {{name}}",
-        "restart": "Offer it to pros again",
         "done": "{{name}} has the job. The customer and the pro were texted."
       },
       "move": {
@@ -1440,6 +1447,34 @@
       "working": "Approving…",
       "done": "{{name}} can now sign in with {{email}}. We emailed them to say so.",
       "toTeam": "Go to Team"
+    },
+    "customer": {
+      "title": "Customer profile",
+      "noName": "Name not given",
+      "disabled": "Account disabled",
+      "name": "Name",
+      "phone": "Phone",
+      "email": "Email",
+      "unconfirmed": "not confirmed",
+      "signIn": "Signs in with",
+      "signInWith": {
+        "phone": "Mobile number and code",
+        "email": "Email and password"
+      },
+      "since": "Customer since",
+      "bookings": "Bookings",
+      "bookingsLine": "{{total}} in total · {{completed}} done · {{upcoming}} coming up · {{cancelled}} cancelled",
+      "lastBooking": "Last booked",
+      "spent": "Paid for jobs",
+      "tips": "+ {{amount}} in tips",
+      "plans": "Monthly plans",
+      "noPlans": "None",
+      "ratings": "Ratings given",
+      "noRatings": "None yet",
+      "ratingsLine_one": "{{count}} rating, {{average}} stars",
+      "ratingsLine_other": "{{count}} ratings, {{average}} stars on average",
+      "problems": "Problems reported",
+      "lateCancels": "Late cancellations"
     }
   },
   "signUp": {
@@ -1729,5 +1764,11 @@
     "extraPriceMissing": "Enter the price of the extra work, such as 20 or 19.50.",
     "tradeNameMissing": "Enter a name for the trade, such as \"Moving help\".",
     "taskEmpty": "Type a task first, then add it."
+  },
+  "inbox": {
+    "title": "Messages",
+    "empty": "No messages yet. When MISK tells you about a booking or a job, it appears here too.",
+    "new": "New",
+    "failed": "Your messages could not be loaded."
   }
 }

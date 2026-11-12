@@ -690,6 +690,68 @@ describe('admin booking actions', () => {
     expect(toCustomer.rowCount).toBe(1);
   });
 
+  it("puts the job in the pro's Messages when the team assigns or cancels it, and sends cancellations by push", async () => {
+    const first = await approvedPro(t, '+4915100000101', { trades: [market.gardening] });
+    const created = await bookFirst();
+    const offer = await pendingOffer(first.cookie);
+    await call(t, 'POST', `/pro/offers/${offer?.id}/decline`, { cookie: first.cookie });
+    const second = await approvedPro(t, '+4915100000102', { trades: [market.gardening], firstName: 'Jonas' });
+    await t.pool.query(
+      "INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth) VALUES ($1, 'https://push.example.com/jonas', 'BKey', 'auth1')",
+      [second.proId],
+    );
+    const inbox = async () => (await call(t, 'GET', '/inbox', { cookie: second.cookie })).json();
+    expect(await inbox()).toEqual({ messages: [], unread: 0 });
+
+    const admin = await signInAdmin(t);
+    await call(t, 'POST', `/admin/bookings/${created.id}/reassign`, { cookie: admin, body: { proId: second.proId } });
+    let mine = await inbox();
+    expect(mine.unread).toBe(1);
+    expect(mine.messages[0]).toMatchObject({ kind: 'job_offer', read: false, body: expect.stringContaining('the team gave you a job') });
+
+    expect((await call(t, 'POST', '/inbox/read', { cookie: second.cookie })).statusCode).toBe(204);
+    expect((await inbox()).unread).toBe(0);
+
+    await call(t, 'POST', `/admin/bookings/${created.id}/cancel`, { cookie: admin });
+    mine = await inbox();
+    expect(mine.unread).toBe(1);
+    expect(mine.messages[0]).toMatchObject({ kind: 'booking_cancelled', body: expect.stringContaining('was cancelled') });
+    const channels = await t.pool.query<{ channel: string }>(
+      "SELECT channel FROM notifications WHERE user_id = $1 AND kind = 'booking_cancelled' ORDER BY channel",
+      [second.proId],
+    );
+    expect(channels.rows.map((r) => r.channel)).toEqual(['push', 'sms']);
+    // Each person only sees their own messages; admins have none.
+    expect((await call(t, 'GET', '/inbox', { cookie: first.cookie })).json().messages.map((m: { kind: string }) => m.kind)).not.toContain(
+      'booking_cancelled',
+    );
+    expect((await call(t, 'GET', '/inbox')).statusCode).toBe(401);
+  });
+
+  it("shows the team the customer's profile with the booking", async () => {
+    const { bookingId } = await completedJob();
+    await afterChargeDelay(bookingId);
+    await call(t, 'POST', `/bookings/${bookingId}/rating`, { cookie: customer, body: { stars: 4 } });
+    await bookFirst();
+    const admin = await signInAdmin(t);
+    const profile = (await call(t, 'GET', `/admin/bookings/${bookingId}`, { cookie: admin })).json().booking.customerProfile;
+    expect(profile).toMatchObject({
+      phone: '+4915100000001',
+      signIn: 'phone',
+      disabled: false,
+      bookings: { total: 2, completed: 1, cancelled: 0, upcoming: 1 },
+      spentCents: 4840,
+      tipsCents: 0,
+      activePlans: [],
+      ratingsGiven: 1,
+      averageStarsGiven: 4,
+      problemsReported: 0,
+      lateCancellations: 0,
+    });
+    expect(profile.memberSince).toEqual(expect.any(String));
+    expect(profile.lastBookingAt).toEqual(expect.any(String));
+  });
+
   it('moves a booking to a new time, keeping its length, and refuses past times', async () => {
     const pro = await approvedPro(t, '+4915100000101', { trades: [market.gardening] });
     const created = await bookFirst();

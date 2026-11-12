@@ -6,12 +6,15 @@ import { useAuth, useUser } from '../auth/AuthContext';
 import { Icon, type IconKey } from '../components/Icon';
 import { usePolling } from '../lib/usePolling';
 import { canOpen, firstSettingsTab } from '../auth/AreaGuard';
+import { InboxProvider, useInbox } from '../inbox/InboxContext';
 
 interface Tab {
   to: string;
   icon: IconKey;
   label: string;
   end?: boolean;
+  /** Unread messages, shown as a number on the tab. */
+  badge?: number;
 }
 
 function TabBar({ tabs, label }: { tabs: Tab[]; label: string }) {
@@ -19,52 +22,80 @@ function TabBar({ tabs, label }: { tabs: Tab[]; label: string }) {
     <nav className="tabbar" aria-label={label}>
       {tabs.map((tab) => (
         <NavLink key={tab.to} to={tab.to} end={tab.end} className={({ isActive }) => (isActive ? 'on' : '')}>
-          <Icon name={tab.icon} />
+          <span className="tab-icon">
+            <Icon name={tab.icon} />
+            {tab.badge ? (
+              <span className="tab-badge" aria-hidden="true">
+                {tab.badge > 9 ? '9+' : tab.badge}
+              </span>
+            ) : null}
+          </span>
           <span>{tab.label}</span>
+          {tab.badge ? <span className="visually-hidden">{`, ${tab.badge}`}</span> : null}
         </NavLink>
       ))}
     </nav>
   );
 }
 
+function CustomerTabs() {
+  const { t } = useTranslation();
+  const { inbox } = useInbox();
+  return (
+    <TabBar
+      label={t('nav.customer')}
+      tabs={[
+        { to: '/', icon: 'home', label: t('nav.home'), end: true },
+        { to: '/bookings', icon: 'list', label: t('nav.bookings') },
+        { to: '/plans', icon: 'repeat', label: t('nav.plans') },
+        { to: '/messages', icon: 'chat', label: t('nav.messages'), badge: inbox?.unread },
+        { to: '/account', icon: 'user', label: t('nav.account') },
+      ]}
+    />
+  );
+}
+
 /** The phone-first frame of the customer app. */
 export function CustomerShell() {
-  const { t } = useTranslation();
   return (
-    <div className="app-frame">
-      <main className="app-body">
-        <Outlet />
-      </main>
-      <TabBar
-        label={t('nav.customer')}
-        tabs={[
-          { to: '/', icon: 'home', label: t('nav.home'), end: true },
-          { to: '/bookings', icon: 'list', label: t('nav.bookings') },
-          { to: '/plans', icon: 'repeat', label: t('nav.plans') },
-          { to: '/account', icon: 'user', label: t('nav.account') },
-        ]}
-      />
-    </div>
+    <InboxProvider>
+      <div className="app-frame">
+        <main className="app-body">
+          <Outlet />
+        </main>
+        <CustomerTabs />
+      </div>
+    </InboxProvider>
+  );
+}
+
+function ProTabs() {
+  const { t } = useTranslation();
+  const { inbox } = useInbox();
+  return (
+    <TabBar
+      label={t('nav.pro')}
+      tabs={[
+        { to: '/pro', icon: 'list', label: t('nav.jobs'), end: true },
+        { to: '/pro/week', icon: 'calendar', label: t('nav.week') },
+        { to: '/pro/messages', icon: 'chat', label: t('nav.messages'), badge: inbox?.unread },
+        { to: '/pro/profile', icon: 'user', label: t('nav.profile') },
+      ]}
+    />
   );
 }
 
 /** The phone-first frame of the pro app, with its dark header colour. */
 export function ProShell() {
-  const { t } = useTranslation();
   return (
-    <div className="app-frame pro">
-      <main className="app-body">
-        <Outlet />
-      </main>
-      <TabBar
-        label={t('nav.pro')}
-        tabs={[
-          { to: '/pro', icon: 'list', label: t('nav.jobs'), end: true },
-          { to: '/pro/week', icon: 'calendar', label: t('nav.week') },
-          { to: '/pro/profile', icon: 'user', label: t('nav.profile') },
-        ]}
-      />
-    </div>
+    <InboxProvider>
+      <div className="app-frame pro">
+        <main className="app-body">
+          <Outlet />
+        </main>
+        <ProTabs />
+      </div>
+    </InboxProvider>
   );
 }
 

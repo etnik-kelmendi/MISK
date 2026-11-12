@@ -78,6 +78,7 @@ export function subjectOf(kind: NotificationKind): string {
 /**
  * Queues a message for one person on every channel chosen for it. Disabled people get none; a channel
  * the person cannot be reached on (no phone, no email, no push on any device) is skipped.
+ * Customers and pros also get it in their inbox in the app.
  * Pass the transaction's client so the message is only sent if the change it reports is saved.
  * Returns true when at least one channel was queued.
  */
@@ -100,6 +101,14 @@ export async function enqueue(db: Queryable, userId: string, kind: NotificationK
      FROM person p JOIN push_subscriptions ps ON ps.user_id = p.id, chosen c WHERE c.push`,
     [userId, kind, fitBody(body), subjectOf(kind)],
   );
+  // Customers and pros also find every message in the app (Messages), whatever the channels did.
+  if (kind !== 'admin_test') {
+    await db.query(
+      `INSERT INTO inbox (user_id, kind, body)
+       SELECT id, $2, $3 FROM users WHERE id = $1 AND disabled_at IS NULL AND role IS DISTINCT FROM 'admin'`,
+      [userId, kind, fitBody(body)],
+    );
+  }
   return Boolean(result.rowCount);
 }
 

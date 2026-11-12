@@ -63,6 +63,26 @@ function detail(overrides: Partial<AdminBooking> = {}): AdminBooking {
     cancelledBy: null,
     proSharePct: 82,
     customer: { id: 'u-customer', firstName: 'Sara', phone: '+4915100000001' },
+    customerProfile: {
+      id: 'u-customer',
+      firstName: 'Sara',
+      lastName: 'Meier',
+      phone: '+4915100000001',
+      email: 'sara@example.com',
+      signIn: 'email',
+      emailConfirmed: true,
+      memberSince: '2026-09-01T10:00:00.000Z',
+      disabled: false,
+      bookings: { total: 7, completed: 5, cancelled: 1, upcoming: 1 },
+      spentCents: 24200,
+      tipsCents: 500,
+      activePlans: ['Lawn care'],
+      ratingsGiven: 4,
+      averageStarsGiven: 4.5,
+      problemsReported: 1,
+      lateCancellations: 0,
+      lastBookingAt: '2026-11-05T09:00:00.000Z',
+    },
     offers: [],
     payouts: [],
     actions: [],
@@ -191,11 +211,42 @@ describe('admin bookings list', () => {
     // Starts with a UTF-8 byte order mark, so Excel reads names with accents right.
     expect([...new Uint8Array(await file.arrayBuffer()).slice(0, 3)]).toEqual([0xef, 0xbb, 0xbf]);
     const lines = (await file.text()).replace(String.fromCharCode(0xfeff), '').trim().split('\r\n');
-    expect(lines[0]).toBe('Booking number,Date,Time,Service,Trade,Type,Customer,Address,Pro,Status,Value (EUR),Payment status');
-    expect(lines[1]).toBe(
+    // First what was exported: the tab, search and filters on screen.
+    expect(lines.slice(0, 4)).toEqual(['Tab,All', 'Search,None', 'Trade filter,All trades', 'Type filter,All types']);
+    expect(lines[4]).toMatch(/^Exported,\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+    expect(lines[5]).toBe('Bookings in this file,2');
+    expect(lines[6]).toBe('');
+    expect(lines[7]).toBe('Booking number,Date,Time,Service,Trade,Type,Customer,Address,Pro,Status,Value (EUR),Payment status');
+    expect(lines[8]).toBe(
       'B-1042,2026-11-09,10:00,Lawn mowing,Gardening,One-off,Sara,"12 Linden Street, 10115",Unassigned,No pro yet,48.40,The amount is held on your card.',
     );
-    expect(lines).toHaveLength(3);
+    expect(lines).toHaveLength(10);
+    click.mockRestore();
+  });
+
+  it('names the tab, search and filters in the exported file', async () => {
+    setUp([row()]);
+    const saved: Blob[] = [];
+    URL.createObjectURL = vi.fn((blob: Blob) => {
+      saved.push(blob);
+      return 'blob:bookings';
+    });
+    URL.revokeObjectURL = vi.fn();
+    let fileName = '';
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      fileName = this.download;
+    });
+    renderAt('/admin/bookings?tab=needs_action&q=b-10&trade=cat-garden&type=booking');
+    await screen.findByRole('table');
+    await waitFor(() => expect(screen.getByLabelText('Trade')).toHaveValue('cat-garden'));
+    await user().click(screen.getByRole('button', { name: 'Export' }));
+    expect(fileName).toMatch(/^misk-bookings-needs-action-gardening-booking-search-b-10-\d{4}-\d{2}-\d{2}\.csv$/);
+    const file = saved[0];
+    if (!file) throw new Error('No file saved');
+    const lines = (await file.text()).replace(String.fromCharCode(0xfeff), '').split('\r\n');
+    expect(lines.slice(0, 4)).toEqual(['Tab,Needs action', 'Search,b-10', 'Trade filter,Gardening', 'Type filter,One-off']);
+    // The rows are the ones the server sent for exactly that tab, search and filters.
+    expect(lastListQuery()?.toString()).toBe('tab=needs_action&q=b-10&trade=cat-garden&type=booking');
     click.mockRestore();
   });
 });
@@ -232,7 +283,15 @@ describe('admin booking side panel', () => {
       'Working',
       'Done',
     ]);
-    expect(within(dialog).getByText('+4915100000001')).toBeInTheDocument();
+    const profile = within(dialog).getByRole('region', { name: 'Customer profile' });
+    expect(within(profile).getByText('Sara Meier')).toBeInTheDocument();
+    expect(within(profile).getByRole('link', { name: '+4915100000001' })).toHaveAttribute('href', 'tel:+4915100000001');
+    expect(within(profile).getByRole('link', { name: 'sara@example.com' })).toHaveAttribute('href', 'mailto:sara@example.com');
+    expect(profile).toHaveTextContent('7 in total · 5 done · 1 coming up · 1 cancelled');
+    expect(profile).toHaveTextContent('€242 + €5 in tips');
+    expect(profile).toHaveTextContent('Lawn care');
+    expect(profile).toHaveTextContent('4 ratings, 4.5 stars on average');
+    expect(profile).toHaveTextContent('Email and password');
     expect(within(dialog).getByText('Pro gets (82%)')).toBeInTheDocument();
     expect(within(dialog).getByText('€37.31')).toBeInTheDocument();
     expect(within(dialog).getByText('€11.09')).toBeInTheDocument();
@@ -250,7 +309,10 @@ describe('admin booking side panel', () => {
     renderAt(`/admin/bookings?open=b:${BOOKING_ID}`);
     const dialog = await screen.findByRole('dialog', { name: 'B-1042' });
     expect(within(dialog).getByRole('heading', { name: 'No pro yet: give the job to a pro nearby' })).toBeInTheDocument();
-    await user().click(await within(dialog).findByRole('button', { name: 'Assign Jonas' }));
+    await within(dialog).findByRole('button', { name: 'Assign Jonas' });
+    // Only the pros to assign: no button to send the job out to every pro again.
+    expect(within(dialog).queryByRole('button', { name: /Offer it to pros again/ })).not.toBeInTheDocument();
+    await user().click(within(dialog).getByRole('button', { name: 'Assign Jonas' }));
     expect(api.bodies[`POST /admin/bookings/${BOOKING_ID}/reassign`]).toEqual({ proId: 'u-jonas' });
     expect(await within(dialog).findByText('Gave the job to Jonas')).toBeInTheDocument();
   });

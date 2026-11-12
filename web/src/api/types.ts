@@ -146,11 +146,34 @@ export interface ProJob extends BookingBase {
   earningsCents: number;
 }
 
+/** What the team sees about a customer in the booking and plan visit panels. */
+export interface CustomerProfile {
+  id: string;
+  firstName: string | null;
+  lastName: string | null;
+  phone: string | null;
+  email: string | null;
+  signIn: 'phone' | 'email';
+  emailConfirmed: boolean;
+  memberSince: string;
+  disabled: boolean;
+  bookings: { total: number; completed: number; cancelled: number; upcoming: number };
+  spentCents: number;
+  tipsCents: number;
+  activePlans: string[];
+  ratingsGiven: number;
+  averageStarsGiven: number | null;
+  problemsReported: number;
+  lateCancellations: number;
+  lastBookingAt: string | null;
+}
+
 export interface AdminBooking extends BookingBase, Money {
   pro: ProSummary | null;
   cancelledBy: string | null;
   proSharePct: number;
   customer: { id: string; firstName: string | null; phone: string | null };
+  customerProfile: CustomerProfile | null;
   offers: { id: string; proId: string; proName: string | null; status: string; offeredAt: string; expiresAt: string }[];
   payouts: { amountCents: number; status: string; error: string | null; createdAt: string }[];
   actions: AdminAction[];
@@ -187,6 +210,7 @@ export interface AdminVisit {
   subscriptionStatus: string;
   categoryName: string;
   customer: { firstName: string | null; lastName: string | null; phone: string | null; email: string | null };
+  customerProfile: CustomerProfile | null;
   pro: { id: string; firstName: string | null; phone: string | null };
   perVisitCents: number;
   proMonthlyCents: number;
@@ -721,4 +745,18 @@ export interface ProPayouts {
   interval: PayoutInterval;
   nextPayoutOn: string;
   bankLast4: string | null;
+}
+
+/** A message MISK sent a customer or pro, as listed under Messages in the app. */
+export interface InboxMessage {
+  id: string;
+  kind: string;
+  body: string;
+  read: boolean;
+  createdAt: string;
+}
+
+export interface Inbox {
+  messages: InboxMessage[];
+  unread: number;
 }

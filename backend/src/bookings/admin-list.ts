@@ -4,6 +4,7 @@ import { notFound } from '../errors.js';
 import { uuidParams } from '../http.js';
 import { proShareCents } from '../catalogue/pricing.js';
 import { VISITS_PER_MONTH, type Frequency } from '../plans/routes.js';
+import { loadCustomerProfile } from './customer-profile.js';
 
 export const TABS = ['all', 'needs_action', 'live', 'upcoming', 'done'] as const;
 export type Tab = (typeof TABS)[number];
@@ -131,10 +132,10 @@ export async function adminListRoutes(app: FastifyInstance, ctx: AppContext) {
     '/admin/visits/:id',
     { preHandler: guards.admin, schema: { params: uuidParams } },
     async (request) => {
-      const found = await pool.query<{ priceCents: number; proSharePct: number; frequency: Frequency }>(
+      const found = await pool.query<{ priceCents: number; proSharePct: number; frequency: Frequency; customerId: string }>(
         `SELECT v.id, 'V-' || v.number AS number, v.starts_at AS "startsAt", v.ends_at AS "endsAt", v.status, v.tasks_done AS "tasksDone",
            v.completed_at AS "completedAt", s.id AS "subscriptionId", s.plan_name AS "planName", s.tasks, s.address, s.postcode,
-           s.notes, s.price_cents AS "priceCents", s.pro_share_pct AS "proSharePct", s.frequency, s.status AS "subscriptionStatus",
+           s.customer_id AS "customerId", s.notes, s.price_cents AS "priceCents", s.pro_share_pct AS "proSharePct", s.frequency, s.status AS "subscriptionStatus",
            cat.name AS "categoryName",
            json_build_object('firstName', cu.first_name, 'lastName', cu.last_name, 'phone', cu.phone, 'email', cu.email) AS customer,
            json_build_object('id', pu.id, 'firstName', pu.first_name, 'phone', pu.phone) AS pro
@@ -148,9 +149,11 @@ export async function adminListRoutes(app: FastifyInstance, ctx: AppContext) {
         throw notFound();
       }
       const proMonthly = proShareCents(visit.priceCents, visit.proSharePct);
+      const { customerId, ...rest } = visit;
       return {
         visit: {
-          ...visit,
+          ...rest,
+          customerProfile: await loadCustomerProfile(pool, customerId),
           perVisitCents: Math.round(visit.priceCents / VISITS_PER_MONTH[visit.frequency]),
           proMonthlyCents: proMonthly,
           miskMonthlyCents: visit.priceCents - proMonthly,

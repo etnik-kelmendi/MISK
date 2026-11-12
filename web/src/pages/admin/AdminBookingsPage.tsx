@@ -157,8 +157,31 @@ export function AdminBookingsPage() {
         paymentLabel(item),
       ];
     });
-    const today = zonedParts(new Date().toISOString(), timezone).date;
-    downloadFile(t('admin.bookings.exportFile', { date: today }), toCsv([columns.map((key) => t(`admin.bookings.csv.${key}`)), ...rows]));
+    const now = zonedParts(new Date().toISOString(), timezone);
+    const tradeName =
+      trade && trades.state.status === 'ready' ? (trades.state.data.categories.find((c) => c.id === trade)?.name ?? trade) : '';
+    // What was exported: the tab, search and filters on screen, so the file explains itself later.
+    const applied: [string, string][] = [
+      [t('admin.bookings.csv.tab'), t(`admin.bookings.tab.${tab}`)],
+      [t('admin.bookings.csv.search'), q || t('admin.bookings.csv.none')],
+      [t('admin.bookings.csv.tradeFilter'), tradeName || t('admin.bookings.allTrades')],
+      [t('admin.bookings.csv.typeFilter'), type ? t(type === 'booking' ? 'admin.bookings.typeBooking' : 'admin.bookings.typeVisit') : t('admin.bookings.allTypes')],
+      [t('admin.bookings.csv.exported'), `${now.date} ${now.time}`],
+      [t('admin.bookings.csv.count'), String(items.length)],
+    ];
+    // The file name says it too, e.g. misk-bookings-needs-action-gardening-2026-11-11.csv.
+    const slug = (text: string) =>
+      text
+        .toLowerCase()
+        .normalize('NFKD')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '')
+        .slice(0, 40);
+    const parts = [tab === 'all' ? '' : tab.replace('_', '-'), slug(tradeName), type, q ? `search-${slug(q)}` : ''].filter(Boolean);
+    downloadFile(
+      t('admin.bookings.exportFile', { filters: parts.length ? `-${parts.join('-')}` : '', date: now.date }),
+      toCsv([...applied, [], columns.map((key) => t(`admin.bookings.csv.${key}`)), ...rows]),
+    );
   }
 
   const ready = state.status === 'ready' ? state.data : null;

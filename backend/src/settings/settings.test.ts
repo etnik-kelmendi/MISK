@@ -193,8 +193,17 @@ describe('notifications', () => {
     await t.pool.query('DELETE FROM notifications');
     expect(await enqueue(t.pool, id, 'booking_confirmed', 'Booked')).toBe(false);
     // Messages not on the Settings page go by SMS as before.
+    await enqueue(t.pool, id, 'booking_rescheduled', 'Moved');
+    expect((await t.pool.query("SELECT channel FROM notifications WHERE kind = 'booking_rescheduled'")).rows).toEqual([{ channel: 'sms' }]);
+    // A cancelled job also goes out by push.
     await enqueue(t.pool, id, 'booking_cancelled', 'Cancelled');
-    expect((await t.pool.query("SELECT channel FROM notifications WHERE kind = 'booking_cancelled'")).rows).toEqual([{ channel: 'sms' }]);
+    const cancelled = await t.pool.query<{ channel: string }>(
+      "SELECT channel FROM notifications WHERE kind = 'booking_cancelled' ORDER BY channel",
+    );
+    expect(cancelled.rows.map((r) => r.channel)).toEqual(['push', 'sms']);
+    // Every message is also in the person's Messages in the app.
+    const inbox = (await get('/inbox', customer)).json().messages.map((m: { kind: string }) => m.kind);
+    expect(inbox).toEqual(expect.arrayContaining(['booking_confirmed', 'booking_rescheduled', 'booking_cancelled']));
   });
 
   it('sends each channel with its own sender, and forgets a browser that no longer takes push', async () => {

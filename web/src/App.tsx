@@ -39,6 +39,7 @@ import { ProVisitPage } from './pages/pro/ProVisitPage';
 import { ProWeekPage } from './pages/pro/ProWeekPage';
 import { SignInPage } from './pages/SignInPage';
 import { SignUpPage } from './pages/SignUpPage';
+import { MessagesPage } from './pages/MessagesPage';
 import { TermsPage } from './pages/TermsPage';
 import { VerifyEmailPage } from './pages/VerifyEmailPage';
 import { AdminShell, CustomerShell, ProShell } from './shells/Shells';
@@ -77,6 +78,7 @@ function CustomerAndProRoutes() {
         <Route path="plans" element={<CustomerPlansPage />} />
         <Route path="plans/:id" element={<SubscribePage />} />
         <Route path="my-plans/:id" element={<MyPlanPage />} />
+        <Route path="messages" element={<MessagesPage />} />
         <Route path="account" element={<AccountPage />} />
       </Route>
       <Route
@@ -92,6 +94,7 @@ function CustomerAndProRoutes() {
         <Route path="visits/:id" element={<ProVisitPage />} />
         <Route path="week" element={<ProWeekPage />} />
         <Route path="profile" element={<ProProfilePage />} />
+        <Route path="messages" element={<MessagesPage />} />
         <Route path="account" element={<AccountPage />} />
       </Route>
       <Route path="*" element={<NotFoundPage />} />

@@ -13,6 +13,7 @@ import { StatusBadge } from '../../components/StatusBadge';
 import { dateTime, euro, zonedParts, zonedToIso } from '../../lib/format';
 import { useAction } from '../../lib/useAction';
 import { usePolling } from '../../lib/usePolling';
+import { CustomerProfileCard } from './CustomerProfileCard';
 
 /** Open bookings and the list refresh themselves this often, so statuses change on screen as pros work. */
 export const REFRESH_MS = 15_000;
@@ -148,10 +149,10 @@ function AssignPro({ booking, onChanged }: { booking: AdminBooking; onChanged: (
   const candidates = useResource(load);
   const headingId = useId();
 
-  async function assign(body: { proId?: string }, name?: string) {
-    const result = await action.run(() => api.post<{ booking: AdminBooking }>(`/admin/bookings/${booking.id}/reassign`, body));
+  async function assign(proId: string, name: string) {
+    const result = await action.run(() => api.post<{ booking: AdminBooking }>(`/admin/bookings/${booking.id}/reassign`, { proId }));
     if (result) {
-      setDone(name ? t('admin.booking.assign.done', { name }) : null);
+      setDone(t('admin.booking.assign.done', { name }));
       onChanged(result.booking);
       candidates.reload();
     }
@@ -184,7 +185,7 @@ function AssignPro({ booking, onChanged }: { booking: AdminBooking; onChanged: (
                   className="abtn"
                   disabled={action.busy}
                   aria-label={t('admin.booking.assign.buttonLabel', { name: c.firstName ?? '' })}
-                  onClick={() => void assign({ proId: c.id }, c.firstName ?? '')}
+                  onClick={() => void assign(c.id, c.firstName ?? '')}
                 >
                   {t('admin.booking.assign.button')}
                 </button>
@@ -192,9 +193,6 @@ function AssignPro({ booking, onChanged }: { booking: AdminBooking; onChanged: (
             ))}
           </ul>
         ))}
-      <button type="button" className="abtn ghost" disabled={action.busy} onClick={() => void assign({})}>
-        {t('admin.booking.assign.restart')}
-      </button>
       {done && (
         <p className="small ok" role="status">
           {done}
@@ -355,7 +353,8 @@ function BookingDetails({ booking, onChanged }: { booking: AdminBooking; onChang
         <dt>{t('admin.booking.customer')}</dt>
         <dd>
           {booking.customer.firstName}
-          {booking.customer.phone && (
+          {/* Phone, email and history are in the customer profile below; without one, the phone is shown here. */}
+          {!booking.customerProfile && booking.customer.phone && (
             <>
               {' · '}
               <a href={`tel:${booking.customer.phone}`}>{booking.customer.phone}</a>
@@ -381,6 +380,7 @@ function BookingDetails({ booking, onChanged }: { booking: AdminBooking; onChang
         <dt>{t('admin.booking.notes')}</dt>
         <dd>{booking.notes || '–'}</dd>
       </dl>
+      {booking.customerProfile && <CustomerProfileCard profile={booking.customerProfile} />}
 
       <section className="stack" aria-label={t('admin.booking.money')}>
         <h3>{t('admin.booking.money')}</h3>
@@ -489,13 +489,13 @@ function VisitDetails({ visit }: { visit: AdminVisit }) {
         <dt>{t('admin.booking.customer')}</dt>
         <dd>
           {[visit.customer.firstName, visit.customer.lastName].filter(Boolean).join(' ')}
-          {visit.customer.phone && (
+          {!visit.customerProfile && visit.customer.phone && (
             <>
               {' · '}
               <a href={`tel:${visit.customer.phone}`}>{visit.customer.phone}</a>
             </>
           )}
-          {visit.customer.email && (
+          {!visit.customerProfile && visit.customer.email && (
             <>
               {' · '}
               <a href={`mailto:${visit.customer.email}`}>{visit.customer.email}</a>
@@ -524,6 +524,7 @@ function VisitDetails({ visit }: { visit: AdminVisit }) {
         <dt>{t('admin.booking.notes')}</dt>
         <dd>{visit.notes || '–'}</dd>
       </dl>
+      {visit.customerProfile && <CustomerProfileCard profile={visit.customerProfile} />}
       <section className="stack" aria-label={t('admin.booking.money')}>
         <h3>{t('admin.booking.money')}</h3>
         <dl className="kv money">

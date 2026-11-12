@@ -1,5 +1,6 @@
 import { proShareCents } from '../catalogue/pricing.js';
 import type { Queryable } from '../db.js';
+import { loadCustomerProfile } from './customer-profile.js';
 import { CHARGE_DELAY_HOURS, FREE_CANCEL_HOURS } from './lifecycle.js';
 
 export type Viewer = 'customer' | 'pro' | 'admin';
@@ -176,6 +177,7 @@ export async function loadBooking(db: Queryable, bookingId: string, viewer: View
     cancelledBy: b.cancelledBy,
     proSharePct: b.proSharePct,
     customer: { id: b.customerId, firstName: b.customerName, phone: b.customerPhone },
+    customerProfile: await loadCustomerProfile(db, b.customerId),
     offers: offers.rows,
     payouts: payouts.rows,
     actions: actions.rows,
