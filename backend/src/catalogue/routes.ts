@@ -4,6 +4,7 @@ import type { AppContext } from '../context.js';
 import { conflict, notFound } from '../errors.js';
 import { isForeignKeyViolation, isUniqueViolation, uuidParams } from '../http.js';
 import { onlyRow, withTransaction, type Queryable } from '../db.js';
+import { logActivity } from '../settings/activity.js';
 
 /** A service added this recently is marked "New", in the control panel and in the app. */
 export const NEW_SERVICE_DAYS = 14;
@@ -222,6 +223,55 @@ export async function catalogueRoutes(app: FastifyInstance, ctx: AppContext) {
         }
       }
       throw conflict('slug_taken');
+    },
+  );
+
+  /**
+   * Removes a trade and its services for good. Only a trade nothing depends on can go: bookings, monthly
+   * plans and pros' profiles keep pointing at their trade, so such a trade can only be unpublished.
+   */
+  app.delete<{ Params: { id: string } }>(
+    '/admin/categories/:id',
+    { preHandler: guards.admin, schema: { params: uuidParams } },
+    async (request, reply) => {
+      const categoryId = request.params.id;
+      const adminId = currentUser(request).id;
+      try {
+        const name = await withTransaction(pool, async (client) => {
+          const found = await client.query<{ name: string }>('SELECT name FROM categories WHERE id = $1 FOR UPDATE', [categoryId]);
+          const category = found.rows[0];
+          if (!category) {
+            throw notFound();
+          }
+          const uses = onlyRow(
+            await client.query<{ bookings: number; plans: number; pros: number }>(
+              `SELECT
+                 (SELECT count(*)::int FROM bookings WHERE category_id = $1)
+                 + (SELECT count(*)::int FROM subscriptions WHERE category_id = $1) AS bookings,
+                 (SELECT count(*)::int FROM plans WHERE category_id = $1) AS plans,
+                 (SELECT count(*)::int FROM pro_trades WHERE category_id = $1) AS pros`,
+              [categoryId],
+            ),
+          );
+          if (uses.bookings > 0) throw conflict('trade_has_bookings');
+          if (uses.plans > 0) throw conflict('trade_has_plans');
+          if (uses.pros > 0) throw conflict('trade_has_pros');
+          // Its services and change log go with it.
+          await client.query('DELETE FROM catalogue_changes WHERE category_id = $1', [categoryId]);
+          await client.query('DELETE FROM services WHERE category_id = $1', [categoryId]);
+          await client.query('DELETE FROM categories WHERE id = $1', [categoryId]);
+          await logActivity(client, { adminId, area: 'catalogue', action: 'trade_removed', details: { name: category.name } });
+          return category.name;
+        });
+        request.log.info({ event: 'trade_removed', categoryId, name, by: adminId });
+        return reply.code(204).send();
+      } catch (error) {
+        // Something started using the trade at the same moment: it stays.
+        if (isForeignKeyViolation(error)) {
+          throw conflict('trade_in_use');
+        }
+        throw error;
+      }
     },
   );
 

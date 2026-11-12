@@ -5,15 +5,19 @@ import { useMarket } from '../../api/MarketContext';
 import { EXPIRING_KINDS, type AdminProDetail, type ProActionEntry, type ProCheck } from '../../api/types';
 import { useResource } from '../../api/useResource';
 import { Drawer } from '../../components/Drawer';
+import { Fold } from '../../components/Fold';
 import { ErrorText } from '../../components/ErrorText';
 import { Icon } from '../../components/Icon';
 import { ResourceState } from '../../components/ResourceState';
-import { dateTime, euro, longDate, zonedToIso } from '../../lib/format';
+import { dateTime, euro, longDate, time, zonedToIso } from '../../lib/format';
 import { useAction } from '../../lib/useAction';
+import { useNow } from '../../lib/useNow';
 import { useValidation } from '../../lib/useValidation';
 import { FieldError } from '../../components/FieldError';
 import { fullName, LOW_ACCEPTANCE_PCT, LOW_ON_TIME_PCT, Pct } from './proFormat';
 
+/** The API refuses a second reminder about the same document within this many minutes. */
+const REMINDER_GAP_MINUTES = 60;
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 type Changed = (pro: AdminProDetail, notice?: string) => void;
 
@@ -80,6 +84,10 @@ function CheckItem({ pro, check, onChanged }: { pro: AdminProDetail; check: ProC
   const expiryId = useId();
   const canDecide = doc !== null && doc.reviewStatus !== 'accepted';
   const canRemind = check.state === 'missing' || check.state === 'rejected' || check.state === 'expired' || check.state === 'expiring';
+  // The newest reminder for this document; the server refuses another one within REMINDER_GAP_MINUTES.
+  const lastReminder = pro.actions.find((a) => a.action === 'reminder_sent' && a.details.document === check.kind);
+  const now = useNow();
+  const reminded = lastReminder !== undefined && now - new Date(lastReminder.createdAt).getTime() < REMINDER_GAP_MINUTES * 60_000;
 
   const explanation = (() => {
     switch (check.state) {
@@ -171,16 +179,29 @@ function CheckItem({ pro, check, onChanged }: { pro: AdminProDetail; check: ProC
           onSubmit={(note) => void post('reject', { note })}
         />
       )}
-      {canRemind && (
-        <button
-          type="button"
-          className="abtn ghost"
-          disabled={action.busy}
-          aria-label={t('admin.pros.panel.remindLabel', { document: documentName })}
-          onClick={() => void post('remind', undefined, t('admin.pros.panel.reminded'))}
-        >
-          <Icon name="chat" /> {t('admin.pros.panel.remind')}
-        </button>
+      {canRemind &&
+        (reminded && lastReminder ? (
+          <button
+            type="button"
+            className="abtn remind sent"
+            disabled
+            aria-label={t('admin.pros.panel.remindedLabel', { document: documentName, time: time(lastReminder.createdAt, timezone) })}
+          >
+            <Icon name="check" /> {t('admin.pros.panel.remindedAt', { time: time(lastReminder.createdAt, timezone) })}
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="abtn ghost remind"
+            disabled={action.busy}
+            aria-label={t('admin.pros.panel.remindLabel', { document: documentName })}
+            onClick={() => void post('remind', undefined, t('admin.pros.panel.reminded'))}
+          >
+            <Icon name="chat" /> {action.busy ? t('common.sending') : t('admin.pros.panel.remind')}
+          </button>
+        ))}
+      {canRemind && lastReminder && !reminded && (
+        <p className="tiny muted">{t('admin.pros.panel.lastReminder', { date: dateTime(lastReminder.createdAt, timezone) })}</p>
       )}
       <ErrorText error={action.error} />
     </li>
@@ -538,8 +559,10 @@ function ProDetails({ pro, notice, onChanged }: { pro: AdminProDetail; notice: s
             )}
           </section>
 
-          <section className="stack" aria-labelledby="payouts-heading">
-            <h3 id="payouts-heading">{t('admin.pros.panel.payouts')}</h3>
+          <Fold
+            title={t('admin.pros.panel.payouts')}
+            summary={pro.bank?.nextPayout ? euro(pro.bank.nextPayout.amountCents) : undefined}
+          >
             <dl className="kv">
               <dt>{t('admin.pros.panel.bank')}</dt>
               <dd>
@@ -561,27 +584,28 @@ function ProDetails({ pro, notice, onChanged }: { pro: AdminProDetail; notice: s
                   : t('admin.pros.panel.noNextPayout')}
               </dd>
             </dl>
-            {pro.payouts.length > 0 && (
-              <>
-                <h4 className="small b">{t('admin.pros.panel.recentPayouts')}</h4>
-                <ul className="history small">
-                  {pro.payouts.map((p, i) => (
-                    <li key={i}>
-                      {t('admin.pros.panel.payoutLine', {
-                        amount: euro(p.amountCents),
-                        source: t(`admin.pros.panel.payoutSource.${p.source}`),
-                        status: t(`payoutStatus.${p.status as 'sent'}`, { defaultValue: p.status }),
-                        date: longDate(p.createdAt, timezone),
-                      })}
-                    </li>
-                  ))}
-                </ul>
-              </>
-            )}
-          </section>
+          </Fold>
 
-          <section className="stack" aria-labelledby="reviews-heading">
-            <h3 id="reviews-heading">{t('admin.pros.panel.reviews')}</h3>
+          <Fold title={t('admin.pros.panel.recentPayouts')} summary={t('admin.pros.panel.payoutCount', { count: pro.payouts.length })}>
+            {pro.payouts.length === 0 ? (
+              <p className="small muted">{t('admin.pros.panel.noPayouts')}</p>
+            ) : (
+              <ul className="history small">
+                {pro.payouts.map((p, i) => (
+                  <li key={i}>
+                    {t('admin.pros.panel.payoutLine', {
+                      amount: euro(p.amountCents),
+                      source: t(`admin.pros.panel.payoutSource.${p.source}`),
+                      status: t(`payoutStatus.${p.status as 'sent'}`, { defaultValue: p.status }),
+                      date: longDate(p.createdAt, timezone),
+                    })}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Fold>
+
+          <Fold title={t('admin.pros.panel.reviews')} summary={t('admin.pros.panel.reviewCount', { count: pro.reviews.length })}>
             {pro.reviews.length === 0 ? (
               <p className="small muted">{t('admin.pros.panel.noReviews')}</p>
             ) : (
@@ -594,12 +618,11 @@ function ProDetails({ pro, notice, onChanged }: { pro: AdminProDetail; notice: s
                 ))}
               </ul>
             )}
-          </section>
+          </Fold>
         </>
       )}
 
-      <section className="stack" aria-labelledby="log-heading">
-        <h3 id="log-heading">{t('admin.pros.panel.log')}</h3>
+      <Fold title={t('admin.pros.panel.log')} summary={t('admin.pros.panel.logCount', { count: pro.actions.length })}>
         {pro.actions.length === 0 ? (
           <p className="small muted">{t('admin.pros.panel.noLog')}</p>
         ) : (
@@ -609,7 +632,7 @@ function ProDetails({ pro, notice, onChanged }: { pro: AdminProDetail; notice: s
             ))}
           </ul>
         )}
-      </section>
+      </Fold>
     </>
   );
 }

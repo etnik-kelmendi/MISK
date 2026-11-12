@@ -387,6 +387,66 @@ describe('pro side panel', () => {
     expect(await within(dialog).findByText('All documents are fine again: the pro is back in Active.')).toBeInTheDocument();
   });
 
+  it('turns Send reminder green once the reminder is sent, and keeps it so for an hour', async () => {
+    const api = setUp();
+    const expired = check('insurance', {
+      ok: false,
+      state: 'expired',
+      document: { ...docOf('insurance'), expiresOn: '2026-10-01' },
+    });
+    const active = detail({ status: 'pending_approval', checks: [check('id'), check('certificate'), expired, check('background')], allChecksOk: false });
+    const sentAt = new Date().toISOString();
+    const reminded = {
+      ...active,
+      actions: [{ id: 'a1', action: 'reminder_sent' as const, details: { document: 'insurance' as const }, createdAt: sentAt, adminName: 'admin' }],
+    };
+    api.on(`GET /admin/pros/${PRO_ID}`, { body: { pro: active } });
+    api.on(`POST /admin/pros/${PRO_ID}/documents/insurance/remind`, { body: { pro: reminded } });
+    renderAt(`/admin/providers?tab=pending_approval&open=${PRO_ID}`);
+    const dialog = await screen.findByRole('dialog', { name: 'Erion Krasniqi' });
+    const send = within(dialog).getByRole('button', { name: 'Send reminder about Liability insurance' });
+    expect(send).not.toHaveClass('sent');
+    await user().click(send);
+
+    const sent = await within(dialog).findByRole('button', { name: /^Reminder about the Liability insurance sent at \d{2}:\d{2}$/ });
+    expect(sent).toHaveClass('sent');
+    expect(sent).toBeDisabled();
+    expect(sent).toHaveTextContent(/Reminder sent at \d{2}:\d{2}/);
+    expect(api.calls.filter((c) => c === `POST /admin/pros/${PRO_ID}/documents/insurance/remind`)).toHaveLength(1);
+  });
+
+  it('folds payouts, recent payouts, reviews and the log until they are opened', async () => {
+    const api = setUp();
+    const pro = detail({
+      status: 'approved',
+      hasPayoutAccount: true,
+      bank: { bankLast4: '4321', nextPayout: { amountCents: 12000, arrivesOn: '2026-11-20' } },
+      payouts: [{ amountCents: 3731, source: 'job', status: 'sent', createdAt: '2026-11-05T09:00:00.000Z' }],
+      reviews: [
+        { stars: 5, tags: [], service: 'Lawn mowing', customerName: 'Sara', createdAt: '2026-11-04T09:00:00.000Z' },
+        { stars: 4, tags: [], service: 'Hedge trimming', customerName: 'Tom', createdAt: '2026-11-03T09:00:00.000Z' },
+      ],
+    });
+    api.on(`GET /admin/pros/${PRO_ID}`, { body: { pro } });
+    renderAt(`/admin/providers?tab=active&open=${PRO_ID}`);
+    const dialog = await screen.findByRole('dialog', { name: 'Erion Krasniqi' });
+    const fold = (title: string) => within(dialog).getByRole('heading', { name: title }).closest('details') as HTMLDetailsElement;
+
+    for (const title of ['Payouts', 'Recent payouts', 'Reviews', 'Activity log']) {
+      expect(fold(title)).not.toHaveAttribute('open');
+    }
+    expect(fold('Reviews').querySelector('summary')).toHaveTextContent('2 reviews');
+    expect(fold('Recent payouts').querySelector('summary')).toHaveTextContent('1 payout');
+    expect(fold('Payouts').querySelector('summary')).toHaveTextContent('€120');
+
+    await user().click(within(dialog).getByRole('heading', { name: 'Reviews' }));
+    expect(fold('Reviews')).toHaveAttribute('open');
+    expect(fold('Reviews')).toHaveTextContent('Lawn mowing');
+    expect(fold('Payouts')).not.toHaveAttribute('open');
+    await user().click(within(dialog).getByRole('heading', { name: 'Reviews' }));
+    expect(fold('Reviews')).not.toHaveAttribute('open');
+  });
+
   it('reinstates a suspended pro', async () => {
     const api = setUp();
     const suspended = detail({ status: 'suspended', suspendedAt: '2026-11-04T10:00:00.000Z', suspendedReason: 'Damage reports' });

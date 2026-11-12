@@ -240,11 +240,44 @@ describe('catalogue page', () => {
     expect(api.bodies['PATCH /admin/categories/cat-garden']).toEqual({ active: false });
   });
 
-  it('shows the trade’s activity log', async () => {
+  it('keeps the trade’s activity log folded until it is opened', async () => {
     setUp();
     renderAt('/admin/catalogue');
-    const log = await screen.findByRole('region', { name: 'Activity log' });
+    const title = await screen.findByRole('heading', { name: 'Activity log' });
+    const log = title.closest('details') as HTMLDetailsElement;
+    expect(log).not.toHaveAttribute('open');
+    expect(log.querySelector('summary')).toHaveTextContent('1 change');
+    await user().click(title);
+    expect(log).toHaveAttribute('open');
     expect(log).toHaveTextContent('Lawn mowing: price €32 → €35');
     expect(log).toHaveTextContent('admin');
+    await user().click(title);
+    expect(log).not.toHaveAttribute('open');
+  });
+
+  it('removes a trade after asking, and shows the first trade with a note', async () => {
+    const api = setUp();
+    api.on('DELETE /admin/categories/cat-garden', { status: 204 });
+    renderAt('/admin/catalogue?trade=cat-garden');
+    await user().click(await screen.findByRole('button', { name: 'Remove trade' }));
+    const dialog = screen.getByRole('alertdialog', { name: 'Remove "Gardening"?' });
+    expect(dialog).toHaveTextContent('removed for good');
+    await user().click(within(dialog).getByRole('button', { name: 'Keep it' }));
+    expect(api.calls).not.toContain('DELETE /admin/categories/cat-garden');
+
+    await user().click(screen.getByRole('button', { name: 'Remove trade' }));
+    await user().click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Remove trade' }));
+    expect(await screen.findByText('"Gardening" was removed.')).toBeInTheDocument();
+    expect(api.calls).toContain('DELETE /admin/categories/cat-garden');
+  });
+
+  it('explains why a trade in use cannot be removed', async () => {
+    const api = setUp();
+    api.on('DELETE /admin/categories/cat-garden', { status: 409, body: { error: 'trade_has_bookings' } });
+    renderAt('/admin/catalogue?trade=cat-garden');
+    await user().click(await screen.findByRole('button', { name: 'Remove trade' }));
+    await user().click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Remove trade' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('This trade has bookings or monthly plans, so it cannot be removed.');
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
   });
 });

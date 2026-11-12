@@ -446,6 +446,7 @@ const KNOWN_ACTIONS = [
   'test_sent',
   'invited',
   'role_changed',
+  'trade_removed',
 ] as const;
 type KnownAction = (typeof KNOWN_ACTIONS)[number];
 
@@ -464,6 +465,7 @@ function ActivityLine({ entry }: { entry: ActivityEntry }) {
         message: d.message ? t(`admin.settings.notifications.kind.${d.message as MessageKind}`) : '',
         email: String(d.email ?? ''),
         role: d.role ? t(`admin.settings.team.roles.${d.role as AdminRole}`) : '',
+        name: String(d.name ?? ''),
       })
     : [entry.subject, entry.action.replace(/_/g, ' ')].filter(Boolean).join(': ');
   return (

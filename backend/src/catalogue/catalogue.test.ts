@@ -107,6 +107,75 @@ describe('catalogue', () => {
     expect(log.map((c: { action: string }) => c.action)).toEqual(['trade_published', 'service_added', 'trade_added', 'trade_added']);
   });
 
+  it('removes a trade nothing depends on, with its services, and keeps a note of it in the activity log', async () => {
+    const market = await seedMarket(t.pool);
+    const admin = await signInAdmin(t);
+    const id = (await call(t, 'POST', '/admin/categories', { cookie: admin, body: { name: 'Pool care', icon: 'sun' } })).json().category.id;
+    await call(t, 'POST', '/admin/services', {
+      cookie: admin,
+      body: { categoryId: id, name: 'Pool cleaning', priceCents: 6900, durationMinutes: 90 },
+    });
+    await call(t, 'PATCH', `/admin/categories/${id}`, { cookie: admin, body: { active: true } });
+
+    const removed = await call(t, 'DELETE', `/admin/categories/${id}`, { cookie: admin });
+    expect(removed.statusCode).toBe(204);
+    const catalogue = (await call(t, 'GET', '/admin/catalogue', { cookie: admin })).json();
+    expect(catalogue.categories.map((c: { id: string }) => c.id)).not.toContain(id);
+    expect(catalogue.services.map((s: { name: string }) => s.name)).not.toContain('Pool cleaning');
+    expect((await t.app.inject({ method: 'GET', url: '/catalogue' })).json().categories.map((c: { slug: string }) => c.slug)).not.toContain(
+      'pool-care',
+    );
+    const activity = (await call(t, 'GET', '/admin/activity', { cookie: admin })).json().activity;
+    expect(activity[0]).toMatchObject({ area: 'catalogue', action: 'trade_removed', details: { name: 'Pool care' } });
+    expect((await call(t, 'DELETE', `/admin/categories/${id}`, { cookie: admin })).statusCode).toBe(404);
+    expect((await call(t, 'DELETE', `/admin/categories/${market.plumbing}`, { cookie: await signIn(t, '+4915100000009', 'customer') })).statusCode).toBe(403);
+  });
+
+  it('keeps a trade that bookings, plans or pros depend on', async () => {
+    const market = await seedMarket(t.pool);
+    const admin = await signInAdmin(t);
+    const remove = async (id: string) => (await call(t, 'DELETE', `/admin/categories/${id}`, { cookie: admin })).json();
+
+    await approvedPro(t, '+4915100000101', { trades: [market.plumbing] });
+    expect(await remove(market.plumbing)).toEqual({ error: 'trade_has_pros' });
+
+    await call(t, 'POST', '/admin/plans', {
+      cookie: admin,
+      body: {
+        name: 'Garden care',
+        categoryId: market.gardening,
+        priceCents: 4900,
+        frequency: 'weekly',
+        visitMinutes: 60,
+        tasks: ['Mow'],
+        addonName: null,
+        addonPriceCents: null,
+        seasonal: false,
+        skipsPerMonth: 2,
+        minTermMonths: 3,
+        proSharePct: 70,
+      },
+    });
+    expect(await remove(market.gardening)).toEqual({ error: 'trade_has_plans' });
+
+    const customer = await signIn(t, '+4915100000002', 'customer');
+    const customerId = (await call(t, 'GET', '/auth/me', { cookie: customer })).json().user.id;
+    const used = (await call(t, 'POST', '/admin/categories', { cookie: admin, body: { name: 'Moving help', icon: 'hammer' } })).json().category.id;
+    const service = (
+      await call(t, 'POST', '/admin/services', { cookie: admin, body: { categoryId: used, name: 'Carrying', priceCents: 4000, durationMinutes: 60 } })
+    ).json().service.id;
+    await t.pool.query(
+      `INSERT INTO bookings (customer_id, service_id, category_id, service_name, size, address, postcode, starts_at, ends_at,
+         price_cents, fee_cents, pro_share_pct, status, cancelled_by)
+       VALUES ($1, $2, $3, 'Carrying', 'M', 'Invalidenstrasse 1', '10115', now() - interval '3 days', now() - interval '3 days' + interval '1 hour',
+         4000, 290, 82, 'cancelled', 'customer')`,
+      [customerId, service, used],
+    );
+    expect(await remove(used)).toEqual({ error: 'trade_has_bookings' });
+    const still = (await call(t, 'GET', '/admin/catalogue', { cookie: admin })).json().categories.map((c: { id: string }) => c.id);
+    expect(still).toEqual(expect.arrayContaining([market.plumbing, market.gardening, used]));
+  });
+
   it('logs price changes, which only apply to new bookings', async () => {
     const admin = await signInAdmin(t);
     const market = await seedMarket(t.pool);

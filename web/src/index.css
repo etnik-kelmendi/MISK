@@ -323,6 +323,24 @@ code { font-family: ui-monospace, Consolas, monospace; font-size: 0.92em; backgr
 .t td { padding: 10px 8px; border-bottom: 1px solid var(--line-2); vertical-align: top; }
 .t tr.hl td { background: #fff7f7; }
 .history { display: grid; gap: 8px; font-size: 14px; }
+.fold { border-top: 1px solid var(--line); padding-top: 12px; }
+.fold summary { display: flex; align-items: center; gap: 10px; cursor: pointer; list-style: none; padding: 4px 0; border-radius: 8px; }
+.fold summary::-webkit-details-marker { display: none; }
+.fold summary:hover .fold-title { color: var(--brand); }
+.fold summary svg { margin-left: auto; transition: transform 0.15s; color: var(--muted); }
+.fold[open] summary svg { transform: rotate(90deg); }
+.fold[open] summary { margin-bottom: 8px; }
+.fold .fold-title { font-size: 15px; }
+.fold summary:focus-visible { outline: 2px solid var(--brand); outline-offset: 4px; }
+.abtn.remind:active:not(:disabled) { background: var(--brand); color: #fff; }
+.abtn.remind.sent, .abtn.remind.sent:disabled { background: var(--brand-soft); color: var(--brand); opacity: 1; cursor: default; }
+.log-fold summary { display: flex; align-items: center; gap: 10px; cursor: pointer; list-style: none; }
+.log-fold summary::-webkit-details-marker { display: none; }
+.log-fold summary svg { margin-left: auto; transition: transform 0.15s; color: var(--muted); }
+.log-fold[open] summary svg { transform: rotate(90deg); }
+.log-fold[open] summary { margin-bottom: 10px; }
+.log-fold .log-title { font-size: 16px; }
+.log-fold summary:focus-visible { outline: 2px solid var(--brand); outline-offset: 4px; border-radius: 6px; }
 .fgrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; align-items: start; }
 .fgrid .full { grid-column: 1 / -1; }
 .service-form { background: var(--screen); border-radius: 12px; padding: 12px; }

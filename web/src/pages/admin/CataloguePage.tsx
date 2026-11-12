@@ -342,12 +342,17 @@ function SizeGuide({ services }: { services: Service[] }) {
   );
 }
 
+/** The trade's change log, folded away until the admin opens it. */
 function ChangeLog({ changes }: { changes: CatalogueChange[] }) {
   const { t } = useTranslation();
   const { timezone } = useMarket();
   return (
-    <section className="panel stack" aria-labelledby="log-heading">
-      <h2 id="log-heading">{t('admin.catalogue.log')}</h2>
+    <details className="panel log-fold">
+      <summary>
+        <h2 className="log-title">{t('admin.catalogue.log')}</h2>
+        <span className="badge grey">{t('admin.catalogue.logCount', { count: changes.length })}</span>
+        <Icon name="chevR" />
+      </summary>
       {changes.length === 0 ? (
         <p className="small muted">{t('admin.catalogue.noLog')}</p>
       ) : (
@@ -366,7 +371,7 @@ function ChangeLog({ changes }: { changes: CatalogueChange[] }) {
           ))}
         </ul>
       )}
-    </section>
+    </details>
   );
 }
 
@@ -463,10 +468,32 @@ function NewTradeForm({ onCreated, onCancel }: { onCreated: (category: AdminCate
   );
 }
 
-function TradeDetails({ data, category, onChanged }: { data: AdminCatalogue; category: AdminCategory; onChanged: Changed }) {
+function TradeDetails({
+  data,
+  category,
+  onChanged,
+  onRemoved,
+}: {
+  data: AdminCatalogue;
+  category: AdminCategory;
+  onChanged: Changed;
+  onRemoved: (name: string) => void;
+}) {
   const { t } = useTranslation();
   const api = useApi();
   const publish = useAction();
+  const removal = useAction();
+  const [confirmRemove, setConfirmRemove] = useState(false);
+
+  async function remove() {
+    const done = await removal.run(() => api.delete(`/admin/categories/${category.id}`).then(() => true));
+    if (done) {
+      onRemoved(category.name);
+    } else {
+      setConfirmRemove(false);
+    }
+  }
+
   const [adding, setAdding] = useState(false);
   const [preview, setPreview] = useState(false);
   const services = data.services.filter((s) => s.categoryId === category.id);
@@ -509,10 +536,40 @@ function TradeDetails({ data, category, onChanged }: { data: AdminCatalogue; cat
             >
               {category.active ? t('admin.catalogue.unpublish') : t('admin.catalogue.publish')}
             </button>
+            <button
+              type="button"
+              className="abtn ghost danger-text"
+              aria-haspopup="dialog"
+              disabled={removal.busy || confirmRemove}
+              onClick={() => {
+                removal.clearError();
+                setConfirmRemove(true);
+              }}
+            >
+              <Icon name="x" /> {t('admin.catalogue.remove.button')}
+            </button>
           </div>
         </div>
+        {confirmRemove && (
+          <div className="confirm stack" role="alertdialog" aria-labelledby="remove-title" aria-describedby="remove-text">
+            <p id="remove-title" className="b">
+              {t('admin.catalogue.remove.title', { name: category.name })}
+            </p>
+            <p id="remove-text" className="small">
+              {t('admin.catalogue.remove.text', { count: services.length })}
+            </p>
+            <div className="row gap8">
+              <button type="button" className="abtn danger" disabled={removal.busy} onClick={() => void remove()}>
+                {removal.busy ? t('admin.catalogue.remove.removing') : t('admin.catalogue.remove.confirm')}
+              </button>
+              <button type="button" className="abtn ghost" disabled={removal.busy} onClick={() => setConfirmRemove(false)}>
+                {t('admin.catalogue.remove.keep')}
+              </button>
+            </div>
+          </div>
+        )}
         {!category.active && <p className="note">{t('admin.catalogue.draftHint')}</p>}
-        <ErrorText error={publish.error} />
+        <ErrorText error={publish.error ?? removal.error} />
 
         {services.length === 0 ? (
           <p className="muted">{t('admin.catalogue.noServices')}</p>
@@ -567,9 +624,13 @@ export function CataloguePage() {
   const api = useApi();
   const [params, setParams] = useSearchParams();
   const [creating, setCreating] = useState(false);
+  const [removed, setRemoved] = useState<string | null>(null);
   const load = useCallback(() => api.get<AdminCatalogue>('/admin/catalogue'), [api]);
   const { state, reload } = useResource(load);
-  const select = (id: string) => setParams({ trade: id }, { replace: true });
+  const select = (id: string) => {
+    setRemoved(null);
+    setParams({ trade: id }, { replace: true });
+  };
 
   return (
     <>
@@ -579,6 +640,11 @@ export function CataloguePage() {
           <Icon name="plus" /> {t('admin.catalogue.newTrade')}
         </button>
       </div>
+      {removed && (
+        <p className="info" role="status">
+          <Icon name="check" /> {t('admin.catalogue.remove.done', { name: removed })}
+        </p>
+      )}
       <ResourceState state={state} reload={reload}>
         {(data) => {
           const selected = data.categories.find((c) => c.id === params.get('trade')) ?? data.categories[0];
@@ -622,7 +688,17 @@ export function CataloguePage() {
                   />
                 )}
                 {selected ? (
-                  <TradeDetails key={selected.id} data={data} category={selected} onChanged={reload} />
+                  <TradeDetails
+                    key={selected.id}
+                    data={data}
+                    category={selected}
+                    onChanged={reload}
+                    onRemoved={(name) => {
+                      setParams({}, { replace: true });
+                      setRemoved(name);
+                      reload();
+                    }}
+                  />
                 ) : (
                   <p className="panel muted">{t('admin.catalogue.chooseTrade')}</p>
                 )}

@@ -131,7 +131,11 @@
     "validation_field": "Please check \"{{field}}\": it is missing or not in the right form.",
     "no_open_problem": "There is no open problem report on this booking, so photos cannot be added to it.",
     "wrong_site": "This account signs in on the other MISK website. Customers and pros use the app; the team uses the control panel.",
-    "invalid_signature": "The request could not be verified. Please try again."
+    "invalid_signature": "The request could not be verified. Please try again.",
+    "trade_has_bookings": "This trade has bookings or monthly plans, so it cannot be removed. Unpublish it to hide it from customers; the bookings keep their history.",
+    "trade_has_plans": "Monthly plans belong to this trade. Delete them on the Plans page first, or unpublish the trade to hide it from customers.",
+    "trade_has_pros": "Pros offer this trade, so it cannot be removed. Unpublish it to hide it from customers; the pros keep their other trades.",
+    "trade_in_use": "Something started using this trade just now, so it was not removed. Check its bookings, plans and pros."
   },
   "nav": {
     "customer": "Main menu",
@@ -990,7 +994,17 @@
           "reinstated": "Reinstated",
           "moved_to_pending": "Moved to Pending approval: {{documents}} ran out",
           "back_to_active": "Back to Active after the documents were checked"
-        }
+        },
+        "remindedAt": "Reminder sent at {{time}}",
+        "remindedLabel": "Reminder about the {{document}} sent at {{time}}",
+        "lastReminder": "Last reminder: {{date}}",
+        "payoutCount_one": "{{count}} payout",
+        "payoutCount_other": "{{count}} payouts",
+        "reviewCount_one": "{{count}} review",
+        "reviewCount_other": "{{count}} reviews",
+        "logCount_one": "{{count}} entry",
+        "logCount_other": "{{count}} entries",
+        "noPayouts": "No payouts yet."
       }
     },
     "catalogue": {
@@ -1088,6 +1102,18 @@
         "brush": "Brush",
         "wrench": "Wrench",
         "sun": "Sun"
+      },
+      "logCount_one": "{{count}} change",
+      "logCount_other": "{{count}} changes",
+      "remove": {
+        "button": "Remove trade",
+        "title": "Remove \"{{name}}\"?",
+        "text_one": "The trade and its {{count}} service are removed for good, and customers can no longer find it. This cannot be undone.",
+        "text_other": "The trade and its {{count}} services are removed for good, and customers can no longer find it. This cannot be undone.",
+        "confirm": "Remove trade",
+        "removing": "Removing…",
+        "keep": "Keep it",
+        "done": "\"{{name}}\" was removed."
       }
     },
     "areas": {
@@ -1288,7 +1314,8 @@
           "test_sent": "Sent a test of {{message}}",
           "invited": "Invited {{email}} as {{role}}",
           "role_changed": "Changed a role from {{from}} to {{to}}",
-          "other": "{{action}}"
+          "other": "{{action}}",
+          "trade_removed": "Removed the trade \"{{name}}\" with its services"
         },
         "requests": "Account requests"
       }
