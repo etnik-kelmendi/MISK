@@ -176,6 +176,51 @@ describe('catalogue', () => {
     expect(still).toEqual(expect.arrayContaining([market.plumbing, market.gardening, used]));
   });
 
+  it('removes a service that was never booked, keeping its name in the log', async () => {
+    const market = await seedMarket(t.pool);
+    const admin = await signInAdmin(t);
+    await call(t, 'PATCH', `/admin/services/${market.hedge}`, { cookie: admin, body: { priceCents: 4100 } });
+    const removed = await call(t, 'DELETE', `/admin/services/${market.hedge}`, { cookie: admin });
+    expect(removed.statusCode).toBe(204);
+
+    const catalogue = (await call(t, 'GET', '/admin/catalogue', { cookie: admin })).json();
+    expect(catalogue.services.map((s: { id: string }) => s.id)).not.toContain(market.hedge);
+    expect(catalogue.categories.find((c: { id: string }) => c.id === market.gardening).totalServices).toBe(1);
+    const lines = catalogue.changes.filter((c: { categoryId: string }) => c.categoryId === market.gardening);
+    expect(lines[0]).toMatchObject({ action: 'service_removed', details: { name: 'Hedge trimming' } });
+    expect(lines.find((c: { action: string }) => c.action === 'price_changed')).toMatchObject({ serviceId: null, details: { name: 'Hedge trimming' } });
+    const count = await t.pool.query('SELECT count(*)::int AS n FROM services WHERE id = $1', [market.hedge]);
+    expect(count.rows[0].n).toBe(0);
+    expect((await call(t, 'DELETE', `/admin/services/${market.hedge}`, { cookie: admin })).statusCode).toBe(404);
+  });
+
+  it('keeps a booked service for its bookings but hides it everywhere', async () => {
+    const market = await seedMarket(t.pool);
+    const admin = await signInAdmin(t);
+    const customer = await signIn(t, '+4915100000002', 'customer');
+    const customerId = (await call(t, 'GET', '/auth/me', { cookie: customer })).json().user.id;
+    await t.pool.query(
+      `INSERT INTO bookings (customer_id, service_id, category_id, service_name, size, address, postcode, starts_at, ends_at,
+         price_cents, fee_cents, pro_share_pct, status, cancelled_by)
+       VALUES ($1, $2, $3, 'Lawn mowing', 'M', 'Invalidenstrasse 1', '10115', now() - interval '3 days', now() - interval '3 days' + interval '1 hour',
+         4550, 290, 82, 'cancelled', 'customer')`,
+      [customerId, market.mowing, market.gardening],
+    );
+    expect((await call(t, 'DELETE', `/admin/services/${market.mowing}`, { cookie: admin })).statusCode).toBe(204);
+
+    const kept = await t.pool.query('SELECT active, removed_at FROM services WHERE id = $1', [market.mowing]);
+    expect(kept.rows[0]).toMatchObject({ active: false, removed_at: expect.any(Date) });
+    const catalogue = (await call(t, 'GET', '/admin/catalogue', { cookie: admin })).json();
+    expect(catalogue.services.map((s: { id: string }) => s.id)).not.toContain(market.mowing);
+    expect(catalogue.changes[0]).toMatchObject({ action: 'service_removed', serviceName: 'Lawn mowing', details: { keptForBookings: 1 } });
+    const shop = (await t.app.inject({ method: 'GET', url: '/catalogue' })).json();
+    expect(shop.categories.flatMap((c: { services: { id: string }[] }) => c.services).map((s: { id: string }) => s.id)).not.toContain(market.mowing);
+    // A removed service cannot be edited or shown again, or removed twice.
+    expect((await call(t, 'PATCH', `/admin/services/${market.mowing}`, { cookie: admin, body: { active: true } })).statusCode).toBe(404);
+    expect((await call(t, 'DELETE', `/admin/services/${market.mowing}`, { cookie: admin })).statusCode).toBe(404);
+    expect((await call(t, 'DELETE', `/admin/services/${market.hedge}`, { cookie: customer })).statusCode).toBe(403);
+  });
+
   it('logs price changes, which only apply to new bookings', async () => {
     const admin = await signInAdmin(t);
     const market = await seedMarket(t.pool);

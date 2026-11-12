@@ -414,6 +414,8 @@ button.link { background: none; padding: 0; font: inherit; font-weight: 700; cur
 .drawer-body h3 { font-size: 14.5px; }
 .icon-btn { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; background: var(--bg); }
 .icon-btn:hover { background: var(--line-2); }
+.icon-btn.danger-text { color: #a32b2b; }
+.icon-btn.danger-text:hover { background: var(--danger-soft); }
 .steps { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; font-size: 12px; font-weight: 700; color: var(--muted); list-style: none; padding: 0; }
 .steps li { display: grid; gap: 6px; justify-items: start; }
 .steps .dot { width: 100%; height: 6px; border-radius: 9px; background: var(--line); }

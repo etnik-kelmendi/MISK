@@ -97,7 +97,7 @@ describe('catalogue page', () => {
     renderAt('/admin/catalogue');
     await screen.findByRole('table');
     const headers = screen.getAllByRole('columnheader').map((h) => h.textContent);
-    expect(headers).toEqual(['Service', 'Duration', 'Base price', 'Small', 'Medium', 'Large', 'Pro earns (82%)', 'Visible']);
+    expect(headers).toEqual(['Service', 'Duration', 'Base price', 'Small', 'Medium', 'Large', 'Pro earns (82%)', 'Visible', 'Remove']);
     const mowing = rowOf('Lawn mowing');
     expect(mowing).toHaveTextContent('Mow, edge and clear the clippings');
     expect(mowing).toHaveTextContent('1 h');
@@ -238,6 +238,24 @@ describe('catalogue page', () => {
 
     await user().click(await screen.findByRole('button', { name: 'Back to draft' }));
     expect(api.bodies['PATCH /admin/categories/cat-garden']).toEqual({ active: false });
+  });
+
+  it('removes a service from its row after asking', async () => {
+    const api = setUp();
+    api.on('DELETE /admin/services/svc-mow', { status: 204 });
+    renderAt('/admin/catalogue?trade=cat-garden');
+    const removeButton = await screen.findByRole('button', { name: 'Remove Lawn mowing' });
+    await user().click(removeButton);
+    const dialog = screen.getByRole('alertdialog', { name: 'Remove "Lawn mowing"?' });
+    expect(dialog).toHaveTextContent('Bookings already made with it keep their details.');
+    await user().click(within(dialog).getByRole('button', { name: 'Keep it' }));
+    expect(api.calls).not.toContain('DELETE /admin/services/svc-mow');
+
+    await user().click(screen.getByRole('button', { name: 'Remove Lawn mowing' }));
+    await user().click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Remove service' }));
+    expect(await screen.findByText('"Lawn mowing" was removed.')).toBeInTheDocument();
+    expect(api.calls).toContain('DELETE /admin/services/svc-mow');
+    expect(api.calls.filter((c) => c === 'GET /admin/catalogue').length).toBeGreaterThan(1);
   });
 
   it('keeps the trade’s activity log folded until it is opened', async () => {

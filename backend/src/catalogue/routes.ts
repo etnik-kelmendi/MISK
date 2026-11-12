@@ -10,6 +10,7 @@ import { logActivity } from '../settings/activity.js';
 export const NEW_SERVICE_DAYS = 14;
 
 type ChangeAction =
+  | 'service_removed'
   | 'trade_added'
   | 'trade_published'
   | 'trade_unpublished'
@@ -162,14 +163,15 @@ export async function catalogueRoutes(app: FastifyInstance, ctx: AppContext) {
       pool.query(
         `SELECT c.id, c.slug, c.name, c.icon, c.sort_order AS "sortOrder", c.active,
            (SELECT count(*)::int FROM services s WHERE s.category_id = c.id AND s.active) AS "visibleServices",
-           (SELECT count(*)::int FROM services s WHERE s.category_id = c.id) AS "totalServices",
+           (SELECT count(*)::int FROM services s WHERE s.category_id = c.id AND s.removed_at IS NULL) AS "totalServices",
            (SELECT count(*)::int FROM pro_trades t JOIN pro_profiles p ON p.user_id = t.pro_id
               WHERE t.category_id = c.id AND p.status NOT IN ('draft', 'rejected')) AS pros,
            (SELECT count(*)::int FROM pro_trades t JOIN pro_profiles p ON p.user_id = t.pro_id
               WHERE t.category_id = c.id AND p.status = 'approved') AS "verifiedPros"
          FROM categories c ORDER BY c.sort_order, c.name`,
       ),
-      pool.query(`SELECT ${SERVICE_COLUMNS} FROM services s ORDER BY s.sort_order, s.name`),
+      // Removed services stay only for the bookings made with them.
+      pool.query(`SELECT ${SERVICE_COLUMNS} FROM services s WHERE s.removed_at IS NULL ORDER BY s.sort_order, s.name`),
       pool.query<{ proSharePct: number }>('SELECT pro_share_pct AS "proSharePct" FROM settings'),
       pool.query(
         `SELECT ch.id, ch.category_id AS "categoryId", ch.service_id AS "serviceId", ch.action, ch.details,
@@ -378,6 +380,54 @@ export async function catalogueRoutes(app: FastifyInstance, ctx: AppContext) {
     },
   );
 
+  /**
+   * Removes a service from the catalogue. One that was never booked is deleted, and its lines in the change
+   * log keep its name. One with bookings stays in the database for those bookings but is hidden everywhere.
+   */
+  app.delete<{ Params: { id: string } }>(
+    '/admin/services/:id',
+    { preHandler: guards.admin, schema: { params: uuidParams } },
+    async (request, reply) => {
+      const serviceId = request.params.id;
+      const adminId = currentUser(request).id;
+      const result = await withTransaction(pool, async (client) => {
+        const found = await client.query<{ categoryId: string; name: string }>(
+          `SELECT category_id AS "categoryId", name FROM services WHERE id = $1 AND removed_at IS NULL FOR UPDATE`,
+          [serviceId],
+        );
+        const service = found.rows[0];
+        if (!service) {
+          throw notFound();
+        }
+        const booked = onlyRow(
+          await client.query<{ n: number }>('SELECT count(*)::int AS n FROM bookings WHERE service_id = $1', [serviceId]),
+        ).n;
+        if (booked > 0) {
+          await client.query('UPDATE services SET active = false, removed_at = now() WHERE id = $1', [serviceId]);
+          await logChange(client, {
+            adminId,
+            categoryId: service.categoryId,
+            serviceId,
+            action: 'service_removed',
+            details: { name: service.name, keptForBookings: booked },
+          });
+        } else {
+          // The service's earlier log lines keep its name once it is gone.
+          await client.query(
+            `UPDATE catalogue_changes SET details = details || jsonb_build_object('name', $2::text), service_id = NULL
+             WHERE service_id = $1`,
+            [serviceId, service.name],
+          );
+          await client.query('DELETE FROM services WHERE id = $1', [serviceId]);
+          await logChange(client, { adminId, categoryId: service.categoryId, action: 'service_removed', details: { name: service.name } });
+        }
+        return { ...service, booked };
+      });
+      request.log.info({ event: 'service_removed', serviceId, kept: result.booked > 0, by: adminId });
+      return reply.code(204).send();
+    },
+  );
+
   app.patch<{ Params: { id: string }; Body: Partial<ServiceBody> }>(
     '/admin/services/:id',
     {
@@ -393,7 +443,7 @@ export async function catalogueRoutes(app: FastifyInstance, ctx: AppContext) {
         // Bookings keep the price they were made at, so a new price only applies to new bookings.
         const service = await withTransaction(pool, async (client) => {
           const before = await client.query<{ category_id: string; price_cents: number; active: boolean }>(
-            'SELECT category_id, price_cents, active FROM services WHERE id = $1 FOR UPDATE',
+            'SELECT category_id, price_cents, active FROM services WHERE id = $1 AND removed_at IS NULL FOR UPDATE',
             [request.params.id],
           );
           const old = before.rows[0];

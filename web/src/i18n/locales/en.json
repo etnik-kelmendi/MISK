@@ -1091,7 +1091,8 @@
         "service_edited": "Edited {{service}}",
         "price_changed": "{{service}}: price {{from}} → {{to}}",
         "service_hidden": "Hid {{service}}",
-        "service_shown": "Made {{service}} visible again"
+        "service_shown": "Made {{service}} visible again",
+        "service_removed": "{{service}} removed"
       },
       "icons": {
         "leaf": "Leaf",
@@ -1113,6 +1114,15 @@
         "confirm": "Remove trade",
         "removing": "Removing…",
         "keep": "Keep it",
+        "done": "\"{{name}}\" was removed."
+      },
+      "removeService": {
+        "column": "Remove",
+        "button": "Remove service",
+        "buttonLabel": "Remove {{name}}",
+        "title": "Remove \"{{name}}\"?",
+        "text": "Customers can no longer book it, and it disappears from this list. Bookings already made with it keep their details. This cannot be undone.",
+        "confirm": "Remove service",
         "done": "\"{{name}}\" was removed."
       }
     },

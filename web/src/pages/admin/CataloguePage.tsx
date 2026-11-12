@@ -121,7 +121,17 @@ function PriceInput({
   );
 }
 
-function ServiceRow({ service, proSharePct, onChanged }: { service: Service; proSharePct: number; onChanged: Changed }) {
+function ServiceRow({
+  service,
+  proSharePct,
+  onChanged,
+  onRemove,
+}: {
+  service: Service;
+  proSharePct: number;
+  onChanged: Changed;
+  onRemove: (service: Service) => void;
+}) {
   const { t } = useTranslation();
   const api = useApi();
   const toggle = useAction();
@@ -186,6 +196,18 @@ function ServiceRow({ service, proSharePct, onChanged }: { service: Service; pro
           }
         />
         <ErrorText error={toggle.error} />
+      </td>
+      <td>
+        <button
+          type="button"
+          className="icon-btn danger-text"
+          aria-haspopup="dialog"
+          aria-label={t('admin.catalogue.removeService.buttonLabel', { name: service.name })}
+          title={t('admin.catalogue.removeService.button')}
+          onClick={() => onRemove(service)}
+        >
+          <Icon name="x" />
+        </button>
       </td>
     </tr>
   );
@@ -484,6 +506,18 @@ function TradeDetails({
   const publish = useAction();
   const removal = useAction();
   const [confirmRemove, setConfirmRemove] = useState(false);
+  const serviceRemoval = useAction();
+  const [removingService, setRemovingService] = useState<Service | null>(null);
+  const [serviceRemoved, setServiceRemoved] = useState<string | null>(null);
+
+  async function removeService(service: Service) {
+    const done = await serviceRemoval.run(() => api.delete(`/admin/services/${service.id}`).then(() => true));
+    setRemovingService(null);
+    if (done) {
+      setServiceRemoved(service.name);
+      onChanged();
+    }
+  }
 
   async function remove() {
     const done = await removal.run(() => api.delete(`/admin/categories/${category.id}`).then(() => true));
@@ -571,6 +605,30 @@ function TradeDetails({
         {!category.active && <p className="note">{t('admin.catalogue.draftHint')}</p>}
         <ErrorText error={publish.error ?? removal.error} />
 
+        {removingService && (
+          <div className="confirm stack" role="alertdialog" aria-labelledby="remove-service-title" aria-describedby="remove-service-text">
+            <p id="remove-service-title" className="b">
+              {t('admin.catalogue.removeService.title', { name: removingService.name })}
+            </p>
+            <p id="remove-service-text" className="small">
+              {t('admin.catalogue.removeService.text')}
+            </p>
+            <div className="row gap8">
+              <button type="button" className="abtn danger" disabled={serviceRemoval.busy} onClick={() => void removeService(removingService)}>
+                {serviceRemoval.busy ? t('admin.catalogue.remove.removing') : t('admin.catalogue.removeService.confirm')}
+              </button>
+              <button type="button" className="abtn ghost" disabled={serviceRemoval.busy} onClick={() => setRemovingService(null)}>
+                {t('admin.catalogue.remove.keep')}
+              </button>
+            </div>
+          </div>
+        )}
+        {serviceRemoved && (
+          <p className="small ok" role="status">
+            {t('admin.catalogue.removeService.done', { name: serviceRemoved })}
+          </p>
+        )}
+        <ErrorText error={serviceRemoval.error} />
         {services.length === 0 ? (
           <p className="muted">{t('admin.catalogue.noServices')}</p>
         ) : (
@@ -586,11 +644,24 @@ function TradeDetails({
                   <th scope="col">{t('admin.catalogue.col.large')}</th>
                   <th scope="col">{t('admin.catalogue.col.earns', { pct: data.proSharePct })}</th>
                   <th scope="col">{t('admin.catalogue.col.visible')}</th>
+                  <th scope="col">
+                    <span className="visually-hidden">{t('admin.catalogue.removeService.column')}</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {services.map((service) => (
-                  <ServiceRow key={service.id} service={service} proSharePct={data.proSharePct} onChanged={onChanged} />
+                  <ServiceRow
+                    key={service.id}
+                    service={service}
+                    proSharePct={data.proSharePct}
+                    onChanged={onChanged}
+                    onRemove={(chosen) => {
+                      serviceRemoval.clearError();
+                      setServiceRemoved(null);
+                      setRemovingService(chosen);
+                    }}
+                  />
                 ))}
               </tbody>
             </table>
