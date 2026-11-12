@@ -27,7 +27,7 @@ describe('settings: fees and payments', () => {
     const api = adminApi();
     api.on('PATCH /admin/settings', ({ body }) => ({ body: { settings: { ...settings, ...(body as object) } } }));
     renderAt('/admin/settings');
-    const fee = await screen.findByLabelText('Service fee per booking (€)');
+    const fee = await screen.findByLabelText('Customer service fee');
     expect(screen.getByText('All changes saved', { exact: false })).toBeInTheDocument();
     await user().clear(fee);
     await user().type(fee, '3,50');
@@ -48,9 +48,13 @@ describe('settings: fees and payments', () => {
     const slider = await screen.findByRole('slider', { name: 'MISK commission: 18%' });
     expect(slider).toHaveAttribute('min', '10');
     expect(slider).toHaveAttribute('max', '30');
-    expect(screen.getByText('MISK 18% · Pro 82%')).toBeInTheDocument();
+    expect(slider).toHaveAttribute('aria-valuetext', 'MISK 18% · Pro 82%');
+    expect(screen.getByText('Pro 82%')).toBeInTheDocument();
+    expect(screen.getByText('Pro 82% · MISK 18%', { selector: '.badge' })).toBeInTheDocument();
     fireEvent.change(slider, { target: { value: '25' } });
-    expect(screen.getByText('MISK 25% · Pro 75%')).toBeInTheDocument();
+    expect(screen.getByText('Pro 75%')).toBeInTheDocument();
+    // The cancellation and tip splits follow the slider straight away.
+    expect(screen.getByText('Pro 75% · MISK 25%', { selector: '.badge' })).toBeInTheDocument();
     expect(screen.getByText(/the pro earns €34.12 and MISK keeps €11.38/)).toBeInTheDocument();
     await waitFor(() => expect(api.bodies['PATCH /admin/settings']).toEqual({ commissionPct: 25 }));
   });
@@ -62,10 +66,16 @@ describe('settings: fees and payments', () => {
     await user().click(await screen.findByRole('radio', { name: /Every 2 weeks/ }));
     expect(api.bodies['PATCH /admin/settings']).toEqual({ payoutInterval: 'biweekly' });
     expect(await screen.findByText(/Next payout: 20 Nov 2026/)).toBeInTheDocument();
-    expect(screen.getByText('It is charged automatically 24 hours after the job is marked done.')).toBeInTheDocument();
+    const flow = screen.getByRole('list', { name: 'When customers are charged' });
+    expect(within(flow).getAllByRole('listitem').map((step) => step.querySelector('b')?.textContent)).toEqual([
+      'Job marked done',
+      '24 hours to review',
+      'Payment goes through',
+    ]);
+    expect(screen.getByText(/the payment is put on hold/)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Bookings → Needs action' })).toHaveAttribute('href', '/admin/bookings?tab=needs_action');
-    expect(screen.getByText('Free until 24 hours before the visit.')).toBeInTheDocument();
-    expect(screen.getByText('Later, the customer pays the full price.')).toBeInTheDocument();
+    expect(screen.getByText(/Up to 24 hours before the visit. After that the customer pays the full price/)).toBeInTheDocument();
+    expect(screen.getByText(/Paid to the bank account the pro added in the app/)).toBeInTheDocument();
     expect(screen.getByText(/of a €5 tip the pro gets €4.10 and MISK €0.90/)).toBeInTheDocument();
     expect(within(screen.getByRole('main')).getByRole('link', { name: 'Plans' })).toHaveAttribute('href', '/admin/plans');
   });
@@ -276,7 +286,7 @@ describe('settings: team and access', () => {
     api.on('PATCH /admin/team/u-sam/role', { body: { member: member({ id: 'u-sam', role: 'finance' }) } });
     renderAt('/admin/settings/team');
     const table = await screen.findByRole('table');
-    expect(within(table).getAllByRole('columnheader').map((h) => h.textContent).slice(0, 4)).toEqual(['Name', 'Role', 'Access', 'Last active']);
+    expect(within(table).getAllByRole('columnheader').map((h) => h.textContent).slice(0, 4)).toEqual(['Name', 'Role', 'Can access', 'Last active']);
     const sam = within(table).getByText('Sam').closest('tr') as HTMLElement;
     expect(sam).toHaveTextContent('Overview, Bookings, Providers');
     expect(sam).toHaveTextContent('Never');
@@ -286,17 +296,41 @@ describe('settings: team and access', () => {
     expect(api.bodies['PATCH /admin/team/u-sam/role']).toEqual({ role: 'finance' });
   });
 
-  it('invites a teammate by email', async () => {
+  it('creates a shareable invitation link for a role, copies it, and lists it until it is used or withdrawn', async () => {
     const api = teamApi();
-    api.on('POST /admin/team/invite', { status: 201, body: { member: member({ id: 'u-new', role: 'operations' }) } });
+    const open = { id: 'inv-1', role: 'operations', createdAt: '2026-11-12T10:00:00.000Z', expiresAt: '2026-11-19T10:00:00.000Z', createdBy: 'Elion Thaqi' };
+    let invites: (typeof open)[] = [];
+    api.on('GET /admin/team/invites', () => ({ body: { invites } }));
+    api.on('POST /admin/team/invites', () => {
+      invites = [open];
+      return { status: 201, body: { invite: open, link: 'http://localhost:5174/admin/join#token=abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG' } };
+    });
+    api.on('DELETE /admin/team/invites/inv-1', () => {
+      invites = [];
+      return { status: 204 };
+    });
     renderAt('/admin/settings/team');
     await user().click(await screen.findByRole('button', { name: 'Invite teammate' }));
     const form = screen.getByRole('form', { name: 'Invite a teammate' });
-    await user().type(within(form).getByLabelText('Email address'), 'nora@misk.app');
+    expect(within(form).queryByLabelText(/email/i)).not.toBeInTheDocument();
     await user().selectOptions(within(form).getByLabelText('Role'), 'Operations');
-    await user().click(within(form).getByRole('button', { name: 'Send invite' }));
-    expect(api.bodies['POST /admin/team/invite']).toEqual({ email: 'nora@misk.app', role: 'operations' });
-    expect(await screen.findByText('Invite sent to nora@misk.app. The link works for 7 days.')).toBeInTheDocument();
+    await user().click(within(form).getByRole('button', { name: 'Create invitation link' }));
+    expect(api.bodies['POST /admin/team/invites']).toEqual({ role: 'operations' });
+
+    const link = await screen.findByRole('textbox', { name: 'Invitation link' });
+    expect(link).toHaveValue('http://localhost:5174/admin/join#token=abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG');
+    expect(screen.getByText(/works once, for 7 days/)).toBeInTheDocument();
+    // user-event gives the page a clipboard to write to; read back what was copied.
+    const clipboardUser = user();
+    await clipboardUser.click(screen.getByRole('button', { name: 'Copy link' }));
+    expect(await navigator.clipboard.readText()).toBe('http://localhost:5174/admin/join#token=abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG');
+    expect(await screen.findByText(/Link copied/)).toBeInTheDocument();
+
+    const list = await screen.findByRole('region', { name: 'Open invitation links' });
+    expect(list).toHaveTextContent('Operations · created by Elion Thaqi');
+    await user().click(within(list).getByRole('button', { name: 'Withdraw the Operations invitation link' }));
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Open invitation links' })).not.toBeInTheDocument());
+    expect(api.calls).toContain('DELETE /admin/team/invites/inv-1');
   });
 
   it('shows who did what and when, newest first', async () => {
@@ -308,5 +342,42 @@ describe('settings: team and access', () => {
     expect(items[0]).toHaveTextContent('Elion Thaqi');
     expect(items[1]).toHaveTextContent('Lawn mowing: price changed');
     expect(items[1]).toHaveTextContent('Sam');
+  });
+
+  it('names the teammate in account changes', async () => {
+    const api = teamApi();
+    const line = (id: string, action: string, name: string): ActivityEntry => ({
+      id,
+      area: 'team',
+      action,
+      details: { name },
+      createdAt: '2026-11-12T10:00:00.000Z',
+      subject: null,
+      adminName: 'admin@misk.app',
+      adminFullName: 'Elion Thaqi',
+    });
+    api.on('GET /admin/activity', {
+      body: {
+        activity: [
+          line('settings-6', 'request_declined', 'Arta Berisha'),
+          line('settings-5', 'request_approved', 'Lina Hoxha'),
+          line('settings-4', 'request_approved_by_link', 'Ina Krasniqi'),
+          line('settings-3', 'account_created', 'drita'),
+          line('settings-2', 'password_reset', 'drita'),
+          line('settings-1', 'email_changed', 'drita@misk.app'),
+        ],
+      },
+    });
+    renderAt('/admin/settings/team');
+    const log = await screen.findByRole('region', { name: 'Activity log' });
+    const items = await within(log).findAllByRole('listitem');
+    [
+      'Declined the account request from Arta Berisha',
+      'Approved the account request from Lina Hoxha',
+      'Approved the account request from Ina Krasniqi with the email link',
+      'Created an admin account for drita',
+      'Set a new password for drita',
+      'Changed the email of drita@misk.app',
+    ].forEach((text, index) => expect(items[index]).toHaveTextContent(text));
   });
 });

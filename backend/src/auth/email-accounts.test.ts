@@ -191,3 +191,87 @@ describe('email log-in', () => {
     expect(response.json()).toEqual({ error: 'invalid_login' });
   });
 });
+
+describe('forgot password', () => {
+  const forgot = (email: string) => call(t, 'POST', '/auth/forgot-password', { body: { email } });
+  const reset = (token: string, password: string) => call(t, 'POST', '/auth/reset-password', { body: { token, password } });
+  /** The token in the newest reset link emailed to this address. */
+  function resetToken(to = 'sara@example.com'): string {
+    const email = [...t.emails].reverse().find((e) => e.to === to && e.subject === 'Reset your MISK password');
+    const token = email?.text.match(/\/reset-password#token=([\w-]+)/)?.[1];
+    if (!token) throw new Error(`No reset link was emailed to ${to}`);
+    return token;
+  }
+
+  it('emails a 30-minute link that sets a new password, after which only the new one signs in', async () => {
+    await registerAndVerify();
+    expect((await forgot(' Sara@Example.com ')).statusCode).toBe(202);
+    const email = t.emails.at(-1);
+    expect(email).toMatchObject({ to: 'sara@example.com', subject: 'Reset your MISK password' });
+    expect(email?.text).toContain('within 30 minutes');
+    expect(email?.text).toContain('http://localhost:5173/reset-password#token=');
+
+    expect((await reset(resetToken(), 'meadow77')).statusCode).toBe(204);
+    expect((await login('sara@example.com', 'garden42')).json()).toEqual({ error: 'invalid_login' });
+    expect((await login('sara@example.com', 'meadow77')).statusCode).toBe(200);
+  });
+
+  it('works once, and a newer link replaces an older one', async () => {
+    await registerAndVerify();
+    await forgot('sara@example.com');
+    const first = resetToken();
+    await forgot('sara@example.com');
+    const second = resetToken();
+    expect((await reset(first, 'meadow77')).json()).toEqual({ error: 'invalid_reset_link' });
+    expect((await reset(second, 'meadow77')).statusCode).toBe(204);
+    expect((await reset(second, 'another99')).json()).toEqual({ error: 'invalid_reset_link' });
+  });
+
+  it('stops working after 30 minutes', async () => {
+    await registerAndVerify();
+    await forgot('sara@example.com');
+    await t.pool.query("UPDATE password_resets SET expires_at = now() - interval '1 second'");
+    expect((await reset(resetToken(), 'meadow77')).json()).toEqual({ error: 'invalid_reset_link' });
+    expect((await login()).statusCode).toBe(200);
+  });
+
+  it('keeps the password rules and leaves the link usable after a weak password', async () => {
+    await registerAndVerify();
+    await forgot('sara@example.com');
+    for (const weak of ['short1', 'onlyletters', '1234567890']) {
+      expect((await reset(resetToken(), weak)).json()).toEqual({ error: 'weak_password' });
+    }
+    expect((await reset(resetToken(), 'meadow77')).statusCode).toBe(204);
+  });
+
+  it('checks the email format, and answers the same whether or not the account exists', async () => {
+    expect((await forgot('not-an-email')).json()).toEqual({ error: 'invalid_email' });
+    expect((await forgot('nobody@example.com')).statusCode).toBe(202);
+    expect(t.emails).toEqual([]);
+  });
+
+  it('signs the account out everywhere and confirms an unconfirmed email', async () => {
+    const session = sessionCookie(await registerAndVerify(), 'misk_session');
+    expect((await call(t, 'GET', '/auth/me', { cookie: session })).statusCode).toBe(200);
+    await forgot('sara@example.com');
+    await reset(resetToken(), 'meadow77');
+    expect((await call(t, 'GET', '/auth/me', { cookie: session })).statusCode).toBe(401);
+
+    expect((await register({ ...valid, email: 'ben@example.com' })).statusCode).toBe(201);
+    await forgot('ben@example.com');
+    expect((await reset(resetToken('ben@example.com'), 'meadow77')).statusCode).toBe(204);
+    expect((await login('ben@example.com', 'meadow77')).statusCode).toBe(200);
+  });
+
+  it('never resets an admin account from the app, and limits how often a link can be asked for', async () => {
+    await t.pool.query(`INSERT INTO users (username, email, password_hash, role) VALUES ('boss', 'boss@example.com', 'x', 'admin')`);
+    expect((await forgot('boss@example.com')).statusCode).toBe(202);
+    expect(t.emails).toEqual([]);
+
+    await registerAndVerify();
+    t.emails.length = 0;
+    for (let i = 0; i < 3; i += 1) expect((await forgot('sara@example.com')).statusCode).toBe(202);
+    expect((await forgot('sara@example.com')).json()).toEqual({ error: 'too_many_attempts' });
+    expect(t.emails).toHaveLength(3);
+  });
+});

@@ -15,6 +15,21 @@ export async function logActivity(
   ]);
 }
 
+/** What the team log calls a teammate: their full name, else their email, else their username. */
+export const MEMBER_NAME = `COALESCE(NULLIF(concat_ws(' ', first_name, last_name), ''), email, username)`;
+
+/**
+ * Logs a change to a teammate's account, naming them as they are now. Call it in the same transaction as
+ * the change, and before a delete, so the name is still there to read.
+ */
+export async function logTeamActivity(db: Queryable, input: { adminId: string | null; memberId: string; action: string }) {
+  await db.query(
+    `INSERT INTO admin_activity (admin_id, area, action, details)
+     SELECT $1::uuid, 'team', $3::text, jsonb_build_object('memberId', id, 'name', ${MEMBER_NAME}) FROM users WHERE id = $2`,
+    [input.adminId, input.memberId, input.action],
+  );
+}
+
 /**
  * Everything the team changed, from every log: Settings, bookings, pros and the catalogue, newest first.
  * `subject` names what was changed (a booking number, a pro, a service).

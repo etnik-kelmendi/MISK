@@ -9,6 +9,7 @@ import { currentUser } from './guard.js';
 import { hashPassword, MIN_PASSWORD_LENGTH } from './passwords.js';
 import { refuseWrongSite } from './routes.js';
 import { hashToken, recordAttempt } from './sessions.js';
+import { logTeamActivity } from '../settings/activity.js';
 
 export const MAX_ADMIN_REQUESTS_PER_IP = 5;
 /** How long the one-click approval link in the admins' email works. */
@@ -171,6 +172,8 @@ export async function adminRequestRoutes(app: FastifyInstance, ctx: AppContext) 
            RETURNING id, email, first_name AS "firstName", last_name AS "lastName"`,
           [userId],
         );
+        // The same link goes to every admin, so the log cannot say which one used it.
+        if (user.rows[0]) await logTeamActivity(client, { adminId: null, memberId: userId, action: 'request_approved_by_link' });
         return user.rows[0] ?? null;
       });
       if (!approved) {
@@ -186,15 +189,19 @@ export async function adminRequestRoutes(app: FastifyInstance, ctx: AppContext) 
     '/admin/team/:id/approve',
     { preHandler: guards.admin, schema: { params: uuidParams } },
     async (request) => {
-      const approved = await pool.query(
-        `UPDATE users SET admin_approved_at = now(), admin_approved_by = $2
-         WHERE id = $1 AND role = 'admin' AND admin_requested_at IS NOT NULL AND admin_approved_at IS NULL`,
-        [request.params.id, currentUser(request).id],
-      );
-      if (!approved.rowCount) {
-        throw conflict('not_pending');
-      }
-      await pool.query('UPDATE admin_approval_links SET used_at = now() WHERE user_id = $1 AND used_at IS NULL', [request.params.id]);
+      const adminId = currentUser(request).id;
+      await withTransaction(pool, async (client) => {
+        const approved = await client.query(
+          `UPDATE users SET admin_approved_at = now(), admin_approved_by = $2
+           WHERE id = $1 AND role = 'admin' AND admin_requested_at IS NOT NULL AND admin_approved_at IS NULL`,
+          [request.params.id, adminId],
+        );
+        if (!approved.rowCount) {
+          throw conflict('not_pending');
+        }
+        await client.query('UPDATE admin_approval_links SET used_at = now() WHERE user_id = $1 AND used_at IS NULL', [request.params.id]);
+        await logTeamActivity(client, { adminId, memberId: request.params.id, action: 'request_approved' });
+      });
       await tellApproved(request.params.id);
       request.log.info({ event: 'admin_request_approved', adminId: request.params.id, by: currentUser(request).id });
       return { approved: true };
@@ -205,14 +212,20 @@ export async function adminRequestRoutes(app: FastifyInstance, ctx: AppContext) 
     '/admin/team/:id/decline',
     { preHandler: guards.admin, schema: { params: uuidParams } },
     async (request, reply) => {
-      const declined = await pool.query(
-        `DELETE FROM users WHERE id = $1 AND role = 'admin' AND admin_requested_at IS NOT NULL AND admin_approved_at IS NULL`,
-        [request.params.id],
-      );
-      if (!declined.rowCount) {
-        const exists = await pool.query('SELECT 1 FROM users WHERE id = $1', [request.params.id]);
-        throw exists.rowCount ? conflict('not_pending') : notFound();
-      }
+      const adminId = currentUser(request).id;
+      await withTransaction(pool, async (client) => {
+        // Logged first: once the request is deleted, its name is gone. The transaction undoes the line if
+        // nothing was declined.
+        await logTeamActivity(client, { adminId, memberId: request.params.id, action: 'request_declined' });
+        const declined = await client.query(
+          `DELETE FROM users WHERE id = $1 AND role = 'admin' AND admin_requested_at IS NOT NULL AND admin_approved_at IS NULL`,
+          [request.params.id],
+        );
+        if (!declined.rowCount) {
+          const exists = await client.query('SELECT 1 FROM users WHERE id = $1', [request.params.id]);
+          throw exists.rowCount ? conflict('not_pending') : notFound();
+        }
+      });
       request.log.info({ event: 'admin_request_declined', adminId: request.params.id, by: currentUser(request).id });
       return reply.code(204).send();
     },

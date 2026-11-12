@@ -107,6 +107,9 @@ function EmailLogin() {
           </button>
         </div>
         <FieldError id="login-password" message={form.message('password')} />
+        <Link to="/forgot-password" className="forgot-link small">
+          {t('signIn.forgot')}
+        </Link>
       </div>
       {error instanceof ApiError && error.code === 'email_not_verified' ? (
         <div className="stack">

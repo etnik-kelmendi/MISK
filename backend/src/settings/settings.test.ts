@@ -178,6 +178,26 @@ describe('service area', () => {
     expect((await put('10178', { name: 'Alexanderplatz', lat: 52.5219, lng: 13.4132 })).statusCode).toBe(200);
   });
 
+  it('accepts only five-digit postcodes, for zones and for the waitlist', async () => {
+    const put = (code: string) => call(t, 'PUT', `/admin/zones/${encodeURIComponent(code)}`, { cookie: admin, body: { name: 'Test', lat: 52.51, lng: 13.41 } });
+    for (const code of ['AB', '99', '1-2-3', '1011', '101155', '00123', 'AB123', '10 115']) {
+      expect((await put(code)).json(), code).toEqual({ error: 'invalid_postcode' });
+    }
+    expect((await put('10179')).statusCode).toBe(200);
+
+    const customer = await signIn(t, '+4915100000001', 'customer');
+    expect((await post('/waitlist', { postcode: 'ABC' }, customer)).json()).toEqual({ error: 'invalid_postcode' });
+    expect((await post('/waitlist', { postcode: '0' + '1234' }, customer)).statusCode).toBe(201);
+    expect((await post('/waitlist', { postcode: '00999' }, customer)).json()).toEqual({ error: 'invalid_postcode' });
+  });
+
+  it('refuses a zone placed on the same coordinates as another zone', async () => {
+    const copied = await call(t, 'PUT', '/admin/zones/10179', { cookie: admin, body: { name: 'Copy', lat: 52.5323, lng: 13.3846 } });
+    expect(copied.json()).toEqual({ error: 'coordinates_taken' });
+    // Editing a zone may keep its own point.
+    expect((await call(t, 'PUT', '/admin/zones/10115', { cookie: admin, body: { name: 'Mitte', lat: 52.5323, lng: 13.3846 } })).statusCode).toBe(200);
+  });
+
   it('accepts the first zone anywhere, since there is nothing to compare it with', async () => {
     await t.pool.query('DELETE FROM postcodes');
     const first = await call(t, 'PUT', '/admin/zones/80331', { cookie: admin, body: { name: 'Munich Altstadt', lat: 48.1374, lng: 11.5755 } });
@@ -301,19 +321,73 @@ describe('team and access', () => {
     expect((await get('/auth/me', support)).json().user.adminRole).toBe('support');
   });
 
-  it('invites a teammate by email, who sets a password with the link and signs in with that role', async () => {
-    const invited = await post('/admin/team/invite', { email: ' New.Person@Example.com ', firstName: 'Nora', role: 'operations' });
-    expect(invited.statusCode).toBe(201);
-    expect(invited.json().member).toMatchObject({ email: 'new.person@example.com', role: 'operations', invitedAt: expect.any(String) });
-    expect((await post('/admin/team/invite', { email: 'new.person@example.com', role: 'support' })).json()).toEqual({ error: 'email_taken' });
-    const email = t.emails.at(-1);
-    expect(email?.to).toBe('new.person@example.com');
-    const token = email?.text.match(/#token=([A-Za-z0-9_-]+)/)?.[1] ?? '';
-    const reset = await call(t, 'POST', '/auth/admin/reset', { body: { token, password: 'my own long password' } });
-    expect(reset.statusCode).toBe(204);
-    const login = await call(t, 'POST', '/auth/admin/login', { body: { username: 'new.person@example.com', password: 'my own long password' } });
-    expect(login.json().user).toMatchObject({ adminRole: 'operations' });
-    expect((await activity())[0]).toMatchObject({ area: 'team', action: 'invited', details: { email: 'new.person@example.com', role: 'operations' } });
+  describe('invitation links', () => {
+    const tokenOf = (link: string) => link.match(/\/admin\/join#token=([A-Za-z0-9_-]+)$/)?.[1] ?? '';
+    const join = (token: string, body: Record<string, unknown> = {}) =>
+      call(t, 'POST', '/auth/admin/invite/accept', {
+        body: { token, firstName: 'Nora', lastName: 'Berisha', email: ' Nora@Example.com ', password: 'my own long password', ...body },
+      });
+
+    it('makes a shareable link for a role; the person signs up with it and signs in with that role', async () => {
+      const made = await post('/admin/team/invites', { role: 'operations' });
+      expect(made.statusCode).toBe(201);
+      const { invite, link } = made.json();
+      expect(invite).toMatchObject({ role: 'operations', expiresAt: expect.any(String) });
+      expect(link).toMatch(/^http:\/\/localhost:5173\/admin\/join#token=[A-Za-z0-9_-]{40,}$/);
+      // Nothing is emailed: the admin shares the link themselves.
+      expect(t.emails).toEqual([]);
+      expect((await get('/admin/team/invites')).json().invites).toMatchObject([{ id: invite.id, role: 'operations' }]);
+
+      const token = tokenOf(link);
+      expect((await call(t, 'POST', '/auth/admin/invite/check', { body: { token } })).json()).toMatchObject({ invite: { role: 'operations' } });
+      const joined = await join(token);
+      expect(joined.statusCode).toBe(201);
+      expect(joined.json()).toEqual({ email: 'nora@example.com', role: 'operations' });
+
+      const login = await call(t, 'POST', '/auth/admin/login', { body: { username: 'nora@example.com', password: 'my own long password' } });
+      expect(login.json().user).toMatchObject({ adminRole: 'operations', firstName: 'Nora', lastName: 'Berisha' });
+      const members = (await get('/admin/team/members')).json().members as { email: string; role: string; pending: boolean }[];
+      expect(members.find((m) => m.email === 'nora@example.com')).toMatchObject({ role: 'operations', pending: false });
+      expect((await get('/admin/team/invites')).json().invites).toEqual([]);
+      expect((await activity()).slice(0, 2)).toMatchObject([
+        { area: 'team', action: 'joined_by_invite', details: { name: 'Nora Berisha', role: 'operations' } },
+        { area: 'team', action: 'invite_link_created', details: { role: 'operations' } },
+      ]);
+    });
+
+    it('works once, runs out after 7 days, and can be withdrawn', async () => {
+      const once = tokenOf((await post('/admin/team/invites', { role: 'support' })).json().link);
+      expect((await join(once)).statusCode).toBe(201);
+      expect((await join(once, { email: 'second@example.com' })).json()).toEqual({ error: 'invalid_invite_link' });
+
+      const old = tokenOf((await post('/admin/team/invites', { role: 'support' })).json().link);
+      await t.pool.query("UPDATE team_invites SET expires_at = now() - interval '1 second' WHERE used_at IS NULL");
+      expect((await call(t, 'POST', '/auth/admin/invite/check', { body: { token: old } })).json()).toEqual({ error: 'invalid_invite_link' });
+      expect((await join(old, { email: 'late@example.com' })).json()).toEqual({ error: 'invalid_invite_link' });
+
+      const made = (await post('/admin/team/invites', { role: 'finance' })).json();
+      expect((await call(t, 'DELETE', `/admin/team/invites/${made.invite.id}`, { cookie: admin })).statusCode).toBe(204);
+      expect((await join(tokenOf(made.link), { email: 'gone@example.com' })).json()).toEqual({ error: 'invalid_invite_link' });
+      expect((await call(t, 'DELETE', `/admin/team/invites/${made.invite.id}`, { cookie: admin })).statusCode).toBe(404);
+      expect((await activity())[0]).toMatchObject({ action: 'invite_link_revoked', details: { role: 'finance' } });
+    });
+
+    it('checks the email and password, and keeps the link for a second try when the email is taken', async () => {
+      const token = tokenOf((await post('/admin/team/invites', { role: 'support' })).json().link);
+      expect((await join(token, { email: 'not-an-email' })).json()).toEqual({ error: 'invalid_email' });
+      expect((await join(token, { password: 'short' })).json()).toEqual({ error: 'password_too_short' });
+      await t.pool.query("UPDATE users SET email = 'taken@example.com' WHERE username = 'admin'");
+      expect((await join(token, { email: 'taken@example.com' })).json()).toEqual({ error: 'email_taken' });
+      expect((await join(token)).statusCode).toBe(201);
+    });
+
+    it('lets only admins make or see links', async () => {
+      const support = await teammate('sam', 'support');
+      expect((await post('/admin/team/invites', { role: 'admin' }, support)).statusCode).toBe(403);
+      expect((await get('/admin/team/invites', support)).statusCode).toBe(403);
+      expect((await call(t, 'POST', '/admin/team/invites', { body: { role: 'admin' } })).statusCode).toBe(401);
+      expect((await post('/admin/team/invites', { role: 'owner' })).statusCode).toBe(400);
+    });
   });
 
   it('changes roles but never takes away the last admin', async () => {

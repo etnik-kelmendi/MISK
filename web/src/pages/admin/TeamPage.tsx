@@ -18,159 +18,12 @@ import { ErrorText } from '../../components/ErrorText';
 import { ResourceState } from '../../components/ResourceState';
 import { dateTime, euro } from '../../lib/format';
 import { useAction } from '../../lib/useAction';
-import { isValidEmail } from '../../lib/checks';
-import { useValidation } from '../../lib/useValidation';
-import { FieldError } from '../../components/FieldError';
+import { Icon } from '../../components/Icon';
 import { useSave } from './settings/SaveStatus';
 
 export const MIN_PASSWORD_LENGTH = 12;
-
-type PasswordPair = { first: string; second: string };
-
-function PasswordFields({
-  id,
-  value,
-  onChange,
-  form,
-}: {
-  id: string;
-  value: PasswordPair;
-  onChange: (v: PasswordPair) => void;
-  form: ReturnType<typeof useValidation<'first' | 'second'>>;
-}) {
-  const { t } = useTranslation();
-  const mismatch = value.second.length > 0 && value.first !== value.second;
-  return (
-    <>
-      <div className="af">
-        <label htmlFor={`${id}-password`}>{t('admin.team.password')}</label>
-        <input
-          id={`${id}-password`}
-          type="password"
-          autoComplete="new-password"
-          required
-          minLength={MIN_PASSWORD_LENGTH}
-          value={value.first}
-          {...form.describe('first')}
-          onChange={(e) => onChange({ ...value, first: e.target.value })}
-        />
-        <FieldError id={`${id}-password`} message={form.message('first')} />
-        <span className="hint">{t('admin.team.passwordHint', { min: MIN_PASSWORD_LENGTH })}</span>
-      </div>
-      <div className="af">
-        <label htmlFor={`${id}-repeat`}>{t('admin.team.repeat')}</label>
-        <input
-          id={`${id}-repeat`}
-          type="password"
-          autoComplete="new-password"
-          required
-          value={value.second}
-          {...form.describe('second')}
-          onChange={(e) => onChange({ ...value, second: e.target.value })}
-        />
-        {form.message('second') ? (
-          <FieldError id={`${id}-repeat`} message={form.message('second')} />
-        ) : (
-          mismatch && <span className="error-text">{t('admin.team.mismatch')}</span>
-        )}
-      </div>
-    </>
-  );
-}
-
-const empty = { first: '', second: '' };
-
-function ResetForm({ admin, onDone, onCancel }: { admin: AdminAccount; onDone: () => void; onCancel: () => void }) {
-  const { t } = useTranslation();
-  const api = useApi();
-  const me = useUser();
-  const { run, busy, error } = useAction();
-  const [password, setPassword] = useState(empty);
-  const fieldId = `reset-${admin.id}`;
-  const form = useValidation(
-    {
-      first: !password.first
-        ? t('validation.passwordMissing')
-        : password.first.length < MIN_PASSWORD_LENGTH && t('admin.signUp.passwordShort', { min: MIN_PASSWORD_LENGTH }),
-      second: !password.second ? t('validation.confirmMissing') : password.first !== password.second && t('admin.team.mismatch'),
-    },
-    { first: `${fieldId}-password`, second: `${fieldId}-repeat` },
-  );
-
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    if (!form.check()) {
-      return;
-    }
-    const done = await run(() => api.post(`/admin/team/${admin.id}/password`, { password: password.first }).then(() => true));
-    if (done) {
-      onDone();
-    }
-  }
-
-  return (
-    <form className="fgrid service-form" onSubmit={submit} noValidate aria-label={t('admin.team.resetFor', { name: admin.username })}>
-      <PasswordFields id={fieldId} value={password} onChange={setPassword} form={form} />
-      <p className="small muted full">{admin.id === me.id ? t('admin.team.resetOwn') : t('admin.team.resetOther')}</p>
-      <div className="row gap8 full">
-        <button type="button" className="abtn ghost" onClick={onCancel}>
-          {t('common.cancel')}
-        </button>
-        <button type="submit" className="abtn" disabled={busy}>
-          {t('admin.team.setPassword')}
-        </button>
-      </div>
-      <ErrorText error={error} />
-    </form>
-  );
-}
-
-function EmailForm({ admin, onSaved, onCancel }: { admin: AdminAccount; onSaved: (a: AdminAccount) => void; onCancel: () => void }) {
-  const { t } = useTranslation();
-  const api = useApi();
-  const { run, busy, error } = useAction();
-  const [email, setEmail] = useState(admin.email ?? '');
-  const emailId = `email-${admin.id}`;
-  const form = useValidation({ email: email.trim() !== '' && !isValidEmail(email) && t('signUp.errors.email') }, { email: emailId });
-
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    if (!form.check()) {
-      return;
-    }
-    const result = await run(() => api.patch<{ admin: AdminAccount }>(`/admin/team/${admin.id}`, { email: email.trim() || null }));
-    if (result) {
-      onSaved(result.admin);
-    }
-  }
-
-  return (
-    <form className="fgrid service-form" onSubmit={submit} noValidate>
-      <div className="af full">
-        <label htmlFor={emailId}>{t('admin.team.email')}</label>
-        <input
-          id={emailId}
-          type="email"
-          maxLength={254}
-          value={email}
-          {...form.describe('email')}
-          onChange={(e) => setEmail(e.target.value)}
-        />
-        <FieldError id={emailId} message={form.message('email')} />
-        <span className="hint">{t('admin.team.emailHint')}</span>
-      </div>
-      <div className="row gap8 full">
-        <button type="button" className="abtn ghost" onClick={onCancel}>
-          {t('common.cancel')}
-        </button>
-        <button type="submit" className="abtn" disabled={busy}>
-          {t('admin.team.saveEmail')}
-        </button>
-      </div>
-      <ErrorText error={error} />
-    </form>
-  );
-}
+/** Must match INVITE_LINK_DAYS in the API. */
+const INVITE_LINK_DAYS = 7;
 
 function PendingRequests({ admins, onDone }: { admins: AdminAccount[]; onDone: (notice: string) => void }) {
   const { t } = useTranslation();
@@ -218,72 +71,156 @@ function name(member: { firstName: string | null; lastName: string | null; usern
   return [member.firstName, member.lastName].filter(Boolean).join(' ') || member.username;
 }
 
-function InviteForm({ onSent, onCancel }: { onSent: (email: string) => void; onCancel: () => void }) {
+/** Up to two initials for the avatar: "Elion Thaqi" → "ET", "sam@misk.app" → "S". */
+export function initials(text: string): string {
+  const words = text.replace(/@.*/, '').split(/[\s._-]+/).filter(Boolean);
+  return words
+    .slice(0, 2)
+    .map((w) => w[0]?.toUpperCase() ?? '')
+    .join('');
+}
+
+/** A teammate counts as online when they used the control panel in the last few minutes. */
+const ONLINE_MINUTES = 5;
+
+/** "Invite teammate": makes a link for a role that the admin copies and sends however they like. */
+function InviteLink({ onClose, onMade }: { onClose: () => void; onMade: () => void }) {
   const { t } = useTranslation();
   const api = useApi();
   const { track } = useSave();
-  const [email, setEmail] = useState('');
-  const [firstName, setFirstName] = useState('');
   const [role, setRole] = useState<AdminRole>('support');
-  const form = useValidation(
-    { email: !email.trim() ? t('validation.inviteEmailMissing') : !isValidEmail(email) && t('signUp.errors.email') },
-    { email: 'invite-email' },
-  );
+  const [made, setMade] = useState<{ link: string; role: AdminRole } | null>(null);
+  const [copied, setCopied] = useState<'yes' | 'no' | null>(null);
 
-  async function submit(event: FormEvent) {
+  async function create(event: FormEvent) {
     event.preventDefault();
-    if (!form.check()) return;
-    const result = await track(() =>
-      api.post<{ member: TeamMember }>('/admin/team/invite', {
-        email: email.trim(),
-        role,
-        ...(firstName.trim() ? { firstName: firstName.trim() } : {}),
-      }),
-    );
-    if (result) onSent(email.trim());
+    setCopied(null);
+    const result = await track(() => api.post<{ invite: { role: AdminRole }; link: string }>('/admin/team/invites', { role }));
+    if (result) {
+      setMade({ link: result.link, role: result.invite.role });
+      onMade();
+    }
+  }
+
+  async function copy(link: string) {
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopied('yes');
+    } catch {
+      // Clipboard access can be refused; the link is selected so it can be copied by hand.
+      document.getElementById('invite-link')?.focus();
+      setCopied('no');
+    }
   }
 
   return (
-    <form className="panel stack" onSubmit={submit} noValidate aria-labelledby="invite-heading">
+    <section className="panel stack" aria-labelledby="invite-heading">
       <h2 id="invite-heading">{t('admin.settings.team.inviteTitle')}</h2>
-      <div className="row gap8 wrap filters">
-        <div className="af grow">
-          <label htmlFor="invite-email">{t('admin.settings.team.inviteEmail')}</label>
-          <input
-            id="invite-email"
-            type="email"
-            autoComplete="off"
-            maxLength={254}
-            value={email}
-            {...form.describe('email')}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-          <FieldError id="invite-email" message={form.message('email')} />
-        </div>
-        <div className="af">
-          <label htmlFor="invite-name">{t('admin.settings.team.inviteName')}</label>
-          <input id="invite-name" maxLength={60} value={firstName} onChange={(e) => setFirstName(e.target.value)} />
-        </div>
-        <div className="af">
-          <label htmlFor="invite-role">{t('admin.settings.team.inviteRole')}</label>
-          <select id="invite-role" value={role} onChange={(e) => setRole(e.target.value as AdminRole)}>
-            {ADMIN_ROLES.map((r) => (
-              <option key={r} value={r}>
-                {t(`admin.settings.team.roles.${r}`)}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-      <div className="row gap8">
-        <button type="button" className="abtn ghost" onClick={onCancel}>
-          {t('admin.settings.team.cancel')}
-        </button>
-        <button type="submit" className="abtn">
-          {t('admin.settings.team.inviteSend')}
-        </button>
-      </div>
-    </form>
+      {made ? (
+        <>
+          <p className="small">{t('admin.settings.team.linkReady', { role: t(`admin.settings.team.roles.${made.role}`) })}</p>
+          <div className="row gap8 wrap">
+            <input
+              id="invite-link"
+              className="link-box grow"
+              readOnly
+              value={made.link}
+              aria-label={t('admin.settings.team.linkLabel')}
+              onFocus={(e) => e.currentTarget.select()}
+            />
+            <button type="button" className="abtn" onClick={() => void copy(made.link)}>
+              <Icon name="copy" /> {t('admin.settings.team.copy')}
+            </button>
+          </div>
+          <p className="small muted" role="status">
+            {copied === 'yes'
+              ? t('admin.settings.team.copied')
+              : copied === 'no'
+                ? t('admin.settings.team.copyByHand')
+                : t('admin.settings.team.linkRules', { days: INVITE_LINK_DAYS })}
+          </p>
+          <div className="row gap8">
+            <button type="button" className="abtn ghost" onClick={() => setMade(null)}>
+              {t('admin.settings.team.another')}
+            </button>
+            <button type="button" className="abtn ghost" onClick={onClose}>
+              {t('admin.settings.team.done')}
+            </button>
+          </div>
+        </>
+      ) : (
+        <form className="row gap8 wrap filters" onSubmit={(e) => void create(e)} aria-label={t('admin.settings.team.inviteTitle')}>
+          <div className="af">
+            <label htmlFor="invite-role">{t('admin.settings.team.inviteRole')}</label>
+            <select id="invite-role" value={role} onChange={(e) => setRole(e.target.value as AdminRole)}>
+              {ADMIN_ROLES.map((r) => (
+                <option key={r} value={r}>
+                  {t(`admin.settings.team.roles.${r}`)}
+                </option>
+              ))}
+            </select>
+          </div>
+          <button type="button" className="abtn ghost" onClick={onClose}>
+            {t('admin.settings.team.cancel')}
+          </button>
+          <button type="submit" className="abtn">
+            {t('admin.settings.team.createLink')}
+          </button>
+        </form>
+      )}
+    </section>
+  );
+}
+
+interface OpenInvite {
+  id: string;
+  role: AdminRole;
+  createdAt: string;
+  expiresAt: string;
+  createdBy: string | null;
+}
+
+/** Links that can still be used, so an admin can withdraw one that went to the wrong person. */
+function OpenInvites({ version }: { version: number }) {
+  const { t } = useTranslation();
+  const api = useApi();
+  const { track } = useSave();
+  const { timezone } = useMarket();
+  // version changes when a new link is made, which loads the list again.
+  const load = useCallback(() => api.get<{ invites: OpenInvite[] }>('/admin/team/invites').then((r) => ({ ...r, version })), [api, version]);
+  const { state, reload } = useResource(load);
+  if (state.status !== 'ready' || state.data.invites.length === 0) return null;
+
+  async function withdraw(id: string) {
+    const result = await track(() => api.delete(`/admin/team/invites/${id}`).then(() => true));
+    if (result) reload();
+  }
+
+  return (
+    <section className="panel stack" aria-labelledby="open-invites-heading">
+      <h2 id="open-invites-heading">{t('admin.settings.team.openInvites')}</h2>
+      <ul className="logrows">
+        {state.data.invites.map((invite) => (
+          <li key={invite.id} className="logrow">
+            <span className="lt">
+              {t('admin.settings.team.openInvite', {
+                role: t(`admin.settings.team.roles.${invite.role}`),
+                by: invite.createdBy ?? '–',
+                until: dateTime(invite.expiresAt, timezone),
+              })}
+            </span>
+            <button
+              type="button"
+              className="abtn ghost sm"
+              aria-label={t('admin.settings.team.withdrawLabel', { role: t(`admin.settings.team.roles.${invite.role}`) })}
+              onClick={() => void withdraw(invite.id)}
+            >
+              {t('admin.settings.team.withdraw')}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -293,7 +230,7 @@ function AccessList({ role, access }: { role: AdminRole; access: Record<AdminRol
   return <span className="small">{(access[role] ?? []).map((a) => t(`admin.settings.team.areas.${a}`)).join(', ')}</span>;
 }
 
-function Members({ onNotice }: { onNotice: (notice: string) => void }) {
+function Members() {
   const { t } = useTranslation();
   const api = useApi();
   const { track } = useSave();
@@ -302,8 +239,9 @@ function Members({ onNotice }: { onNotice: (notice: string) => void }) {
   const load = useCallback(() => api.get<{ members: TeamMember[]; access: Record<AdminRole, AdminArea[]> }>('/admin/team/members'), [api]);
   const { state, reload } = useResource(load);
   const [inviting, setInviting] = useState(false);
-  const [resetting, setResetting] = useState<string | null>(null);
-  const [editingEmail, setEditingEmail] = useState<string | null>(null);
+  const [invites, setInvites] = useState(0);
+  // Read once when the page opens, so "Online now" does not change on its own while rendering.
+  const [now] = useState(() => Date.now());
 
   async function changeRole(member: TeamMember, role: AdminRole) {
     const result = await track(() => api.patch(`/admin/team/${member.id}/role`, { role }));
@@ -313,10 +251,10 @@ function Members({ onNotice }: { onNotice: (notice: string) => void }) {
   return (
     <>
       <section className="panel stack" aria-labelledby="members-heading">
-        <div className="row between wrap gap8">
+        <div className="panel-title">
           <h2 id="members-heading">{t('admin.settings.team.members')}</h2>
           <button type="button" className="abtn" onClick={() => setInviting(true)}>
-            {t('admin.settings.team.invite')}
+            <Icon name="plus" /> {t('admin.settings.team.invite')}
           </button>
         </div>
         <ResourceState state={state} reload={reload}>
@@ -329,9 +267,6 @@ function Members({ onNotice }: { onNotice: (notice: string) => void }) {
                     <th scope="col">{t('admin.settings.team.role')}</th>
                     <th scope="col">{t('admin.settings.team.access')}</th>
                     <th scope="col">{t('admin.settings.team.lastActive')}</th>
-                    <th scope="col">
-                      <span className="visually-hidden">{t('admin.team.setPassword')}</span>
-                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -340,13 +275,21 @@ function Members({ onNotice }: { onNotice: (notice: string) => void }) {
                     .map((member) => (
                       <tr key={member.id}>
                         <td>
-                          <span className="b">{name(member)}</span>{' '}
-                          {member.id === me.id && <span className="badge g">{t('admin.team.you')}</span>}{' '}
-                          {member.invitedAt && !member.lastActive && <span className="badge a">{t('admin.settings.team.invited')}</span>}
-                          <div className="small muted">{member.email ?? member.username}</div>
+                          <div className="who">
+                            <span className="av" aria-hidden="true">
+                              {initials(name(member))}
+                            </span>
+                            <div>
+                              <span className="b">{name(member)}</span>{' '}
+                              {member.id === me.id && <span className="badge g">{t('admin.team.you')}</span>}{' '}
+                              {member.invitedAt && !member.lastActive && <span className="badge a">{t('admin.settings.team.invited')}</span>}
+                              <div className="small muted">{member.email ?? member.username}</div>
+                            </div>
+                          </div>
                         </td>
                         <td>
                           <select
+                            className={`role ${member.role === 'admin' ? 'admin' : 'other'}`}
                             aria-label={t('admin.settings.team.roleLabel', { name: name(member) })}
                             value={member.role}
                             onChange={(e) => void changeRole(member, e.target.value as AdminRole)}
@@ -361,39 +304,12 @@ function Members({ onNotice }: { onNotice: (notice: string) => void }) {
                         <td>
                           <AccessList role={member.role} access={access} />
                         </td>
-                        <td className="small">
-                          {member.lastActive ? dateTime(member.lastActive, timezone) : t('admin.settings.team.never')}
-                        </td>
-                        <td>
-                          {resetting === member.id ? (
-                            <ResetForm
-                              admin={member}
-                              onCancel={() => setResetting(null)}
-                              onDone={() => {
-                                setResetting(null);
-                                onNotice(t('admin.team.changed', { name: member.username }));
-                              }}
-                            />
-                          ) : editingEmail === member.id ? (
-                            <EmailForm
-                              admin={member}
-                              onCancel={() => setEditingEmail(null)}
-                              onSaved={(saved) => {
-                                setEditingEmail(null);
-                                onNotice(t('admin.team.emailSaved', { name: saved.username }));
-                                reload();
-                              }}
-                            />
-                          ) : (
-                            <span className="row gap8 wrap">
-                              <button type="button" className="abtn ghost" onClick={() => setEditingEmail(member.id)}>
-                                {t('admin.team.editEmail')}
-                              </button>
-                              <button type="button" className="abtn ghost" onClick={() => setResetting(member.id)}>
-                                {t('admin.team.setPassword')}
-                              </button>
-                            </span>
-                          )}
+                        <td className="small muted nowrap">
+                          {!member.lastActive
+                            ? t('admin.settings.team.never')
+                            : now - new Date(member.lastActive).getTime() < ONLINE_MINUTES * 60_000
+                              ? t('admin.settings.team.online')
+                              : dateTime(member.lastActive, timezone)}
                         </td>
                       </tr>
                     ))}
@@ -403,16 +319,8 @@ function Members({ onNotice }: { onNotice: (notice: string) => void }) {
           )}
         </ResourceState>
       </section>
-      {inviting && (
-        <InviteForm
-          onCancel={() => setInviting(false)}
-          onSent={(email) => {
-            setInviting(false);
-            onNotice(t('admin.settings.team.inviteSent', { email }));
-            reload();
-          }}
-        />
-      )}
+      {inviting && <InviteLink onClose={() => setInviting(false)} onMade={() => setInvites((n) => n + 1)} />}
+      <OpenInvites version={invites} />
     </>
   );
 }
@@ -447,10 +355,19 @@ const KNOWN_ACTIONS = [
   'invited',
   'role_changed',
   'trade_removed',
+  'account_created',
+  'password_reset',
+  'email_changed',
+  'request_approved',
+  'request_approved_by_link',
+  'request_declined',
+  'invite_link_created',
+  'invite_link_revoked',
+  'joined_by_invite',
 ] as const;
 type KnownAction = (typeof KNOWN_ACTIONS)[number];
 
-function ActivityLine({ entry }: { entry: ActivityEntry }) {
+function ActivityLine({ entry, now }: { entry: ActivityEntry; now: number }) {
   const { t } = useTranslation();
   const { timezone } = useMarket();
   const d = entry.details as Record<string, string | number | undefined>;
@@ -468,31 +385,42 @@ function ActivityLine({ entry }: { entry: ActivityEntry }) {
         name: String(d.name ?? ''),
       })
     : [entry.subject, entry.action.replace(/_/g, ' ')].filter(Boolean).join(': ');
+  const who = entry.adminFullName || entry.adminName || t('admin.settings.team.system');
+  const recent = now - new Date(entry.createdAt).getTime() < RECENT_HOURS * 3_600_000;
   return (
-    <li>
-      <span className="badge grey">{t(`admin.settings.team.area.${entry.area as 'fees'}`, { defaultValue: entry.area })}</span> {text}
-      <div className="small muted">
-        {t('admin.settings.team.by', { name: entry.adminFullName || entry.adminName || '–', date: dateTime(entry.createdAt, timezone) })}
-      </div>
+    <li className={recent ? 'logrow new' : 'logrow'}>
+      <span className="ld" aria-hidden="true" />
+      <span className="lt">
+        <span className="b">{who}</span>: {text}{' '}
+        <span className="badge grey">{t(`admin.settings.team.area.${entry.area as 'fees'}`, { defaultValue: entry.area })}</span>
+      </span>
+      <time className="tiny muted lw" dateTime={entry.createdAt}>
+        {dateTime(entry.createdAt, timezone)}
+      </time>
     </li>
   );
 }
 
 /** Every change across the control panel: who, what and when, newest first. */
 const ACTIVITY_PAGE = 100;
+/** Lines from the last day get the green dot. */
+const RECENT_HOURS = 24;
 
 function ActivityLog() {
   const { t } = useTranslation();
   const api = useApi();
   const [older, setOlder] = useState<ActivityEntry[]>([]);
+  const [now] = useState(() => Date.now());
   const more = useAction();
   const load = useCallback(() => api.get<{ activity: ActivityEntry[] }>('/admin/activity'), [api]);
   const { state, reload } = useResource(load);
 
   return (
     <section className="panel stack" aria-labelledby="activity-heading">
-      <h2 id="activity-heading">{t('admin.settings.team.activity')}</h2>
-      <p className="small muted">{t('admin.settings.team.activityIntro')}</p>
+      <div className="panel-title">
+        <h2 id="activity-heading">{t('admin.settings.team.activity')}</h2>
+        <span className="small muted">{t('admin.settings.team.activityIntro')}</span>
+      </div>
       <ResourceState state={state} reload={reload}>
         {({ activity }) => {
           const all = [...activity, ...older];
@@ -501,9 +429,9 @@ function ActivityLog() {
             <p className="small muted">{t('admin.settings.team.noActivity')}</p>
           ) : (
             <>
-              <ul className="history">
+              <ul className="logrows">
                 {all.map((entry) => (
-                  <ActivityLine key={entry.id} entry={entry} />
+                  <ActivityLine key={entry.id} entry={entry} now={now} />
                 ))}
               </ul>
               {all.length % ACTIVITY_PAGE === 0 && last && (
@@ -540,7 +468,7 @@ export function TeamPage() {
         </p>
       )}
       <Requests onNotice={setNotice} />
-      <Members onNotice={setNotice} />
+      <Members />
       <ActivityLog />
     </div>
   );

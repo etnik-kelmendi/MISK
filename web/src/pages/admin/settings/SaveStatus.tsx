@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ErrorText } from '../../../components/ErrorText';
+import { Icon } from '../../../components/Icon';
 import { useAuth } from '../../../auth/AuthContext';
 import { ApiError } from '../../../api/client';
 
@@ -50,7 +51,11 @@ export function SaveStatusProvider({ children }: { children: (label: ReactNode) 
   const label = (
     <div className="save-status" aria-live="polite">
       {status === 'saving' && <span className="muted small">{t('admin.settings.saving')}</span>}
-      {status === 'saved' && <span className="ok small">✓ {t('admin.settings.saved')}</span>}
+      {status === 'saved' && (
+        <span className="badge g">
+          <Icon name="check" /> {t('admin.settings.saved')}
+        </span>
+      )}
       {status === 'failed' && (
         <span className="small">
           <span className="error-text">{t('admin.settings.saveFailed')}</span>

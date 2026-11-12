@@ -1102,7 +1102,7 @@ describe('admin navigation', () => {
     stubAdminPages(api);
     api.on('GET /admin/zones', { body: { zones: [], elsewhere: [] } });
     renderAt('/admin/areas');
-    expect(await screen.findByRole('heading', { level: 2, name: 'Zones' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: 'Service area' })).toBeInTheDocument();
     const tabs = screen.getByRole('navigation', { name: 'Settings sections' });
     expect(within(tabs).getAllByRole('link').map((l) => l.textContent)).toEqual([
       'Fees & payments',
@@ -1565,7 +1565,7 @@ describe('admin', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('expired or was already used');
   });
 
-  it('lets an admin set a new password for a colleague', async () => {
+  it('offers no way to change the email or password of a colleague (D51)', async () => {
     const api = fakeApi(users.admin);
     const member = (id: string, username: string) => ({
       id,
@@ -1585,21 +1585,11 @@ describe('admin', () => {
       body: { members: [member('u-admin', 'admin'), member('u-elion', 'elion')], access: { admin: [], operations: [], support: [], finance: [] } },
     });
     api.on('GET /admin/activity', { body: { activity: [] } });
-    api.on('POST /admin/team/u-elion/password', { status: 204 });
     renderAt('/admin/settings/team');
     const row = (await screen.findByText('elion', { selector: '.b' })).closest('tr') as HTMLElement;
-    await user().click(within(row).getByRole('button', { name: 'Set new password' }));
-    const form = within(row).getByRole('form', { name: 'New password for elion' });
-    const submit = within(form).getByRole('button', { name: 'Set new password' });
-    await user().type(within(form).getByLabelText('Password'), 'a brand new long password');
-    await user().type(within(form).getByLabelText('Repeat password'), 'a brand new long passwor');
-    expect(within(form).getByText('The passwords do not match.')).toBeInTheDocument();
-    await user().click(submit);
-    expect(api.calls).not.toContain('POST /admin/team/u-elion/password');
-    expect(within(form).getByLabelText('Repeat password')).toHaveFocus();
-    await user().type(within(form).getByLabelText('Repeat password'), 'd');
-    await user().click(submit);
-    expect(await screen.findByRole('status')).toHaveTextContent('Password changed for elion.');
-    expect(api.bodies['POST /admin/team/u-elion/password']).toEqual({ password: 'a brand new long password' });
+    expect(within(row).queryByRole('button', { name: /password/i })).not.toBeInTheDocument();
+    expect(within(row).queryByRole('button', { name: /email/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Set new password' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Change email' })).not.toBeInTheDocument();
   });
 });

@@ -48,13 +48,17 @@ function MyPhone({ phone, onSaved }: { phone: string | null; onSaved: () => void
   );
 }
 
-function TestButton({ kind, label }: { kind: MessageKind; label: string }) {
+/** "Send me a test": sends the chosen message to the admin's own phone, email and this device. */
+function TestMessage({ messages }: { messages: { kind: MessageKind; label: string }[] }) {
   const { t } = useTranslation();
   const api = useApi();
   const action = useAction();
+  const [kind, setKind] = useState<MessageKind>(messages[0]?.kind ?? 'booking_confirmed');
   const [result, setResult] = useState<string | null>(null);
+  const label = messages.find((m) => m.kind === kind)?.label ?? '';
 
   async function send() {
+    setResult(null);
     const response = await action.run(() =>
       api.post<{ sent: { sms: boolean; email: boolean; push: number }; missing: ('phone' | 'email' | 'push')[] }>(
         `/admin/notifications/${kind}/test`,
@@ -72,23 +76,33 @@ function TestButton({ kind, label }: { kind: MessageKind; label: string }) {
   }
 
   return (
-    <span className="stack tight">
-      <button
-        type="button"
-        className="abtn ghost"
-        disabled={action.busy}
-        aria-label={t('admin.settings.notifications.testLabel', { message: label })}
-        onClick={() => void send()}
-      >
-        {t('admin.settings.notifications.test')}
-      </button>
+    <div className="stack tight">
+      <div className="test-row">
+        <select aria-label={t('admin.settings.notifications.testWhich')} value={kind} onChange={(e) => setKind(e.target.value as MessageKind)}>
+          {messages.map((m) => (
+            <option key={m.kind} value={m.kind}>
+              {m.label}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          className="abtn ghost"
+          disabled={action.busy}
+          aria-label={t('admin.settings.notifications.testLabel', { message: label })}
+          onClick={() => void send()}
+        >
+          {t('admin.settings.notifications.test')}
+        </button>
+        <span className="small muted">{t('admin.settings.notifications.smsCost')}</span>
+      </div>
       {result && (
-        <span className="small" role="status">
+        <p className="small" role="status">
           {result}
-        </span>
+        </p>
       )}
       <ErrorText error={action.error} />
-    </span>
+    </div>
   );
 }
 
@@ -107,73 +121,70 @@ export function NotificationsPage() {
 
   return (
     <ResourceState state={state} reload={reload}>
-      {(data) => (
-        <div className="stack">
-          <section className="panel stack" aria-labelledby="messages-heading">
-            <h2 id="messages-heading">{t('admin.settings.tabs.notifications')}</h2>
-            <p className="small muted">{t('admin.settings.notifications.intro')}</p>
-            {CHANNELS.filter((c) => !data.ready[c]).map((c) => (
-              <p key={c} className="note">
-                {t('admin.settings.notifications.notReady', { channel: t(`admin.settings.notifications.${c}`) })}
-              </p>
-            ))}
-            <div className="scroll-x">
-              <table className="t">
-                <thead>
-                  <tr>
-                    <th scope="col">{t('admin.settings.notifications.message')}</th>
-                    <th scope="col">{t('admin.settings.notifications.who')}</th>
-                    {CHANNELS.map((c) => (
-                      <th key={c} scope="col">
-                        {t(`admin.settings.notifications.${c}`)}
-                      </th>
-                    ))}
-                    <th scope="col">
-                      <span className="visually-hidden">{t('admin.settings.notifications.test')}</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.messages.map((message) => {
-                    const label = t(`admin.settings.notifications.kind.${message.kind}`);
-                    return (
+      {(data) => {
+        const labelled = data.messages.map((m) => ({ ...m, label: t(`admin.settings.notifications.kind.${m.kind}`) }));
+        return (
+          <>
+            <section className="panel stack" aria-labelledby="messages-heading">
+              <div className="panel-title">
+                <h2 id="messages-heading">{t('admin.settings.notifications.title')}</h2>
+                <span className="small muted">{t('admin.settings.notifications.intro')}</span>
+              </div>
+              {CHANNELS.filter((c) => !data.ready[c]).map((c) => (
+                <p key={c} className="note">
+                  {t('admin.settings.notifications.notReady', { channel: t(`admin.settings.notifications.${c}`) })}
+                </p>
+              ))}
+              <div className="scroll-x">
+                <table className="t">
+                  <thead>
+                    <tr>
+                      <th scope="col">{t('admin.settings.notifications.message')}</th>
+                      <th scope="col">{t('admin.settings.notifications.who')}</th>
+                      {CHANNELS.map((c) => (
+                        <th key={c} scope="col" className="cb">
+                          {t(`admin.settings.notifications.${c}`)}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {labelled.map((message) => (
                       <tr key={message.kind}>
-                        <td className="b">{label}</td>
+                        <td className="b">{message.label}</td>
                         <td>
-                          <span className={`badge ${message.audience === 'pro' ? 'a' : 'b'}`}>
+                          <span className={`badge ${message.audience === 'pro' ? 'grey' : 'g'}`}>
                             {t(`admin.settings.notifications.audience.${message.audience}`)}
                           </span>
                         </td>
                         {CHANNELS.map((channel) => (
-                          <td key={channel}>
+                          <td key={channel} className="cb">
                             <input
                               type="checkbox"
-                              className="check"
+                              className="cbox"
                               checked={message[channel]}
                               aria-label={t('admin.settings.notifications.channelLabel', {
                                 channel: t(`admin.settings.notifications.${channel}`),
-                                message: label,
+                                message: message.label,
                               })}
                               onChange={(e) => void toggle(message.kind, channel, e.target.checked)}
                             />
                           </td>
                         ))}
-                        <td>
-                          <TestButton kind={message.kind} label={label} />
-                        </td>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </section>
-          <section className="panel stack">
-            <MyPhone phone={data.me.phone} onSaved={reload} />
-            <PushToggle buttonClass="abtn ghost" onChange={reload} />
-          </section>
-        </div>
-      )}
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <TestMessage messages={labelled} />
+            </section>
+            <section className="panel stack">
+              <MyPhone phone={data.me.phone} onSaved={reload} />
+              <PushToggle buttonClass="abtn ghost" onChange={reload} />
+            </section>
+          </>
+        );
+      }}
     </ResourceState>
   );
 }

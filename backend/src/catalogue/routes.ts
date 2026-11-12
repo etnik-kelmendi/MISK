@@ -480,6 +480,16 @@ export async function catalogueRoutes(app: FastifyInstance, ctx: AppContext) {
   );
 }
 
+/**
+ * A German postcode (MISK serves Berlin): exactly five digits. No German postcode starts with 00. Zones and
+ * the waitlist accept only these; bookings, plans and pros can only pick postcodes that are zones already.
+ */
+export const POSTCODE_FORMAT = /^(?!00)\d{5}$/;
+
+export function isValidPostcode(code: string): boolean {
+  return POSTCODE_FORMAT.test(code);
+}
+
 /** Postcodes are stored upper-case with single spaces, so "ab1 2cd" and "AB1  2CD" are the same. */
 export function normalizePostcode(input: string): string {
   return input.trim().toUpperCase().replace(/\s+/g, ' ');

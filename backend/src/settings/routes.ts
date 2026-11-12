@@ -1,16 +1,13 @@
-import { randomBytes } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { ADMIN_ROLES, ACCESS, type AdminRole } from '../auth/access.js';
-import { normalizeEmail } from '../auth/admin-accounts.js';
 import { currentUser } from '../auth/guard.js';
-import { hashPassword } from '../auth/passwords.js';
-import { hashToken, recordAttempt } from '../auth/sessions.js';
+import { recordAttempt } from '../auth/sessions.js';
 import { FREE_CANCEL_HOURS, CHARGE_DELAY_HOURS } from '../bookings/lifecycle.js';
-import { normalizePostcode } from '../catalogue/routes.js';
+import { isValidPostcode, normalizePostcode } from '../catalogue/routes.js';
 import type { AppContext } from '../context.js';
 import { onlyRow, withTransaction } from '../db.js';
 import { ApiError, badRequest, conflict, notFound } from '../errors.js';
-import { isUniqueViolation, uuidParams } from '../http.js';
+import { uuidParams } from '../http.js';
 import { formatSlot, messages } from '../notifications/messages.js';
 import { CHANNELS, CONFIGURABLE, enqueue, fitBody, subjectOf, type ConfigurableKind } from '../notifications/outbox.js';
 import { normalizePhone } from '../notifications/phone.js';
@@ -28,6 +25,8 @@ export const INVITE_DAYS = 7;
  * further away is almost always a typo or latitude and longitude swapped (D47).
  */
 export const ZONE_MAX_DISTANCE_KM = 100;
+/** Two zones' centres are at least this far apart; closer means one zone's coordinates were reused. */
+export const ZONE_MIN_DISTANCE_KM = 0.1;
 /** Test messages per admin per 15 minutes, so a stuck button cannot flood a phone. */
 const MAX_TESTS = 20;
 
@@ -173,6 +172,9 @@ export async function settingsRoutes(app: FastifyInstance, ctx: AppContext) {
     },
     async (request) => {
       const code = normalizePostcode(request.params.code);
+      if (!isValidPostcode(code)) {
+        throw badRequest('invalid_postcode');
+      }
       const { name, lat, lng, live } = request.body;
       // The same number in both fields (including 0, 0) is a copy-paste mistake, never a real centre point.
       if (lat === lng) {
@@ -184,6 +186,10 @@ export async function settingsRoutes(app: FastifyInstance, ctx: AppContext) {
           [code, lat, lng],
         );
         const km = nearest.rows[0]?.km;
+        // Two postcodes never share a centre: the coordinates were copied from the other zone.
+        if (km !== undefined && km < ZONE_MIN_DISTANCE_KM) {
+          throw badRequest('coordinates_taken');
+        }
         if (km !== undefined && km > ZONE_MAX_DISTANCE_KM) {
           request.log.info({ event: 'zone_rejected_far', code, km: Math.round(km) });
           throw badRequest('zone_too_far');
@@ -274,6 +280,9 @@ export async function settingsRoutes(app: FastifyInstance, ctx: AppContext) {
     },
     async (request, reply) => {
       const postcode = normalizePostcode(request.body.postcode);
+      if (!isValidPostcode(postcode)) {
+        throw badRequest('invalid_postcode');
+      }
       const served = await pool.query('SELECT 1 FROM postcodes WHERE code = $1 AND active', [postcode]);
       if (served.rowCount) {
         throw conflict('postcode_served');
@@ -485,79 +494,6 @@ export async function settingsRoutes(app: FastifyInstance, ctx: AppContext) {
     return { members: result.rows, access: ACCESS };
   });
 
-  app.post<{ Body: { email: string; firstName?: string; role: AdminRole } }>(
-    '/admin/team/invite',
-    {
-      preHandler: guards.admin,
-      schema: {
-        body: {
-          type: 'object',
-          required: ['email', 'role'],
-          additionalProperties: false,
-          properties: {
-            email: { type: 'string', minLength: 3, maxLength: 254, pattern: '^\\s*[^@\\s]+@[^@\\s]+\\.[^@\\s]+\\s*$' },
-            firstName: { type: 'string', maxLength: 60 },
-            role: { type: 'string', enum: ADMIN_ROLES },
-          },
-        },
-      },
-    },
-    async (request, reply) => {
-      const deliver = ctx.deliverEmail;
-      if (!deliver) {
-        throw new ApiError(503, 'email_unavailable');
-      }
-      const email = normalizeEmail(request.body.email);
-      const firstName = request.body.firstName?.trim() || null;
-      const token = randomBytes(32).toString('base64url');
-      const adminId = currentUser(request).id;
-      let memberId: string;
-      try {
-        memberId = await withTransaction(pool, async (client) => {
-          // Nobody can sign in with this random password; the invite link sets the real one.
-          const created = await client.query<{ id: string }>(
-            `INSERT INTO users (username, email, first_name, password_hash, role, admin_role, invited_at)
-             VALUES ($1, $1, $2, $3, 'admin', $4, now()) RETURNING id`,
-            [email, firstName, await hashPassword(randomBytes(32).toString('base64url')), request.body.role],
-          );
-          const id = onlyRow(created).id;
-          await client.query(
-            'INSERT INTO password_resets (user_id, token_hash, expires_at) VALUES ($1, $2, now() + make_interval(days => $3))',
-            [id, hashToken(token), INVITE_DAYS],
-          );
-          await logActivity(client, { adminId, area: 'team', action: 'invited', details: { email, role: request.body.role } });
-          return id;
-        });
-      } catch (error) {
-        if (isUniqueViolation(error)) {
-          throw conflict('email_taken');
-        }
-        throw error;
-      }
-      const link = `${ctx.config.adminOrigin}/admin/reset-password#token=${token}`;
-      try {
-        await deliver({
-          to: email,
-          subject: 'You are invited to the MISK control panel',
-          text: [
-            `${request.user?.email ?? 'A MISK admin'} invited you to the MISK control panel as ${request.body.role}.`,
-            '',
-            `Choose your password within ${INVITE_DAYS} days with this link. It works once:`,
-            link,
-            '',
-            `Then sign in with your email address, ${email}.`,
-          ].join('\n'),
-        });
-      } catch (error) {
-        request.log.error({ event: 'invite_email_failed', memberId, err: error });
-        throw new ApiError(502, 'email_failed');
-      }
-      request.log.info({ event: 'teammate_invited', memberId, by: adminId });
-      const member = await pool.query(`${TEAM} AND u.id = $1`, [memberId]);
-      return reply.code(201).send({ member: member.rows[0] });
-    },
-  );
-
   app.patch<{ Params: { id: string }; Body: { role: AdminRole } }>(
     '/admin/team/:id/role',
     {
@@ -635,7 +571,7 @@ export async function settingsRoutes(app: FastifyInstance, ctx: AppContext) {
         `SELECT f.id, f.area, f.action, f.details, f."createdAt", f.subject, COALESCE(u.email, u.username) AS "adminName",
            concat_ws(' ', u.first_name, u.last_name) AS "adminFullName"
          FROM (${ACTIVITY_FEED}) f LEFT JOIN users u ON u.id = f.admin_id
-         WHERE f.admin_id IS NOT NULL AND ($1::timestamptz IS NULL OR f."createdAt" < $1)
+         WHERE (f.admin_id IS NOT NULL OR f.area = 'team') AND ($1::timestamptz IS NULL OR f."createdAt" < $1)
          ORDER BY f."createdAt" DESC, f.id DESC LIMIT 100`,
         [request.query.before ?? null],
       );

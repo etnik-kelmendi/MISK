@@ -148,3 +148,50 @@ describe('asking for an admin account', () => {
     expect((await call(t, 'POST', `/admin/team/${id}/approve`, { origin: ADMIN })).statusCode).toBe(401);
   });
 });
+
+describe('the activity log for team accounts', () => {
+  type Line = { action: string; area: string; details: { name?: string }; adminName: string | null };
+  const activity = async (cookie: string) =>
+    ((await call(t, 'GET', '/admin/activity', { cookie, origin: ADMIN })).json().activity as Line[]).map((a) => ({
+      action: a.action,
+      area: a.area,
+      name: a.details.name,
+      by: a.adminName,
+    }));
+
+  it('saves who approved, declined or created an account, newest first', async () => {
+    const owner = await ownerCookie();
+    await request();
+    const lina = (await t.pool.query<{ id: string }>("SELECT id FROM users WHERE email = 'lina@misk.test'")).rows[0]?.id;
+    await call(t, 'POST', `/admin/team/${lina}/approve`, { cookie: owner, origin: ADMIN });
+    await request({ firstName: 'Arta', lastName: 'Berisha', email: 'arta@misk.test' });
+    const arta = (await t.pool.query<{ id: string }>("SELECT id FROM users WHERE email = 'arta@misk.test'")).rows[0]?.id;
+    await call(t, 'POST', `/admin/team/${arta}/decline`, { cookie: owner, origin: ADMIN });
+    const created = await call(t, 'POST', '/admin/team', { cookie: owner, origin: ADMIN, body: { username: 'drita', password: PASSWORD } });
+    expect(created.statusCode).toBe(201);
+
+    expect(await activity(owner)).toEqual([
+      { action: 'account_created', area: 'team', name: 'drita', by: 'owner@misk.test' },
+      { action: 'request_declined', area: 'team', name: 'Arta Berisha', by: 'owner@misk.test' },
+      { action: 'request_approved', area: 'team', name: 'Lina Hoxha', by: 'owner@misk.test' },
+    ]);
+  });
+
+  it('writes nothing when the action is refused', async () => {
+    const owner = await ownerCookie();
+    await request();
+    const lina = (await t.pool.query<{ id: string }>("SELECT id FROM users WHERE email = 'lina@misk.test'")).rows[0]?.id;
+    await call(t, 'POST', `/admin/team/${lina}/approve`, { cookie: owner, origin: ADMIN });
+    expect((await call(t, 'POST', `/admin/team/${lina}/decline`, { cookie: owner, origin: ADMIN })).json()).toEqual({ error: 'not_pending' });
+    expect((await call(t, 'POST', `/admin/team/${lina}/approve`, { cookie: owner, origin: ADMIN })).json()).toEqual({ error: 'not_pending' });
+    expect((await activity(owner)).map((a) => a.action)).toEqual(['request_approved']);
+  });
+
+  it('logs an approval from the email link without naming an approver', async () => {
+    const owner = await ownerCookie();
+    await request();
+    const token = t.emails[0]?.text.match(/#token=([A-Za-z0-9_-]+)/)?.[1] ?? '';
+    await call(t, 'POST', '/auth/admin/approve', { origin: ADMIN, body: { token } });
+    expect(await activity(owner)).toEqual([{ action: 'request_approved_by_link', area: 'team', name: 'Lina Hoxha', by: null }]);
+  });
+});

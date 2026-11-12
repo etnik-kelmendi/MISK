@@ -17,6 +17,7 @@ import { AdminProRedirect, AdminProsPage } from './pages/admin/AdminProsPage';
 import { AreasPage } from './pages/admin/AreasPage';
 import { CataloguePage } from './pages/admin/CataloguePage';
 import { OverviewPage } from './pages/admin/OverviewPage';
+import { JoinTeamPage } from './pages/admin/JoinTeamPage';
 import { ResetPasswordPage } from './pages/admin/ResetPasswordPage';
 import { PlanEditorPage, PlansPage } from './pages/admin/PlansPage';
 import { SettingsLayout } from './pages/admin/SettingsLayout';
@@ -37,6 +38,8 @@ import { ProJobPage } from './pages/pro/ProJobPage';
 import { ProProfilePage } from './pages/pro/ProProfilePage';
 import { ProVisitPage } from './pages/pro/ProVisitPage';
 import { ProWeekPage } from './pages/pro/ProWeekPage';
+import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
+import { ResetPasswordPage as AppResetPasswordPage } from './pages/ResetPasswordPage';
 import { SignInPage } from './pages/SignInPage';
 import { SignUpPage } from './pages/SignUpPage';
 import { MessagesPage } from './pages/MessagesPage';
@@ -62,6 +65,8 @@ function CustomerAndProRoutes() {
       <Route path="/signin" element={<SignInPage />} />
       <Route path="/signup" element={<SignUpPage />} />
       <Route path="/verify-email" element={<VerifyEmailPage />} />
+      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+      <Route path="/reset-password" element={<AppResetPasswordPage />} />
       <Route path="/terms" element={<TermsPage />} />
       <Route
         element={
@@ -111,6 +116,7 @@ function AdminRoutes() {
       <Route path="/admin/signup" element={<AdminSignUpPage />} />
       <Route path="/admin/approve" element={<ApproveRequestPage />} />
       <Route path="/admin/reset-password" element={<ResetPasswordPage />} />
+      <Route path="/admin/join" element={<JoinTeamPage />} />
       <Route
         path="admin"
         element={

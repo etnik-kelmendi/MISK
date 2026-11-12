@@ -3,13 +3,14 @@ import type { FastifyInstance } from 'fastify';
 import type { Pool } from 'pg';
 import type { AppContext } from '../context.js';
 import { withTransaction, type Queryable } from '../db.js';
-import { ApiError, badRequest, conflict, notFound } from '../errors.js';
-import { isUniqueViolation, uuidParams } from '../http.js';
+import { ApiError, badRequest, conflict } from '../errors.js';
+import { isUniqueViolation } from '../http.js';
 import { normalizeUsername } from './admin-sign-in.js';
-import { currentUser, sessionCookieFor, siteOf } from './guard.js';
+import { currentUser } from './guard.js';
 import { refuseWrongSite } from './routes.js';
 import { hashPassword, MIN_PASSWORD_LENGTH } from './passwords.js';
 import { hashToken, recordAttempt } from './sessions.js';
+import { logTeamActivity } from '../settings/activity.js';
 
 const USERNAME_FORMAT = /^\S{3,254}$/;
 const passwordProperty = { type: 'string', minLength: MIN_PASSWORD_LENGTH, maxLength: 1024 } as const;
@@ -103,71 +104,21 @@ export async function adminAccountRoutes(app: FastifyInstance, ctx: AppContext) 
       }
       try {
         const email = request.body.email ? normalizeEmail(request.body.email) : null;
-        const created = await pool.query(
-          `INSERT INTO users (username, password_hash, role, email) VALUES ($1, $2, 'admin', $3) RETURNING ${TEAM_COLUMNS}`,
-          [username, await hashPassword(request.body.password), email],
-        );
+        const passwordHash = await hashPassword(request.body.password);
+        const created = await withTransaction(pool, async (client) => {
+          const inserted = await client.query<{ id: string }>(
+            `INSERT INTO users (username, password_hash, role, email) VALUES ($1, $2, 'admin', $3) RETURNING ${TEAM_COLUMNS}`,
+            [username, passwordHash, email],
+          );
+          const id = inserted.rows[0]?.id;
+          if (id) await logTeamActivity(client, { adminId: currentUser(request).id, memberId: id, action: 'account_created' });
+          return inserted;
+        });
         request.log.info({ event: 'admin_created', adminId: created.rows[0]?.id, by: currentUser(request).id });
         return reply.code(201).send({ admin: created.rows[0] });
       } catch (error) {
         if (isUniqueViolation(error)) {
           throw conflict(String((error as { constraint?: string }).constraint).includes('email') ? 'email_taken' : 'username_taken');
-        }
-        throw error;
-      }
-    },
-  );
-
-  app.post<{ Params: { id: string }; Body: { password: string } }>(
-    '/admin/team/:id/password',
-    {
-      preHandler: guards.admin,
-      schema: {
-        params: uuidParams,
-        body: { type: 'object', required: ['password'], additionalProperties: false, properties: { password: passwordProperty } },
-      },
-    },
-    async (request, reply) => {
-      const done = await withTransaction(pool, (client) =>
-        setAdminPassword(client, { id: request.params.id }, request.body.password, request.cookies[sessionCookieFor(ctx.config, siteOf(request, ctx.config))]),
-      );
-      if (!done) {
-        throw notFound();
-      }
-      request.log.info({ event: 'admin_password_reset', adminId: request.params.id, by: currentUser(request).id });
-      return reply.code(204).send();
-    },
-  );
-
-  app.patch<{ Params: { id: string }; Body: { email: string | null } }>(
-    '/admin/team/:id',
-    {
-      preHandler: guards.admin,
-      schema: {
-        params: uuidParams,
-        body: {
-          type: 'object',
-          required: ['email'],
-          additionalProperties: false,
-          properties: { email: { anyOf: [emailProperty, { type: 'null' }] } },
-        },
-      },
-    },
-    async (request) => {
-      const email = request.body.email === null ? null : normalizeEmail(request.body.email);
-      try {
-        const updated = await pool.query(`UPDATE users SET email = $2 WHERE id = $1 AND role = 'admin' RETURNING ${TEAM_COLUMNS}`, [
-          request.params.id,
-          email,
-        ]);
-        if (!updated.rowCount) {
-          throw notFound();
-        }
-        request.log.info({ event: 'admin_email_changed', adminId: request.params.id, by: currentUser(request).id });
-        return { admin: updated.rows[0] };
-      } catch (error) {
-        if (isUniqueViolation(error)) {
-          throw conflict('email_taken');
         }
         throw error;
       }

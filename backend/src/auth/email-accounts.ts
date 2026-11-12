@@ -4,7 +4,7 @@ import type { AppContext } from '../context.js';
 import { withTransaction, type Queryable } from '../db.js';
 import { ApiError, badRequest } from '../errors.js';
 import { isUniqueViolation } from '../http.js';
-import { normalizeEmail } from './admin-accounts.js';
+import { MAX_RESETS_PER_ACCOUNT, MAX_RESETS_PER_IP, normalizeEmail, RESET_LINK_MINUTES } from './admin-accounts.js';
 import { hashPassword, slowDownFailedLogin, spendVerificationTime, verifyPassword } from './passwords.js';
 import { publicUser, refuseWrongSite, startSessionCookie } from './routes.js';
 import { createSession, deleteExpiredRows, hashToken, recordAttempt, USER_COLUMNS, type User } from './sessions.js';
@@ -55,6 +55,20 @@ async function newVerificationLink(db: Queryable, userId: string, webOrigin: str
     VERIFY_LINK_HOURS,
   ]);
   return `${webOrigin}/verify-email#token=${token}`;
+}
+
+export function userResetEmail(firstName: string, link: string) {
+  return {
+    subject: 'Reset your MISK password',
+    text: [
+      `Hello ${firstName},`,
+      '',
+      `Someone asked to reset the password of your MISK account. To choose a new password, open this link within ${RESET_LINK_MINUTES} minutes. It works once:`,
+      link,
+      '',
+      'If this was not you, ignore this email. Your password stays the same.',
+    ].join('\n'),
+  };
 }
 
 interface RegisterBody {
@@ -296,6 +310,124 @@ export async function emailAccountRoutes(app: FastifyInstance, ctx: AppContext) 
       await startSessionCookie(request, reply, pool, config, await createSession(pool, row.id));
       request.log.info({ event: 'login_succeeded', userId: row.id });
       return { user: publicUser(row) };
+    },
+  );
+
+  // "Forgot password?" in the app. Always answers the same way, so nobody can find out which emails have an
+  // account. Only the newest link works; it runs out after RESET_LINK_MINUTES and works once.
+  app.post<{ Body: { email: string } }>(
+    '/auth/forgot-password',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['email'],
+          additionalProperties: false,
+          properties: { email: { type: 'string', minLength: 3, maxLength: 254 } },
+        },
+      },
+    },
+    async (request, reply) => {
+      if (refuseWrongSite(request, reply, config, 'app')) {
+        return reply;
+      }
+      const deliver = ctx.deliverEmail;
+      if (!deliver) {
+        throw new ApiError(503, 'email_unavailable');
+      }
+      const email = normalizeEmail(request.body.email);
+      if (!EMAIL_FORMAT.test(email)) {
+        throw badRequest('invalid_email');
+      }
+      await deleteExpiredRows(pool);
+      const byAccount = await recordAttempt(pool, `user-reset:${email}`, MAX_RESETS_PER_ACCOUNT);
+      const byIp = await recordAttempt(pool, `user-reset-ip:${request.ip}`, MAX_RESETS_PER_IP);
+      if (byAccount.overLimit || byIp.overLimit) {
+        return reply.code(429).send({ error: 'too_many_attempts' });
+      }
+      // Admins reset theirs on the control panel.
+      const found = await pool.query<{ id: string; firstName: string | null }>(
+        `SELECT id, first_name AS "firstName" FROM users
+         WHERE email = $1 AND password_hash IS NOT NULL AND disabled_at IS NULL AND role IS DISTINCT FROM 'admin'`,
+        [email],
+      );
+      const user = found.rows[0];
+      if (!user) {
+        request.log.info({ event: 'password_reset_no_match' });
+        return reply.code(202).send({});
+      }
+      const token = randomBytes(32).toString('base64url');
+      await withTransaction(pool, async (client) => {
+        await client.query('UPDATE password_resets SET used_at = now() WHERE user_id = $1 AND used_at IS NULL', [user.id]);
+        await client.query(
+          `INSERT INTO password_resets (user_id, token_hash, expires_at) VALUES ($1, $2, now() + make_interval(mins => $3))`,
+          [user.id, hashToken(token), RESET_LINK_MINUTES],
+        );
+      });
+      // The token goes after #, so it never reaches server logs or other sites in a Referer header.
+      const link = `${config.webOrigin}/reset-password#token=${token}`;
+      try {
+        await deliver({ to: email, ...userResetEmail(user.firstName ?? 'there', link) });
+        request.log.info({ event: 'password_reset_email_sent', userId: user.id });
+      } catch (error) {
+        // Answering differently would reveal that the account exists; the log tells the team.
+        request.log.error({ event: 'password_reset_email_failed', userId: user.id, err: error });
+      }
+      return reply.code(202).send({});
+    },
+  );
+
+  // The page the reset link opens. Sets the new password, uses up every reset link of the account, signs
+  // the account out everywhere and, since the link proved the email, confirms it if it was not yet.
+  app.post<{ Body: { token: string; password: string } }>(
+    '/auth/reset-password',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['token', 'password'],
+          additionalProperties: false,
+          properties: {
+            token: { type: 'string', minLength: 20, maxLength: 100 },
+            password: { type: 'string', minLength: 1, maxLength: 1024 },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      if (refuseWrongSite(request, reply, config, 'app')) {
+        return reply;
+      }
+      if (passwordProblems(request.body.password).length) {
+        throw badRequest('weak_password');
+      }
+      const passwordHash = await hashPassword(request.body.password);
+      const userId = await withTransaction(pool, async (client) => {
+        const claimed = await client.query<{ user_id: string }>(
+          `UPDATE password_resets r SET used_at = now()
+           FROM users u
+           WHERE r.token_hash = $1 AND r.used_at IS NULL AND r.expires_at > now()
+             AND u.id = r.user_id AND u.role IS DISTINCT FROM 'admin' AND u.disabled_at IS NULL
+           RETURNING r.user_id`,
+          [hashToken(request.body.token)],
+        );
+        const id = claimed.rows[0]?.user_id;
+        if (!id) {
+          return null;
+        }
+        await client.query(
+          'UPDATE users SET password_hash = $2, email_verified_at = COALESCE(email_verified_at, now()) WHERE id = $1',
+          [id, passwordHash],
+        );
+        await client.query('UPDATE password_resets SET used_at = now() WHERE user_id = $1 AND used_at IS NULL', [id]);
+        await client.query('DELETE FROM sessions WHERE user_id = $1', [id]);
+        return id;
+      });
+      if (!userId) {
+        return reply.code(400).send({ error: 'invalid_reset_link' });
+      }
+      request.log.info({ event: 'password_reset_by_email', userId });
+      return reply.code(204).send();
     },
   );
 }

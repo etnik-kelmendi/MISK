@@ -56,6 +56,21 @@ describe('zoneProblems', () => {
     expect(keys({ lat: '0', lng: '0' }, [])).toEqual(['sameAsLat']);
   });
 
+  it.each(['AB', '99', '1-2-3', '1011', '101155', '00123', 'AB123', '10 115'])('refuses %j as a postcode', (code) => {
+    expect(keys({ code })).toEqual(['codeInvalid']);
+  });
+
+  it('accepts five-digit postcodes', () => {
+    expect(keys({ code: '01067' })).toEqual([]);
+    expect(keys({ code: ' 10179 ' })).toEqual([]);
+  });
+
+  it('refuses the coordinates of another zone, but lets a zone keep its own', () => {
+    const [problem] = zoneProblems({ code: '10997', name: 'Copy', lat: '52.5323', lng: '13.3846' }, berlin);
+    expect(problem).toEqual({ field: 'lng', key: 'sameAsZone', nearest: '10115' });
+    expect(keys({ code: '10115', lat: '52.5323', lng: '13.3846' })).toEqual([]);
+  });
+
   it('catches swapped coordinates by their distance from the nearest other zone', () => {
     const [problem] = zoneProblems({ code: '10178', name: 'Alexanderplatz', lat: '13.4132', lng: '52.5219' }, berlin);
     expect(problem).toMatchObject({ field: 'lng', key: 'tooFar', nearest: '14167' });

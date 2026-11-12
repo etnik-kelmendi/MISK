@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useId, useState, type KeyboardEvent } from 'react';
-import { useTranslation } from 'react-i18next';
+import { useCallback, useEffect, useId, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { Trans, useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { useApi } from '../../api/ApiContext';
 import type { PayoutInterval, PlatformSettings } from '../../api/types';
 import { useResource } from '../../api/useResource';
+import { Icon } from '../../components/Icon';
 import { ResourceState } from '../../components/ResourceState';
 import { euro, longDate, parseEuroToCents, proShare } from '../../lib/format';
 import { useSave } from './settings/SaveStatus';
@@ -18,6 +19,35 @@ const SLIDER_SAVE_DELAY_MS = 500;
 const INTERVALS: PayoutInterval[] = ['weekly', 'biweekly', 'monthly'];
 
 type Patch = Partial<Pick<PlatformSettings, 'serviceFeeCents' | 'commissionPct' | 'payoutInterval'>>;
+
+/** One setting: what it is and what it does on the left, its control on the right. */
+function SettingRow({
+  label,
+  labelFor,
+  children,
+  control,
+}: {
+  label: string;
+  labelFor?: string;
+  children?: ReactNode;
+  control: ReactNode;
+}) {
+  return (
+    <div className="srow">
+      <div>
+        {labelFor ? (
+          <label className="sl" htmlFor={labelFor}>
+            {label}
+          </label>
+        ) : (
+          <span className="sl">{label}</span>
+        )}
+        {children}
+      </div>
+      <div className="ctrl">{control}</div>
+    </div>
+  );
+}
 
 function FeeInput({ cents, onSave }: { cents: number; onSave: (cents: number) => void }) {
   const { t } = useTranslation();
@@ -37,74 +67,130 @@ function FeeInput({ cents, onSave }: { cents: number; onSave: (cents: number) =>
   }
 
   return (
-    <div className="af">
-      <label htmlFor="service-fee">{t('admin.settings.fees.fee')}</label>
-      <span className="price-input">
-        <span aria-hidden="true">€</span>
-        <input
-          id="service-fee"
-          inputMode="decimal"
-          value={text}
-          aria-invalid={invalid}
-          aria-describedby={invalid ? errorId : 'service-fee-hint'}
-          onChange={(e) => setText(e.target.value)}
-          onBlur={commit}
-          onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {
-            if (e.key === 'Enter') e.currentTarget.blur();
-          }}
-        />
-      </span>
-      {invalid ? (
-        <span id={errorId} className="error-text small" role="alert">
-          {t('admin.settings.fees.feeInvalid')}
-        </span>
-      ) : (
-        <span id="service-fee-hint" className="hint">
-          {t('admin.settings.fees.feeHint')}
-        </span>
-      )}
-    </div>
+    <SettingRow
+      label={t('admin.settings.fees.fee')}
+      labelFor="service-fee"
+      control={
+        <>
+          <span className="price-input">
+            <span aria-hidden="true">€</span>
+            <input
+              id="service-fee"
+              inputMode="decimal"
+              value={text}
+              aria-invalid={invalid}
+              aria-describedby={invalid ? errorId : 'service-fee-hint'}
+              onChange={(e) => setText(e.target.value)}
+              onBlur={commit}
+              onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {
+                if (e.key === 'Enter') e.currentTarget.blur();
+              }}
+            />
+          </span>
+          {invalid && (
+            <span id={errorId} className="error-text small" role="alert">
+              {t('admin.settings.fees.feeInvalid')}
+            </span>
+          )}
+        </>
+      }
+    >
+      <p id="service-fee-hint" className="sd">
+        {t('admin.settings.fees.feeHint')}
+      </p>
+    </SettingRow>
   );
 }
 
 /** The commission slider saves itself a moment after the admin stops moving it. */
-function CommissionSlider({ commission, onSave }: { commission: number; onSave: (pct: number) => void }) {
+function CommissionSlider({ value, saved, onChange, onSave }: { value: number; saved: number; onChange: (pct: number) => void; onSave: (pct: number) => void }) {
   const { t } = useTranslation();
-  const [value, setValue] = useState(commission);
   const pro = 100 - value;
 
   useEffect(() => {
-    if (value === commission) return;
+    if (value === saved) return;
     const timer = setTimeout(() => onSave(value), SLIDER_SAVE_DELAY_MS);
     return () => clearTimeout(timer);
-  }, [value, commission, onSave]);
+  }, [value, saved, onSave]);
 
   return (
-    <div className="af">
-      <label htmlFor="commission">{t('admin.settings.fees.commission', { pct: value })}</label>
-      <input
-        id="commission"
-        type="range"
-        min={COMMISSION_MIN}
-        max={COMMISSION_MAX}
-        value={value}
-        aria-valuetext={t('admin.settings.fees.split', { misk: value, pro })}
-        onChange={(e) => setValue(Number(e.target.value))}
-      />
-      <div className="split split-commission" aria-hidden="true">
-        <div style={{ width: `${pro}%` }} />
-        <div style={{ width: `${value}%` }} />
-      </div>
-      <p className="row between small">
-        <span className="b">{t('admin.settings.fees.split', { misk: value, pro })}</span>
-      </p>
-      <p className="small muted">
+    <SettingRow
+      label={t('admin.settings.fees.commissionTitle')}
+      labelFor="commission"
+      control={
+        <div className="commission-ctrl">
+          <div className="row between small">
+            <span>
+              {t('admin.settings.fees.miskShare')} <b>{value}%</b>
+            </span>
+            <span className="muted">{t('admin.settings.fees.proShare', { pct: pro })}</span>
+          </div>
+          <input
+            id="commission"
+            type="range"
+            min={COMMISSION_MIN}
+            max={COMMISSION_MAX}
+            step={1}
+            value={value}
+            aria-label={t('admin.settings.fees.commission', { pct: value })}
+            aria-valuetext={t('admin.settings.fees.split', { misk: value, pro })}
+            onChange={(e) => onChange(Number(e.target.value))}
+          />
+        </div>
+      }
+    >
+      <p className="sd">
+        {t('admin.settings.fees.commissionHint')}{' '}
         {t('admin.settings.fees.splitExample', {
           price: euro(EXAMPLE_JOB_CENTS),
           pro: euro(proShare(EXAMPLE_JOB_CENTS, pro)),
           misk: euro(EXAMPLE_JOB_CENTS - proShare(EXAMPLE_JOB_CENTS, pro)),
         })}
       </p>
+      <p className="sd">
+        {t('admin.settings.fees.plansNote')} <Link to="/admin/plans">{t('admin.settings.fees.plansLink')}</Link>.
+      </p>
+    </SettingRow>
+  );
+}
+
+/** How a one-off job is paid: reserved, 24 hours to review, then charged. */
+function ChargeFlow({ hours }: { hours: number }) {
+  const { t } = useTranslation();
+  const steps = [
+    { icon: 'check' as const, title: t('admin.settings.fees.flow.doneTitle'), text: t('admin.settings.fees.flow.doneText') },
+    { icon: 'clock' as const, title: t('admin.settings.fees.flow.reviewTitle', { hours }), text: t('admin.settings.fees.flow.reviewText') },
+    { icon: 'card' as const, title: t('admin.settings.fees.flow.paidTitle'), text: t('admin.settings.fees.flow.paidText') },
+  ];
+  return (
+    <div className="srow block">
+      <span className="sl">{t('admin.settings.fees.paymentTitle')}</span>
+      <p className="sd">{t('admin.settings.fees.paymentHeld')}</p>
+      <ol className="flowx" aria-label={t('admin.settings.fees.paymentTitle')}>
+        {steps.map((step, index) => (
+          <li key={step.icon} className="flowstep">
+            <div className="fx">
+              <span className="fxi" aria-hidden="true">
+                <Icon name={step.icon} />
+              </span>
+              <b>{step.title}</b>
+              <span>{step.text}</span>
+            </div>
+            {index < steps.length - 1 && (
+              <span className="fxa" aria-hidden="true">
+                <Icon name="arrowR" />
+              </span>
+            )}
+          </li>
+        ))}
+      </ol>
+      <div className="info amber flow-note">
+        <Icon name="bell" />
+        <div>
+          {t('admin.settings.fees.paymentProblem', { hours })}{' '}
+          <Link to="/admin/bookings?tab=needs_action">{t('admin.settings.fees.needsAction')}</Link>.
+        </div>
+      </div>
     </div>
   );
 }
@@ -113,7 +199,16 @@ function FeesForm({ settings, onSaved }: { settings: PlatformSettings; onSaved: 
   const { t } = useTranslation();
   const api = useApi();
   const { track } = useSave();
-  const pro = settings.proSharePct;
+  // The slider's position, so the splits below follow it while it moves.
+  const [commission, setCommission] = useState(settings.commissionPct);
+  // When a saved commission comes back, the slider moves to it (React's "adjust state on prop change").
+  const [savedCommission, setSavedCommission] = useState(settings.commissionPct);
+  if (settings.commissionPct !== savedCommission) {
+    setSavedCommission(settings.commissionPct);
+    setCommission(settings.commissionPct);
+  }
+  const pro = 100 - commission;
+  const split = t('admin.settings.fees.splitShort', { pro, misk: commission });
 
   const save = useCallback(
     async (patch: Patch) => {
@@ -125,84 +220,76 @@ function FeesForm({ settings, onSaved }: { settings: PlatformSettings; onSaved: 
   const saveCommission = useCallback((commissionPct: number) => void save({ commissionPct }), [save]);
 
   return (
-    <div className="stack">
-      <section className="panel stack" aria-labelledby="fee-heading">
-        <h2 id="fee-heading">{t('admin.settings.fees.feeTitle')}</h2>
-        <FeeInput key={settings.serviceFeeCents} cents={settings.serviceFeeCents} onSave={(serviceFeeCents) => void save({ serviceFeeCents })} />
-      </section>
+    <section className="panel" aria-labelledby="fees-heading">
+      <h2 id="fees-heading">{t('admin.settings.tabs.fees')}</h2>
+      <FeeInput key={settings.serviceFeeCents} cents={settings.serviceFeeCents} onSave={(serviceFeeCents) => void save({ serviceFeeCents })} />
+      <CommissionSlider value={commission} saved={settings.commissionPct} onChange={setCommission} onSave={saveCommission} />
+      <ChargeFlow hours={settings.chargeDelayHours} />
 
-      <section className="panel stack" aria-labelledby="commission-heading">
-        <h2 id="commission-heading">{t('admin.settings.fees.commissionTitle')}</h2>
-        <CommissionSlider key={settings.commissionPct} commission={settings.commissionPct} onSave={saveCommission} />
-        <p className="small muted">{t('admin.settings.fees.commissionHint')}</p>
-        <p className="small muted">
-          {t('admin.settings.fees.plansNote')} <Link to="/admin/plans">{t('admin.settings.fees.plansLink')}</Link>.
-        </p>
-      </section>
-
-      <section className="panel stack" aria-labelledby="payment-heading">
-        <h2 id="payment-heading">{t('admin.settings.fees.paymentTitle')}</h2>
-        <ul className="rule-list">
-          <li>{t('admin.settings.fees.paymentHeld')}</li>
-          <li>{t('admin.settings.fees.paymentCharged', { hours: settings.chargeDelayHours })}</li>
-          <li>
-            {t('admin.settings.fees.paymentProblem', { hours: settings.chargeDelayHours })}{' '}
-            <Link to="/admin/bookings?tab=needs_action">{t('admin.settings.fees.needsAction')}</Link>.
-          </li>
-        </ul>
-      </section>
-
-      <section className="panel stack" aria-labelledby="payout-heading">
-        <h2 id="payout-heading">{t('admin.settings.fees.payoutTitle')}</h2>
-        <fieldset className="choice-row" aria-labelledby="payout-heading">
-          {INTERVALS.map((interval) => (
-            <div key={interval} className={`choice ${settings.payoutInterval === interval ? 'on' : ''}`}>
-              <input
-                id={`payout-${interval}`}
-                type="radio"
-                name="payout-interval"
-                checked={settings.payoutInterval === interval}
-                onChange={() => void save({ payoutInterval: interval })}
-              />
-              <label htmlFor={`payout-${interval}`}>
-                <span className="b block">{t(`admin.settings.fees.payout.${interval}`)}</span>
-                <span className="small muted">{t(`admin.settings.fees.payout.${interval}Hint`)}</span>
+      <SettingRow
+        label={t('admin.settings.fees.payoutTitle')}
+        control={
+          <fieldset className="seg" aria-label={t('admin.settings.fees.payoutTitle')}>
+            {INTERVALS.map((interval) => (
+              <label key={interval} className={settings.payoutInterval === interval ? 'on' : ''}>
+                <input
+                  type="radio"
+                  className="visually-hidden"
+                  name="payout-interval"
+                  checked={settings.payoutInterval === interval}
+                  aria-label={t(`admin.settings.fees.payout.${interval}`)}
+                  onChange={() => void save({ payoutInterval: interval })}
+                />
+                {t(`admin.settings.fees.payout.${interval}Short`)}
               </label>
-            </div>
-          ))}
-        </fieldset>
-        <p className="small muted">{t('admin.settings.fees.payoutNext', { date: longDate(settings.nextPayoutOn, 'UTC') })}</p>
-      </section>
+            ))}
+          </fieldset>
+        }
+      >
+        <p className="sd">{t('admin.settings.fees.payoutBank')}</p>
+        <p className="sd">
+          {t('admin.settings.fees.payoutNext', {
+            date: longDate(settings.nextPayoutOn, 'UTC'),
+            when: t(`admin.settings.fees.payout.${settings.payoutInterval}Hint`),
+          })}
+        </p>
+      </SettingRow>
 
-      <section className="panel stack" aria-labelledby="cancel-heading">
-        <h2 id="cancel-heading">{t('admin.settings.fees.cancelTitle')}</h2>
-        <ul className="rule-list">
-          <li>{t('admin.settings.fees.cancelFree', { hours: settings.freeCancelHours })}</li>
-          <li>{t('admin.settings.fees.cancelLate')}</li>
-          <li>
-            {t('admin.settings.fees.cancelSplit', {
-              price: euro(EXAMPLE_JOB_CENTS),
-              pro: euro(proShare(EXAMPLE_JOB_CENTS, pro)),
-              misk: euro(EXAMPLE_JOB_CENTS - proShare(EXAMPLE_JOB_CENTS, pro)),
-            })}
-          </li>
-        </ul>
-      </section>
+      <SettingRow
+        label={t('admin.settings.fees.cancelTitle')}
+        control={
+          <span className="badge g">
+            <Icon name="clock" /> {t('admin.settings.fees.hoursBadge', { hours: settings.freeCancelHours })}
+          </span>
+        }
+      >
+        <p className="sd">
+          <Trans
+            i18nKey="admin.settings.fees.cancelText"
+            values={{ hours: settings.freeCancelHours, split }}
+            components={{ b: <b /> }}
+          />
+        </p>
+        <p className="sd">
+          {t('admin.settings.fees.cancelSplit', {
+            price: euro(EXAMPLE_JOB_CENTS),
+            pro: euro(proShare(EXAMPLE_JOB_CENTS, pro)),
+            misk: euro(EXAMPLE_JOB_CENTS - proShare(EXAMPLE_JOB_CENTS, pro)),
+          })}
+        </p>
+      </SettingRow>
 
-      <section className="panel stack" aria-labelledby="tips-heading">
-        <h2 id="tips-heading">{t('admin.settings.fees.tipsTitle')}</h2>
-        <ul className="rule-list">
-          <li>
-            {t('admin.settings.fees.tipsSplit', {
-              tip: euro(EXAMPLE_TIP_CENTS),
-              pro: euro(proShare(EXAMPLE_TIP_CENTS, pro)),
-              misk: euro(EXAMPLE_TIP_CENTS - proShare(EXAMPLE_TIP_CENTS, pro)),
-            })}
-          </li>
-          <li>{t('admin.settings.fees.tipsApp')}</li>
-        </ul>
-      </section>
-    </div>
+      <SettingRow label={t('admin.settings.fees.tipsTitle')} control={<span className="badge g">{split}</span>}>
+        <p className="sd">{t('admin.settings.fees.tipsText')}</p>
+        <p className="sd">
+          {t('admin.settings.fees.tipsSplit', {
+            tip: euro(EXAMPLE_TIP_CENTS),
+            pro: euro(proShare(EXAMPLE_TIP_CENTS, pro)),
+            misk: euro(EXAMPLE_TIP_CENTS - proShare(EXAMPLE_TIP_CENTS, pro)),
+          })}
+        </p>
+      </SettingRow>
+    </section>
   );
 }
 
@@ -212,6 +299,7 @@ export function SettingsPage() {
   const load = useCallback(() => api.get<{ settings: PlatformSettings }>('/admin/settings'), [api]);
   const { state, reload, update } = useResource(load);
   const onSaved = useCallback((settings: PlatformSettings) => update(() => ({ settings })), [update]);
+
   return (
     <ResourceState state={state} reload={reload}>
       {({ settings }) => <FeesForm settings={settings} onSaved={onSaved} />}

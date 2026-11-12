@@ -6,7 +6,10 @@
 /** Must match ZONE_MAX_DISTANCE_KM in the API. */
 export const ZONE_MAX_DISTANCE_KM = 100;
 
-const POSTCODE = /^[A-Za-z0-9][A-Za-z0-9 -]{1,9}$/;
+/** A German postcode (MISK serves Berlin): five digits, never starting with 00. Must match the API. */
+const POSTCODE = /^(?!00)\d{5}$/;
+/** Two zones never share a centre; closer than this means one zone's coordinates were reused. Must match the API. */
+export const ZONE_MIN_DISTANCE_KM = 0.1;
 /** A plain decimal number: optional sign, up to three digits, then a dot or comma and decimals. */
 const DECIMAL = /^[+-]?\d{1,3}(?:[.,]\d+)?$/;
 /** Two numbers as a map copies them, e.g. "52.5200, 13.4050". Dots only, so "52,52" stays one number. */
@@ -19,7 +22,8 @@ export type ZoneProblem =
   | { field: 'name'; key: 'nameRequired' }
   | { field: 'lat'; key: 'latRequired' | 'latFormat' | 'latRange' }
   | { field: 'lng'; key: 'lngRequired' | 'lngFormat' | 'lngRange' | 'sameAsLat' }
-  | { field: 'lng'; key: 'tooFar'; km: number; nearest: string };
+  | { field: 'lng'; key: 'tooFar'; km: number; nearest: string }
+  | { field: 'lng'; key: 'sameAsZone'; nearest: string };
 
 export interface ZoneInput {
   code: string;
@@ -90,7 +94,9 @@ export function zoneProblems(input: ZoneInput, zones: KnownZone[]): ZoneProblem[
       problems.push({ field: 'lng', key: 'sameAsLat' });
     } else {
       const nearest = nearestZone(lat, lng, code, zones);
-      if (nearest && nearest.km > ZONE_MAX_DISTANCE_KM) {
+      if (nearest && nearest.km < ZONE_MIN_DISTANCE_KM) {
+        problems.push({ field: 'lng', key: 'sameAsZone', nearest: nearest.code });
+      } else if (nearest && nearest.km > ZONE_MAX_DISTANCE_KM) {
         problems.push({ field: 'lng', key: 'tooFar', km: Math.round(nearest.km), nearest: nearest.code });
       }
     }

@@ -137,7 +137,11 @@
     "trade_has_pros": "Pros offer this trade, so it cannot be removed. Unpublish it to hide it from customers; the pros keep their other trades.",
     "trade_in_use": "Something started using this trade just now, so it was not removed. Check its bookings, plans and pros.",
     "coordinates_identical": "Latitude and longitude cannot be the same number. Copy both from the map again.",
-    "zone_too_far": "This point is more than 100 km from your other zones. Check that latitude and longitude are not swapped."
+    "zone_too_far": "This point is more than 100 km from your other zones. Check that latitude and longitude are not swapped.",
+    "invalid_postcode": "Enter a 5-digit postcode, for example 10115.",
+    "coordinates_taken": "Another zone already has these coordinates. Use the centre point of this postcode.",
+    "invalid_invite_link": "This invitation link has expired, was already used or was withdrawn. Ask the team for a new one.",
+    "invite_not_found": "This invitation link was already used, withdrawn or has run out."
   },
   "nav": {
     "customer": "Main menu",
@@ -185,7 +189,8 @@
     "logIn": "Log in",
     "sendCode": "Send me a sign-in code",
     "noAccount": "Don't have an account?",
-    "signUp": "Sign up"
+    "signUp": "Sign up",
+    "forgot": "Forgot password?"
   },
   "home": {
     "hello": "Good to see you,",
@@ -1157,45 +1162,58 @@
       "saving": "Saving…",
       "saveFailed": "A change could not be saved. Check your connection and try again.",
       "fees": {
-        "feeTitle": "Service fee",
-        "fee": "Service fee per booking (€)",
+        "fee": "Customer service fee",
         "feeHint": "Added to every one-off booking at checkout and kept by MISK. A change applies to new bookings only.",
         "feeInvalid": "Enter an amount from €0 to €100, e.g. 2.90.",
-        "commissionTitle": "Commission",
+        "commissionTitle": "MISK commission on one-off jobs",
         "commission": "MISK commission: {{pct}}%",
         "split": "MISK {{misk}}% · Pro {{pro}}%",
         "splitExample": "On a {{price}} job the pro earns {{pro}} and MISK keeps {{misk}}, plus the service fee.",
-        "commissionHint": "The pro app shows pros their earnings at this share for new jobs. Jobs already booked keep their share.",
+        "commissionHint": "Pros keep the rest, and the pro app shows their earnings at this share for new jobs. Jobs already booked keep their share.",
         "plansNote": "Monthly plans have their own commission, set per plan under",
         "plansLink": "Plans",
-        "paymentTitle": "When customers pay",
-        "paymentHeld": "The money is reserved on the customer’s card when they book.",
-        "paymentCharged": "It is charged automatically {{hours}} hours after the job is marked done.",
-        "paymentProblem": "If the customer reports a problem within those {{hours}} hours, the charge stops until the team settles it. These bookings show under",
+        "paymentTitle": "When customers are charged",
+        "paymentHeld": "The money is reserved at booking, so the pro knows it’s secured. It’s only charged once the customer has had time to check the work.",
+        "paymentProblem": "If the customer reports a problem within {{hours}} hours, the payment is put on hold and the booking shows in",
         "needsAction": "Bookings → Needs action",
-        "payoutTitle": "How often pros get paid",
+        "payoutTitle": "Pro payouts",
         "payout": {
           "weekly": "Weekly",
-          "weeklyHint": "Every Friday",
+          "weeklyHint": "every Friday",
           "biweekly": "Every 2 weeks",
-          "biweeklyHint": "Every other Friday",
+          "biweeklyHint": "every other Friday",
           "monthly": "Monthly",
-          "monthlyHint": "On the 1st of the month"
+          "monthlyHint": "on the 1st of the month",
+          "weeklyShort": "Weekly",
+          "biweeklyShort": "2 weeks",
+          "monthlyShort": "Monthly"
         },
-        "payoutNext": "Next payout: {{date}}. Money goes to the bank account each pro added in the app; their profile shows this date.",
-        "cancelTitle": "Cancellations",
-        "cancelFree": "Free until {{hours}} hours before the visit.",
-        "cancelLate": "Later, the customer pays the full price.",
+        "payoutNext": "Next payout: {{date}} ({{when}}). Each pro’s profile shows this date.",
+        "cancelTitle": "Free cancellation",
         "cancelSplit": "A late cancellation is split like a job: on a {{price}} job the pro gets {{pro}}, MISK keeps {{misk}}.",
         "tipsTitle": "Tips",
         "tipsSplit": "Tips are split with the same commission: of a {{tip}} tip the pro gets {{pro}} and MISK {{misk}}.",
-        "tipsApp": "The customer app shows how much of a tip goes to the pro, and follows a new commission straight away."
+        "miskShare": "MISK",
+        "proShare": "Pro {{pct}}%",
+        "flow": {
+          "doneTitle": "Job marked done",
+          "doneText": "The pro adds photos",
+          "reviewTitle": "{{hours}} hours to review",
+          "reviewText": "The customer can report a problem",
+          "paidTitle": "Payment goes through",
+          "paidText": "Automatically, if no problem is reported"
+        },
+        "payoutBank": "Paid to the bank account the pro added in the app.",
+        "hoursBadge": "{{hours}} h",
+        "cancelText": "Up to {{hours}} hours before the visit. After that the customer pays the full price, split like a finished job: <b>{{split}}</b>.",
+        "splitShort": "Pro {{pro}}% · MISK {{misk}}%",
+        "tipsText": "Split the same way as job payments, so it follows the commission above. The customer app shows how much of a tip goes to the pro."
       },
       "area": {
         "mapLabel": "Map of service zones",
         "legendLive": "Live",
         "legendWaitlist": "Waitlist",
-        "zones": "Zones",
+        "zones": "Service area",
         "live": "Live",
         "waitlist": "Waitlist",
         "liveStats": "{{pros}} pros · {{bookings}} bookings a week",
@@ -1223,7 +1241,7 @@
         "coordsHint": "Find the centre on any map: right-click the middle of the postcode area and copy its coordinates. Pasting both numbers into one field fills both.",
         "errors": {
           "codeRequired": "Enter the postcode, for example 10115.",
-          "codeInvalid": "A postcode has 2 to 10 letters or digits.",
+          "codeInvalid": "Enter a 5-digit postcode, for example 10115.",
           "nameRequired": "Enter the area name.",
           "latRequired": "Enter the latitude.",
           "latFormat": "Enter a decimal number, for example 52.5200.",
@@ -1232,13 +1250,16 @@
           "lngFormat": "Enter a decimal number, for example 13.4050.",
           "lngRange": "Longitude must be between -180 and 180.",
           "sameAsLat": "Longitude cannot be the same as latitude. Copy both numbers from the map again.",
-          "tooFar": "This point is {{km}} km from your nearest zone ({{code}}). Check that latitude and longitude are not swapped."
-        }
+          "tooFar": "This point is {{km}} km from your nearest zone ({{code}}). Check that latitude and longitude are not swapped.",
+          "sameAsZone": "Zone {{code}} already has these coordinates. Use the centre point of this postcode."
+        },
+        "liveCount": "{{live}} of {{total}} zones live",
+        "waitlistNote": "People outside a live zone can still sign up. They join the waitlist and get a message the day their zone opens."
       },
       "notifications": {
-        "intro": "Choose how each message reaches people. Changes apply to the next message sent.",
+        "intro": "Tick where each one is sent",
         "message": "Message",
-        "who": "Receives",
+        "who": "To",
         "push": "Push",
         "sms": "SMS",
         "email": "Email",
@@ -1275,13 +1296,16 @@
         "myPhone": "Your phone for test messages",
         "myPhoneHint": "Only used for tests. Admins never sign in with a phone.",
         "phoneInvalid": "Enter an international number, e.g. +49 151 23456789.",
-        "phonePlaceholder": "+49 151 23456789"
+        "phonePlaceholder": "+49 151 23456789",
+        "title": "Messages people get",
+        "testWhich": "Message to test",
+        "smsCost": "Push and email are free. SMS is charged per message, so keep it for time-critical updates."
       },
       "team": {
         "members": "Team",
         "name": "Name",
         "role": "Role",
-        "access": "Access",
+        "access": "Can access",
         "lastActive": "Last active",
         "never": "Never",
         "invited": "Invited",
@@ -1306,14 +1330,10 @@
         "everything": "Everything",
         "invite": "Invite teammate",
         "inviteTitle": "Invite a teammate",
-        "inviteEmail": "Email address",
-        "inviteName": "First name (optional)",
         "inviteRole": "Role",
-        "inviteSend": "Send invite",
-        "inviteSent": "Invite sent to {{email}}. The link works for 7 days.",
         "cancel": "Cancel",
         "activity": "Activity log",
-        "activityIntro": "Who did what and when, newest first.",
+        "activityIntro": "Every change is recorded, newest first",
         "older": "Show older",
         "noActivity": "No changes yet.",
         "by": "{{name}} · {{date}}",
@@ -1340,10 +1360,35 @@
           "invited": "Invited {{email}} as {{role}}",
           "role_changed": "Changed a role from {{from}} to {{to}}",
           "other": "{{action}}",
-          "trade_removed": "Removed the trade \"{{name}}\" with its services"
+          "trade_removed": "Removed the trade \"{{name}}\" with its services",
+          "account_created": "Created an admin account for {{name}}",
+          "password_reset": "Set a new password for {{name}}",
+          "email_changed": "Changed the email of {{name}}",
+          "request_approved": "Approved the account request from {{name}}",
+          "request_approved_by_link": "Approved the account request from {{name}} with the email link",
+          "request_declined": "Declined the account request from {{name}}",
+          "invite_link_created": "Created an invitation link for {{role}}",
+          "invite_link_revoked": "Withdrew an invitation link for {{role}}",
+          "joined_by_invite": "{{name}} joined the team as {{role}} with an invitation link"
         },
-        "requests": "Account requests"
-      }
+        "requests": "Account requests",
+        "online": "Online now",
+        "system": "MISK",
+        "createLink": "Create invitation link",
+        "linkReady": "Send this link to the person who should join as {{role}}. They choose their name, email and password themselves.",
+        "linkLabel": "Invitation link",
+        "copy": "Copy link",
+        "copied": "Link copied. Paste it into an email or chat to the new teammate.",
+        "copyByHand": "Copying was blocked by the browser. The link is selected: press Ctrl+C (or ⌘C) to copy it.",
+        "linkRules": "The link works once, for {{days}} days. Anyone with it can join, so send it only to the right person.",
+        "another": "Create another link",
+        "done": "Done",
+        "openInvites": "Open invitation links",
+        "openInvite": "{{role}} · created by {{by}} · works until {{until}}",
+        "withdraw": "Withdraw",
+        "withdrawLabel": "Withdraw the {{role}} invitation link"
+      },
+      "subtitle": "The rules the marketplace runs on · changes save automatically"
     },
     "team": {
       "title": "Team",
@@ -1527,6 +1572,21 @@
       "ratingsLine_other": "{{count}} ratings, {{average}} stars on average",
       "problems": "Problems reported",
       "lateCancels": "Late cancellations"
+    },
+    "join": {
+      "title": "Join the MISK team",
+      "checking": "Checking your invitation…",
+      "intro": "You were invited to the MISK control panel as {{role}}. Create your account to join.",
+      "firstName": "First name",
+      "lastName": "Last name",
+      "email": "Email address",
+      "password": "Password",
+      "repeat": "Repeat password",
+      "passwordHint": "At least {{min}} characters.",
+      "submit": "Join the team",
+      "done": "Welcome to the team! Sign in with {{email}} and your new password.",
+      "signIn": "Sign in",
+      "invalid": "This invitation link has expired, was already used or was withdrawn. Ask the person who invited you for a new one."
     }
   },
   "signUp": {
@@ -1822,5 +1882,23 @@
     "empty": "No messages yet. When MISK tells you about a booking or a job, it appears here too.",
     "new": "New",
     "failed": "Your messages could not be loaded."
+  },
+  "forgot": {
+    "title": "Forgot your password?",
+    "intro": "Enter the email address of your MISK account. We will email you a link to choose a new password.",
+    "submit": "Send reset link",
+    "sent": "If {{email}} belongs to a MISK account, a reset link is on its way.",
+    "sentHint": "The link works once, for 30 minutes. Check your spam folder if you cannot find the email.",
+    "again": "Use another email",
+    "back": "Back to log in"
+  },
+  "reset": {
+    "title": "Choose a new password",
+    "intro": "Create a new password for your MISK account and enter it twice.",
+    "password": "New password",
+    "confirm": "Confirm new password",
+    "submit": "Save new password",
+    "done": "Your password has been changed. Log in with your new password.",
+    "newLink": "Ask for a new link"
   }
 }

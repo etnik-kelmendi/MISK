@@ -3,8 +3,10 @@ import { useTranslation } from 'react-i18next';
 import { useApi } from '../../api/ApiContext';
 import type { Zone } from '../../api/types';
 import { useResource } from '../../api/useResource';
+import { Icon } from '../../components/Icon';
 import { ResourceState } from '../../components/ResourceState';
 import { useSave } from './settings/SaveStatus';
+import { project, separate } from './settings/zoneMap';
 import { parseCoordinate, splitPair, zoneProblems, type ZoneField, type ZoneInput, type ZoneProblem } from './settings/zoneForm';
 
 interface ZonesResponse {
@@ -12,51 +14,51 @@ interface ZonesResponse {
   elsewhere: { postcode: string; waiting: number }[];
 }
 
-const MAP_WIDTH = 600;
-const MAP_HEIGHT = 340;
+const MAP_WIDTH = 360;
+const MAP_HEIGHT = 260;
 const MAP_PADDING = 40;
+/** Big enough for a five-digit postcode; the colour shows live or waitlist, the tooltip both. */
+const RADIUS = 17;
 
 /**
- * Zones drawn at their centre points, green when live and yellow on the waitlist. A plain drawing rather
- * than map tiles: no outside map service is needed and nothing about customers leaves MISK.
+ * Zones drawn at their centre points, green when live and yellow on the waitlist, each labelled with its
+ * postcode and state. A plain drawing rather than map tiles: no outside map service is needed and nothing
+ * about customers leaves MISK.
  */
 function ZoneMap({ zones }: { zones: Zone[] }) {
   const { t } = useTranslation();
   if (zones.length === 0) {
     return null;
   }
-  const lats = zones.map((z) => z.lat);
-  const midLat = (Math.min(...lats) + Math.max(...lats)) / 2;
-  // Longitude degrees shrink towards the poles; scale them so the map is not stretched.
-  const xs = zones.map((z) => z.lng * Math.cos((midLat * Math.PI) / 180));
-  const spanX = Math.max(Math.max(...xs) - Math.min(...xs), 0.01);
-  const spanY = Math.max(Math.max(...lats) - Math.min(...lats), 0.01);
-  const scale = Math.min((MAP_WIDTH - 2 * MAP_PADDING) / spanX, (MAP_HEIGHT - 2 * MAP_PADDING) / spanY);
-  const minX = Math.min(...xs);
-  const maxLat = Math.max(...lats);
-  const offsetX = (MAP_WIDTH - spanX * scale) / 2;
-  const offsetY = (MAP_HEIGHT - spanY * scale) / 2;
-
+  const box = { width: MAP_WIDTH, height: MAP_HEIGHT, padding: MAP_PADDING };
+  const placed = separate(project(zones, box), RADIUS, box);
+  const points = zones.map((zone, index) => ({ zone, x: placed[index]?.x ?? 0, y: placed[index]?.y ?? 0 }));
   return (
     <figure className="zone-map">
       <svg viewBox={`0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`} role="img" aria-label={t('admin.settings.area.mapLabel')}>
         <rect width={MAP_WIDTH} height={MAP_HEIGHT} rx="14" className="map-bg" />
-        {zones.map((zone, index) => {
-          const x = offsetX + ((xs[index] ?? 0) - minX) * scale;
-          const y = offsetY + (maxLat - zone.lat) * scale;
+        {points.map(({ zone, x, y }) => {
+          const state = zone.live ? t('admin.settings.area.live') : t('admin.settings.area.waitlist');
           return (
             <g key={zone.code} className={zone.live ? 'zone live' : 'zone waiting'}>
-              <circle cx={x} cy={y} r={zone.live ? 22 : 18} />
-              <text x={x} y={y + 4} textAnchor="middle">
+              <title>{`${zone.code} · ${zone.name}: ${state}`}</title>
+              <circle cx={x} cy={y} r={RADIUS} />
+              <text x={x} y={y + 3.5} textAnchor="middle" className="zc">
                 {zone.code}
               </text>
             </g>
           );
         })}
       </svg>
-      <figcaption className="row gap8 small">
-        <span className="legend live" aria-hidden="true" /> {t('admin.settings.area.legendLive')}
-        <span className="legend waiting" aria-hidden="true" /> {t('admin.settings.area.legendWaitlist')}
+      <figcaption className="map-legend">
+        <span>
+          <i className="live" aria-hidden="true" />
+          {t('admin.settings.area.legendLive')}
+        </span>
+        <span>
+          <i className="waiting" aria-hidden="true" />
+          {t('admin.settings.area.legendWaitlist')}
+        </span>
       </figcaption>
     </figure>
   );
@@ -80,32 +82,31 @@ function ZoneRow({ zone, onChanged }: { zone: Zone; onChanged: (notice: string) 
   }
 
   return (
-    <li className={`zone-row ${zone.live ? 'live' : 'waiting'}`}>
-      <div className="row between wrap gap8">
+    <li>
+      <div className="srow">
         <div>
-          <span className="b">
-            {zone.code} · {zone.name}
-          </span>{' '}
-          <span className={`badge ${zone.live ? 'g' : 'a'}`}>
-            {zone.live ? t('admin.settings.area.live') : t('admin.settings.area.waitlist')}
+          <span className="sl">
+            {zone.code} · {zone.name}{' '}
+            <span className={`badge ${zone.live ? 'g' : 'a'}`}>
+              {zone.live ? t('admin.settings.area.live') : t('admin.settings.area.waitlist')}
+            </span>
           </span>
-          <div className="small muted">
+          <p className="sd">
             {zone.live
               ? t('admin.settings.area.liveStats', { pros: zone.pros, bookings: zone.bookingsPerWeek })
               : t('admin.settings.area.waitStats', { waiting: zone.waiting, pros: zone.pros })}
-          </div>
+          </p>
         </div>
         {zone.live ? (
-          !confirm && (
-            <button
-              type="button"
-              className="abtn ghost"
-              aria-label={t('admin.settings.area.pauseLabel', { code: zone.code })}
-              onClick={() => setConfirm(true)}
-            >
-              {t('admin.settings.area.pause')}
-            </button>
-          )
+          <button
+            type="button"
+            className="abtn ghost"
+            aria-label={t('admin.settings.area.pauseLabel', { code: zone.code })}
+            aria-expanded={confirm}
+            onClick={() => setConfirm(true)}
+          >
+            {t('admin.settings.area.pause')}
+          </button>
         ) : (
           <button
             type="button"
@@ -146,7 +147,9 @@ function AddZone({ zones, onAdded }: { zones: Zone[]; onAdded: (notice: string) 
   const message = (problem: ZoneProblem) =>
     problem.key === 'tooFar'
       ? t('admin.settings.area.errors.tooFar', { km: problem.km, code: problem.nearest })
-      : t(`admin.settings.area.errors.${problem.key}`);
+      : problem.key === 'sameAsZone'
+        ? t('admin.settings.area.errors.sameAsZone', { code: problem.nearest })
+        : t(`admin.settings.area.errors.${problem.key}`);
 
   const set = (field: ZoneField, value: string) => setValues((current) => ({ ...current, [field]: value }));
 
@@ -272,17 +275,30 @@ export function AreasPage() {
         {({ zones, elsewhere }) => (
           <>
             <section className="panel stack" aria-labelledby="zones-heading">
-              <h2 id="zones-heading">{t('admin.settings.area.zones')}</h2>
-              <ZoneMap zones={zones} />
+              <div className="panel-title">
+                <h2 id="zones-heading">{t('admin.settings.area.zones')}</h2>
+                {zones.length > 0 && (
+                  <span className="small muted">
+                    {t('admin.settings.area.liveCount', { live: zones.filter((z) => z.live).length, total: zones.length })}
+                  </span>
+                )}
+              </div>
               {zones.length === 0 ? (
                 <p className="muted">{t('admin.settings.area.none')}</p>
               ) : (
-                <ul className="zone-list">
-                  {zones.map((zone) => (
-                    <ZoneRow key={zone.code} zone={zone} onChanged={changed} />
-                  ))}
-                </ul>
+                <div className="areagrid">
+                  <ZoneMap zones={zones} />
+                  <ul className="zone-rows">
+                    {zones.map((zone) => (
+                      <ZoneRow key={zone.code} zone={zone} onChanged={changed} />
+                    ))}
+                  </ul>
+                </div>
               )}
+              <div className="info">
+                <Icon name="pin" />
+                <div>{t('admin.settings.area.waitlistNote')}</div>
+              </div>
             </section>
             {elsewhere.length > 0 && (
               <section className="panel stack" aria-labelledby="elsewhere-heading">
