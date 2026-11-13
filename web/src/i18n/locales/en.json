@@ -1011,7 +1011,17 @@
         "reviewCount_other": "{{count}} reviews",
         "logCount_one": "{{count}} entry",
         "logCount_other": "{{count}} entries",
-        "noPayouts": "No payouts yet."
+        "noPayouts": "No payouts yet.",
+        "sections": {
+          "label": "Profile sections",
+          "documents": "Documents",
+          "payouts": "Payouts",
+          "recentPayouts": "Recent payouts",
+          "reviews": "Reviews",
+          "regulars": "Regular customers",
+          "openCount_one": "{{count}} to check",
+          "openCount_other": "{{count}} to check"
+        }
       }
     },
     "catalogue": {
@@ -1526,7 +1536,23 @@
         "liveText": "The plan is live: it disappears from the app at once and is removed for good. This cannot be undone.",
         "confirm": "Delete plan",
         "deleting": "Deleting…",
-        "keep": "Keep it"
+        "keep": "Keep it",
+        "short": "Delete",
+        "subscribersText_one": "{{count}} customer is subscribed, so this plan cannot be deleted. Unpublish it instead to stop new sign-ups.",
+        "subscribersText_other": "{{count}} customers are subscribed, so this plan cannot be deleted. Unpublish it instead to stop new sign-ups."
+      },
+      "subscribers": "Subscribers",
+      "actions": "Actions",
+      "edit": "Edit",
+      "editLabel": "Edit {{name}}",
+      "deleteLabel": "Delete {{name}}",
+      "errors": {
+        "name": "Enter a name for the plan, for example \"Weekly lawn care\".",
+        "category": "Choose the category the plan belongs to.",
+        "priceMissing": "Enter a monthly price of at least €5, such as 49.",
+        "tasks": "Add at least one task the pro does on each visit.",
+        "summary_one": "1 field needs fixing before the plan can be published. It is marked in red below. You can still save a draft.",
+        "summary_other": "{{count}} fields need fixing before the plan can be published. They are marked in red below. You can still save a draft."
       }
     },
     "signUp": {

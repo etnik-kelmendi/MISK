@@ -341,8 +341,10 @@ describe('pro side panel', () => {
     expect(warning).toHaveTextContent('Accepts only 62% of job offers (target 85%).');
     expect(within(dialog).getByText('62%')).toHaveClass('low');
     expect(within(dialog).getByText('€412.50')).toBeInTheDocument();
+    await user().click(within(dialog).getByRole('button', { name: /^Payouts/ }));
     expect(within(dialog).getByText('Ending in 3000')).toBeInTheDocument();
     expect(within(dialog).getByText('€124.50 on 13 Nov 2026')).toBeInTheDocument();
+    await user().click(within(dialog).getByRole('button', { name: /^Regular customers/ }));
     expect(within(dialog).getByText('Sara · Weekly lawn care')).toBeInTheDocument();
 
     await user().click(within(dialog).getByRole('button', { name: 'Pause jobs' }));
@@ -415,7 +417,7 @@ describe('pro side panel', () => {
     expect(api.calls.filter((c) => c === `POST /admin/pros/${PRO_ID}/documents/insurance/remind`)).toHaveLength(1);
   });
 
-  it('folds payouts, recent payouts, reviews and the log until they are opened', async () => {
+  it('puts documents, payouts, recent payouts, reviews and regular customers behind buttons, one open at a time', async () => {
     const api = setUp();
     const pro = detail({
       status: 'approved',
@@ -426,25 +428,71 @@ describe('pro side panel', () => {
         { stars: 5, tags: [], service: 'Lawn mowing', customerName: 'Sara', createdAt: '2026-11-04T09:00:00.000Z' },
         { stars: 4, tags: [], service: 'Hedge trimming', customerName: 'Tom', createdAt: '2026-11-03T09:00:00.000Z' },
       ],
+      regulars: [{ id: 's1', firstName: 'Sara', planName: 'Weekly lawn care', since: '2026-09-01T00:00:00.000Z' }],
     });
     api.on(`GET /admin/pros/${PRO_ID}`, { body: { pro } });
     renderAt(`/admin/providers?tab=active&open=${PRO_ID}`);
     const dialog = await screen.findByRole('dialog', { name: 'Erion Krasniqi' });
-    const fold = (title: string) => within(dialog).getByRole('heading', { name: title }).closest('details') as HTMLDetailsElement;
+    const group = within(dialog).getByRole('group', { name: 'Profile sections' });
+    const buttons = within(group).getAllByRole('button');
+    expect(buttons.map((button) => button.textContent)).toEqual([
+      'DocumentsOK',
+      'Payouts€120',
+      'Recent payouts1',
+      'Reviews2',
+      'Regular customers1',
+    ]);
+    // Everything is fine, so nothing is open and the panel stays short.
+    for (const button of buttons) expect(button).toHaveAttribute('aria-expanded', 'false');
+    expect(within(dialog).queryByText('Lawn mowing', { exact: false })).not.toBeInTheDocument();
 
-    for (const title of ['Payouts', 'Recent payouts', 'Reviews', 'Activity log']) {
-      expect(fold(title)).not.toHaveAttribute('open');
-    }
-    expect(fold('Reviews').querySelector('summary')).toHaveTextContent('2 reviews');
-    expect(fold('Recent payouts').querySelector('summary')).toHaveTextContent('1 payout');
-    expect(fold('Payouts').querySelector('summary')).toHaveTextContent('€120');
+    const reviews = within(group).getByRole('button', { name: /^Reviews/ });
+    await user().click(reviews);
+    expect(reviews).toHaveAttribute('aria-expanded', 'true');
+    expect(within(dialog).getByRole('region', { name: /^Reviews/ })).toHaveTextContent('Lawn mowing');
 
-    await user().click(within(dialog).getByRole('heading', { name: 'Reviews' }));
-    expect(fold('Reviews')).toHaveAttribute('open');
-    expect(fold('Reviews')).toHaveTextContent('Lawn mowing');
-    expect(fold('Payouts')).not.toHaveAttribute('open');
-    await user().click(within(dialog).getByRole('heading', { name: 'Reviews' }));
-    expect(fold('Reviews')).not.toHaveAttribute('open');
+    const payouts = within(group).getByRole('button', { name: /^Recent payouts/ });
+    await user().click(payouts);
+    expect(reviews).toHaveAttribute('aria-expanded', 'false');
+    expect(within(dialog).getByRole('region', { name: /^Recent payouts/ })).toHaveTextContent('€37.31');
+    await user().click(payouts);
+    expect(within(dialog).queryByRole('region', { name: /^Recent payouts/ })).not.toBeInTheDocument();
+
+    // The change log stays folded on its own.
+    const log = within(dialog).getByRole('heading', { name: 'Activity log' }).closest('details') as HTMLDetailsElement;
+    expect(log).not.toHaveAttribute('open');
+  });
+
+  it('opens Documents by itself when a document needs attention, and marks the button red', async () => {
+    const api = setUp();
+    const expired = check('insurance', { ok: false, state: 'expired', document: { ...docOf('insurance'), expiresOn: '2026-10-01' } });
+    const pro = detail({ status: 'approved', checks: [check('id'), check('certificate'), expired, check('background')], allChecksOk: false });
+    api.on(`GET /admin/pros/${PRO_ID}`, { body: { pro } });
+    renderAt(`/admin/providers?tab=active&open=${PRO_ID}`);
+    const dialog = await screen.findByRole('dialog', { name: 'Erion Krasniqi' });
+    const documents = within(dialog).getByRole('button', { name: /^Documents/ });
+    expect(documents).toHaveAttribute('aria-expanded', 'true');
+    expect(documents.querySelector('.badge')).toHaveClass('r');
+    expect(documents).toHaveTextContent('1 to check');
+    expect(within(dialog).getByRole('button', { name: 'Send reminder about Liability insurance' })).toBeInTheDocument();
+  });
+
+  it('colours Send reminder green the moment it is clicked, before the answer arrives', async () => {
+    const api = setUp();
+    const expired = check('insurance', { ok: false, state: 'expired', document: { ...docOf('insurance'), expiresOn: '2026-10-01' } });
+    const pro = detail({ status: 'pending_approval', checks: [check('id'), check('certificate'), expired, check('background')], allChecksOk: false });
+    api.on(`GET /admin/pros/${PRO_ID}`, { body: { pro } });
+    let answer: (value: { body: unknown }) => void = () => undefined;
+    api.on(`POST /admin/pros/${PRO_ID}/documents/insurance/remind`, () => new Promise((resolve) => (answer = resolve)));
+    renderAt(`/admin/providers?tab=pending_approval&open=${PRO_ID}`);
+    const dialog = await screen.findByRole('dialog', { name: 'Erion Krasniqi' });
+    const send = within(dialog).getByRole('button', { name: 'Send reminder about Liability insurance' });
+    expect(send).toHaveClass('ghost');
+    await user().click(send);
+    expect(send).toHaveClass('sending');
+    expect(send).not.toHaveClass('ghost');
+    answer({ body: { pro } });
+    await waitFor(() => expect(send).not.toHaveClass('sending'));
   });
 
   it('reinstates a suspended pro', async () => {

@@ -1219,6 +1219,49 @@ describe('plan page', () => {
     expect(screen.queryByRole('button', { name: 'Delete plan' })).not.toBeInTheDocument();
   });
 
+  function openPlansList(plans: object[]) {
+    const api = fakeApi(users.admin);
+    let current = plans;
+    api.on('GET /admin/plans', () => ({ body: { plans: current } }));
+    return { api, remove: (id: string) => (current = current.filter((plan) => (plan as { id: string }).id !== id)) };
+  }
+  const listed = (id: string, name: string, subscribers: number, status = 'draft') =>
+    savedPlan({ id, name, categoryId: 'cat-garden', priceCents: 4900, frequency: 'weekly', tasks: ['Mow'], subscribers }, status);
+
+  it('deletes a plan straight from the plans list after asking', async () => {
+    const { api, remove } = openPlansList([listed('p1', 'Lawn care', 0, 'published'), listed('p2', 'Hedge care', 0)]);
+    api.on('DELETE /admin/plans/p2', () => {
+      remove('p2');
+      return { status: 204 };
+    });
+    renderAt('/admin/plans');
+    const table = await screen.findByRole('table');
+    expect(within(table).getAllByRole('columnheader').map((h) => h.textContent)).toContain('Subscribers');
+    expect(within(table).getByRole('link', { name: 'Edit Hedge care' })).toHaveAttribute('href', '/admin/plans/p2');
+
+    await user().click(within(table).getByRole('button', { name: 'Delete Hedge care' }));
+    const dialog = screen.getByRole('alertdialog', { name: 'Delete "Hedge care"?' });
+    await user().click(within(dialog).getByRole('button', { name: 'Keep it' }));
+    expect(api.calls).not.toContain('DELETE /admin/plans/p2');
+
+    await user().click(within(table).getByRole('button', { name: 'Delete Hedge care' }));
+    await user().click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Delete plan' }));
+    expect(await screen.findByRole('status')).toHaveTextContent('"Hedge care" was deleted.');
+    await waitFor(() => expect(screen.queryByText('Hedge care', { selector: 'a' })).not.toBeInTheDocument());
+    expect(screen.getByText('Lawn care', { selector: 'a' })).toBeInTheDocument();
+  });
+
+  it('says on the list why a plan with subscribers cannot be deleted', async () => {
+    const { api } = openPlansList([listed('p1', 'Lawn care', 3, 'published')]);
+    api.on('DELETE /admin/plans/p1', { status: 409, body: { error: 'plan_has_subscriptions' } });
+    renderAt('/admin/plans');
+    await user().click(await screen.findByRole('button', { name: 'Delete Lawn care' }));
+    expect(screen.getByRole('alertdialog')).toHaveTextContent('3 customers are subscribed, so this plan cannot be deleted.');
+    await user().click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Delete plan' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Customers have subscribed to this plan, so it cannot be deleted.');
+    expect(screen.getByText('Lawn care', { selector: 'a' })).toBeInTheDocument();
+  });
+
   async function fillComplete() {
     await user().type(await screen.findByLabelText('Plan name'), 'Lawn care');
     await user().selectOptions(screen.getByLabelText('Category'), 'Gardening');
@@ -1258,10 +1301,13 @@ describe('plan page', () => {
     await fillComplete();
     const length = screen.getByLabelText('Visit length (minutes)');
     await user().clear(length);
-    expect(length).toHaveValue(null);
+    expect(length).toHaveValue('');
     expect(length).toHaveAttribute('aria-invalid', 'true');
     expect(screen.getByText('Enter a visit length from 15 to 600 minutes, in steps of 15.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Publish plan' })).toBeDisabled();
+    // Publish stays clickable (D42): it points at the field to fix and sends nothing.
+    await user().click(screen.getByRole('button', { name: 'Publish plan' }));
+    expect(length).toHaveFocus();
+    expect(api.calls).not.toContain('POST /admin/plans');
     await user().click(screen.getByRole('button', { name: 'Save draft' }));
     expect(api.calls).not.toContain('POST /admin/plans');
     expect(length).toHaveFocus();
@@ -1270,7 +1316,7 @@ describe('plan page', () => {
     expect(screen.getByText('Enter a visit length from 15 to 600 minutes, in steps of 15.')).toBeInTheDocument();
     await user().clear(length);
     await user().type(length, '45');
-    expect(length).toHaveValue(45);
+    expect(length).toHaveValue('45');
     expect(length).not.toHaveAttribute('aria-invalid');
     await user().click(screen.getByRole('button', { name: 'Save draft' }));
     await waitFor(() => expect(api.bodies['POST /admin/plans']).toMatchObject({ visitMinutes: 45 }));
@@ -1350,14 +1396,50 @@ describe('plan page', () => {
     expect(api.bodies['POST /admin/plans']).toMatchObject({ name: 'Half done', categoryId: null, priceCents: null, tasks: [] });
   });
 
-  it('refuses to publish an incomplete plan and lists what needs fixing', async () => {
-    openNewPlan();
+  it('says under each field what is missing when publishing an incomplete plan, and moves the cursor there', async () => {
+    const api = openNewPlan();
     const publish = await screen.findByRole('button', { name: 'Publish plan' });
-    expect(publish).toBeDisabled();
-    expect(screen.getByText(/To publish, add: a plan name, a category, a monthly price of at least €5, at least one task/)).toBeInTheDocument();
-    await fillComplete();
-    expect(screen.queryByText(/To publish, add/)).not.toBeInTheDocument();
     expect(publish).toBeEnabled();
+    expect(screen.getByText(/To publish, add: a plan name, a category, a monthly price of at least €5, at least one task/)).toBeInTheDocument();
+    expect(screen.getByLabelText('Plan name')).not.toHaveAttribute('aria-invalid');
+
+    await user().click(publish);
+    expect(api.calls).not.toContain('POST /admin/plans');
+    expect(screen.getByRole('alert')).toHaveTextContent('4 fields need fixing before the plan can be published.');
+    const name = screen.getByLabelText('Plan name');
+    expect(name).toHaveFocus();
+    expect(name).toHaveAttribute('aria-invalid', 'true');
+    expect(name).toHaveAccessibleDescription('Enter a name for the plan, for example "Weekly lawn care".');
+    expect(screen.getByLabelText('Category')).toHaveAccessibleDescription('Choose the category the plan belongs to.');
+    expect(screen.getByLabelText('Monthly price (€)')).toHaveAccessibleDescription('Enter a monthly price of at least €5, such as 49.');
+    expect(screen.getByText('Add at least one task the pro does on each visit.')).toBeInTheDocument();
+
+    // Fixing a field clears its message straight away; the rest stay until fixed.
+    await user().type(name, 'Lawn care');
+    expect(name).not.toHaveAttribute('aria-invalid');
+    await user().type(screen.getByLabelText('Monthly price (€)'), '3');
+    expect(screen.getByLabelText('Monthly price (€)')).toHaveAccessibleDescription('Enter an amount of at least €5, such as 49 or 49.50.');
+    await user().click(publish);
+    expect(screen.getByLabelText('Category')).toHaveFocus();
+    expect(screen.getByRole('alert')).toHaveTextContent('3 fields need fixing');
+
+    await user().selectOptions(screen.getByLabelText('Category'), 'Gardening');
+    await user().clear(screen.getByLabelText('Monthly price (€)'));
+    await user().type(screen.getByLabelText('Monthly price (€)'), '49');
+    await user().type(screen.getByLabelText('Add a task'), 'Mow{Enter}');
+    expect(screen.queryByText(/need fixing/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/To publish, add/)).not.toBeInTheDocument();
+  });
+
+  it('explains a missing price for the extra and a bad number of minutes', async () => {
+    openNewPlan();
+    await user().type(await screen.findByLabelText('Optional extra'), 'Hedge trimming');
+    const visit = screen.getByLabelText('Visit length (minutes)');
+    await user().clear(visit);
+    await user().type(visit, '20');
+    await user().click(screen.getByRole('button', { name: 'Publish plan' }));
+    expect(screen.getByLabelText('Extra price (€ / month)')).toHaveAccessibleDescription('Enter a monthly price for the extra, or clear its name.');
+    expect(visit).toHaveAccessibleDescription('Enter a visit length from 15 to 600 minutes, in steps of 15.');
   });
 
   it('publishes a complete plan', async () => {

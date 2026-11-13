@@ -1,4 +1,4 @@
-import { useCallback, useId, useState, type FormEvent } from 'react';
+import { useCallback, useId, useState, type FormEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useApi } from '../../api/ApiContext';
 import { useMarket } from '../../api/MarketContext';
@@ -192,7 +192,7 @@ function CheckItem({ pro, check, onChanged }: { pro: AdminProDetail; check: ProC
         ) : (
           <button
             type="button"
-            className="abtn ghost remind"
+            className={action.busy ? 'abtn remind sending' : 'abtn ghost remind'}
             disabled={action.busy}
             aria-label={t('admin.pros.panel.remindLabel', { document: documentName })}
             onClick={() => void post('remind', undefined, t('admin.pros.panel.reminded'))}
@@ -429,6 +429,137 @@ function LogLine({ entry }: { entry: ProActionEntry }) {
   );
 }
 
+function DocumentList({ pro, onChanged }: { pro: AdminProDetail; onChanged: Changed }) {
+  return (
+    <ul className="check-list">
+      {pro.checks.map((check) => (
+        <CheckItem key={`${check.kind}-${check.document?.uploadId ?? 'none'}-${check.state}`} pro={pro} check={check} onChanged={onChanged} />
+      ))}
+    </ul>
+  );
+}
+
+type SectionKey = 'documents' | 'payouts' | 'recentPayouts' | 'reviews' | 'regulars';
+const SECTIONS: SectionKey[] = ['documents', 'payouts', 'recentPayouts', 'reviews', 'regulars'];
+
+/**
+ * The longer parts of a working pro's profile behind a row of buttons, one open at a time, so the panel
+ * stays short. Documents opens by itself when one needs attention (expired, missing, to check).
+ */
+function ProSections({ pro, onChanged }: { pro: AdminProDetail; onChanged: Changed }) {
+  const { t } = useTranslation();
+  const { timezone } = useMarket();
+  const openChecks = pro.checks.filter((c) => !c.ok).length;
+  const [open, setOpen] = useState<SectionKey | null>(openChecks > 0 ? 'documents' : null);
+
+  const badge: Record<SectionKey, { text: string; alert?: boolean } | null> = {
+    documents: openChecks > 0 ? { text: t('admin.pros.panel.sections.openCount', { count: openChecks }), alert: true } : { text: t('admin.pros.panel.ok') },
+    payouts: pro.bank?.nextPayout ? { text: euro(pro.bank.nextPayout.amountCents) } : null,
+    recentPayouts: { text: String(pro.payouts.length) },
+    reviews: { text: String(pro.reviews.length) },
+    regulars: { text: String(pro.regulars.length) },
+  };
+
+  const body: Record<SectionKey, () => ReactNode> = {
+    documents: () => <DocumentList pro={pro} onChanged={onChanged} />,
+    payouts: () => (
+      <dl className="kv">
+        <dt>{t('admin.pros.panel.bank')}</dt>
+        <dd>
+          {!pro.hasPayoutAccount
+            ? t('admin.pros.panel.noBank')
+            : pro.bank === null
+              ? t('admin.pros.panel.bankUnavailable')
+              : pro.bank.bankLast4
+                ? t('admin.pros.panel.bankLast4', { last4: pro.bank.bankLast4 })
+                : t('admin.pros.panel.noBank')}
+        </dd>
+        <dt>{t('admin.pros.panel.nextPayout')}</dt>
+        <dd>
+          {pro.bank?.nextPayout
+            ? t('admin.pros.panel.nextPayoutValue', {
+                amount: euro(pro.bank.nextPayout.amountCents),
+                date: longDate(pro.bank.nextPayout.arrivesOn, timezone),
+              })
+            : t('admin.pros.panel.noNextPayout')}
+        </dd>
+      </dl>
+    ),
+    recentPayouts: () =>
+      pro.payouts.length === 0 ? (
+        <p className="small muted">{t('admin.pros.panel.noPayouts')}</p>
+      ) : (
+        <ul className="history small">
+          {pro.payouts.map((payout, i) => (
+            <li key={i}>
+              {t('admin.pros.panel.payoutLine', {
+                amount: euro(payout.amountCents),
+                source: t(`admin.pros.panel.payoutSource.${payout.source}`),
+                status: t(`payoutStatus.${payout.status as 'sent'}`, { defaultValue: payout.status }),
+                date: longDate(payout.createdAt, timezone),
+              })}
+            </li>
+          ))}
+        </ul>
+      ),
+    reviews: () =>
+      pro.reviews.length === 0 ? (
+        <p className="small muted">{t('admin.pros.panel.noReviews')}</p>
+      ) : (
+        <ul className="history">
+          {pro.reviews.map((review, i) => (
+            <li key={i}>
+              {t('admin.pros.panel.reviewLine', { stars: review.stars, service: review.service, name: review.customerName ?? '' })}
+              <div className="small muted">{longDate(review.createdAt, timezone)}</div>
+            </li>
+          ))}
+        </ul>
+      ),
+    regulars: () =>
+      pro.regulars.length === 0 ? (
+        <p className="small muted">{t('admin.pros.panel.noRegulars')}</p>
+      ) : (
+        <ul className="history">
+          {pro.regulars.map((regular) => (
+            <li key={regular.id}>{t('admin.pros.panel.regularLine', { name: regular.firstName ?? '', plan: regular.planName })}</li>
+          ))}
+        </ul>
+      ),
+  };
+
+  return (
+    <section className="stack" aria-labelledby="pro-sections-heading">
+      <h3 id="pro-sections-heading" className="visually-hidden">
+        {t('admin.pros.panel.sections.label')}
+      </h3>
+      <div className="psec-buttons" role="group" aria-label={t('admin.pros.panel.sections.label')}>
+        {SECTIONS.map((key) => {
+          const mark = badge[key];
+          return (
+            <button
+              key={key}
+              type="button"
+              id={`psec-${key}-button`}
+              className={open === key ? 'psec on' : 'psec'}
+              aria-expanded={open === key}
+              aria-controls={`psec-${key}`}
+              onClick={() => setOpen((current) => (current === key ? null : key))}
+            >
+              {t(`admin.pros.panel.sections.${key}`)}
+              {mark && <span className={mark.alert ? 'badge r' : 'badge grey'}>{mark.text}</span>}
+            </button>
+          );
+        })}
+      </div>
+      {open && (
+        <div id={`psec-${open}`} role="region" aria-labelledby={`psec-${open}-button`} className="psec-body stack">
+          {body[open]()}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function ProDetails({ pro, notice, onChanged }: { pro: AdminProDetail; notice: string | null; onChanged: Changed }) {
   const { t } = useTranslation();
   const { timezone } = useMarket();
@@ -527,100 +658,16 @@ function ProDetails({ pro, notice, onChanged }: { pro: AdminProDetail; notice: s
         </dl>
       </section>
 
-      <section className="stack" aria-labelledby="checks-heading">
-        <h3 id="checks-heading">{applying ? t('admin.pros.panel.checks') : t('admin.pros.panel.documents')}</h3>
-        <ul className="check-list">
-          {pro.checks.map((check) => (
-            <CheckItem
-              key={`${check.kind}-${check.document?.uploadId ?? 'none'}-${check.state}`}
-              pro={pro}
-              check={check}
-              onChanged={onChanged}
-            />
-          ))}
-        </ul>
-      </section>
+      {applying && (
+        <section className="stack" aria-labelledby="checks-heading">
+          <h3 id="checks-heading">{t('admin.pros.panel.checks')}</h3>
+          <DocumentList pro={pro} onChanged={onChanged} />
+        </section>
+      )}
 
       {applying && <Decision pro={pro} onChanged={onChanged} />}
       {working && <Actions pro={pro} onChanged={onChanged} />}
-
-      {working && (
-        <>
-          <section className="stack" aria-labelledby="regulars-heading">
-            <h3 id="regulars-heading">{t('admin.pros.panel.regulars')}</h3>
-            {pro.regulars.length === 0 ? (
-              <p className="small muted">{t('admin.pros.panel.noRegulars')}</p>
-            ) : (
-              <ul className="history">
-                {pro.regulars.map((r) => (
-                  <li key={r.id}>{t('admin.pros.panel.regularLine', { name: r.firstName ?? '', plan: r.planName })}</li>
-                ))}
-              </ul>
-            )}
-          </section>
-
-          <Fold
-            title={t('admin.pros.panel.payouts')}
-            summary={pro.bank?.nextPayout ? euro(pro.bank.nextPayout.amountCents) : undefined}
-          >
-            <dl className="kv">
-              <dt>{t('admin.pros.panel.bank')}</dt>
-              <dd>
-                {!pro.hasPayoutAccount
-                  ? t('admin.pros.panel.noBank')
-                  : pro.bank === null
-                    ? t('admin.pros.panel.bankUnavailable')
-                    : pro.bank.bankLast4
-                      ? t('admin.pros.panel.bankLast4', { last4: pro.bank.bankLast4 })
-                      : t('admin.pros.panel.noBank')}
-              </dd>
-              <dt>{t('admin.pros.panel.nextPayout')}</dt>
-              <dd>
-                {pro.bank?.nextPayout
-                  ? t('admin.pros.panel.nextPayoutValue', {
-                      amount: euro(pro.bank.nextPayout.amountCents),
-                      date: longDate(pro.bank.nextPayout.arrivesOn, timezone),
-                    })
-                  : t('admin.pros.panel.noNextPayout')}
-              </dd>
-            </dl>
-          </Fold>
-
-          <Fold title={t('admin.pros.panel.recentPayouts')} summary={t('admin.pros.panel.payoutCount', { count: pro.payouts.length })}>
-            {pro.payouts.length === 0 ? (
-              <p className="small muted">{t('admin.pros.panel.noPayouts')}</p>
-            ) : (
-              <ul className="history small">
-                {pro.payouts.map((p, i) => (
-                  <li key={i}>
-                    {t('admin.pros.panel.payoutLine', {
-                      amount: euro(p.amountCents),
-                      source: t(`admin.pros.panel.payoutSource.${p.source}`),
-                      status: t(`payoutStatus.${p.status as 'sent'}`, { defaultValue: p.status }),
-                      date: longDate(p.createdAt, timezone),
-                    })}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Fold>
-
-          <Fold title={t('admin.pros.panel.reviews')} summary={t('admin.pros.panel.reviewCount', { count: pro.reviews.length })}>
-            {pro.reviews.length === 0 ? (
-              <p className="small muted">{t('admin.pros.panel.noReviews')}</p>
-            ) : (
-              <ul className="history">
-                {pro.reviews.map((r, i) => (
-                  <li key={i}>
-                    {t('admin.pros.panel.reviewLine', { stars: r.stars, service: r.service, name: r.customerName ?? '' })}
-                    <div className="small muted">{longDate(r.createdAt, timezone)}</div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Fold>
-        </>
-      )}
+      {working && <ProSections pro={pro} onChanged={onChanged} />}
 
       <Fold title={t('admin.pros.panel.log')} summary={t('admin.pros.panel.logCount', { count: pro.actions.length })}>
         {pro.actions.length === 0 ? (

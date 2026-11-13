@@ -61,7 +61,9 @@ export const users: Record<'customer' | 'pro' | 'admin' | 'new', User> = {
   new: { id: 'u-new', role: null, phone: '+4915100000003', username: null, email: null, firstName: null, lastName: null },
 };
 
-type Reply = { status?: number; body?: unknown } | ((request: { body: unknown; url: URL }) => { status?: number; body?: unknown });
+type Answer = { status?: number; body?: unknown };
+/** A fixed answer, or a function of the request; a function may answer later (a Promise) to test "sending" states. */
+type Reply = Answer | ((request: { body: unknown; url: URL }) => Answer | Promise<Answer>);
 
 export interface FakeApi {
   /** Every call made, as "METHOD /path". */
@@ -91,7 +93,7 @@ export function fakeApi(user: User | null): FakeApi {
       const body = typeof init?.body === 'string' ? (JSON.parse(init.body) as unknown) : init?.body;
       bodies[key] = body;
       const reply = routes.get(key);
-      const resolved = typeof reply === 'function' ? reply({ body, url }) : (reply ?? { status: 404, body: { error: 'not_found' } });
+      const resolved = await (typeof reply === 'function' ? reply({ body, url }) : (reply ?? { status: 404, body: { error: 'not_found' } }));
       const status = resolved.status ?? 200;
       return new Response(status === 204 ? null : JSON.stringify(resolved.body ?? {}), {
         status,

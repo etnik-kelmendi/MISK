@@ -19,11 +19,97 @@ export const VISITS_PER_MONTH: Record<Frequency, number> = {
   three_times_weekly: 13,
 };
 
+/** One row of the plans list, with Delete behind a confirmation, like in the editor. */
+function PlanRow({ plan, onDeleted }: { plan: Plan; onDeleted: (name: string) => void }) {
+  const { t } = useTranslation();
+  const api = useApi();
+  const removal = useAction();
+  const [confirm, setConfirm] = useState(false);
+  const name = plan.name ?? t('admin.plans.untitled');
+  const live = plan.status === 'published';
+
+  async function remove() {
+    const done = await removal.run(() => api.delete(`/admin/plans/${plan.id}`).then(() => true));
+    setConfirm(false);
+    if (done) onDeleted(plan.name ?? '');
+  }
+
+  return (
+    <>
+      <tr>
+        <td>
+          <Link to={`/admin/plans/${plan.id}`} className="b">
+            {name}
+          </Link>
+        </td>
+        <td>{plan.categoryName ?? '–'}</td>
+        <td>{plan.priceCents === null ? '–' : t('admin.plans.perMonth', { price: euro(plan.priceCents) })}</td>
+        <td>{t(`admin.plans.frequency.${plan.frequency}`)}</td>
+        <td className="center">{plan.subscribers ?? 0}</td>
+        <td>
+          <span className={`badge ${live ? 'g' : 'grey'}`}>{t(`admin.plans.state.${plan.status}`)}</span>
+        </td>
+        <td>
+          <span className="row gap8 nowrap">
+            <Link to={`/admin/plans/${plan.id}`} className="abtn ghost sm" aria-label={t('admin.plans.editLabel', { name })}>
+              {t('admin.plans.edit')}
+            </Link>
+            <button
+              type="button"
+              className="abtn ghost sm danger-text"
+              aria-haspopup="dialog"
+              aria-label={t('admin.plans.deleteLabel', { name })}
+              disabled={removal.busy || confirm}
+              onClick={() => {
+                removal.clearError();
+                setConfirm(true);
+              }}
+            >
+              {t('admin.plans.delete.short')}
+            </button>
+          </span>
+        </td>
+      </tr>
+      {(confirm || removal.error) && (
+        <tr className="hl">
+          <td colSpan={7}>
+            {confirm ? (
+              <div role="alertdialog" aria-labelledby={`delete-${plan.id}`} aria-describedby={`delete-text-${plan.id}`} className="stack tight">
+                <p id={`delete-${plan.id}`} className="b">
+                  {t('admin.plans.delete.title', { name })}
+                </p>
+                <p id={`delete-text-${plan.id}`} className="small">
+                  {(plan.subscribers ?? 0) > 0
+                    ? t('admin.plans.delete.subscribersText', { count: plan.subscribers })
+                    : live
+                      ? t('admin.plans.delete.liveText')
+                      : t('admin.plans.delete.text')}
+                </p>
+                <div className="row gap8">
+                  <button type="button" className="abtn danger" disabled={removal.busy} onClick={() => void remove()}>
+                    {removal.busy ? t('admin.plans.delete.deleting') : t('admin.plans.delete.confirm')}
+                  </button>
+                  <button type="button" className="abtn ghost" disabled={removal.busy} onClick={() => setConfirm(false)}>
+                    {t('admin.plans.delete.keep')}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <ErrorText error={removal.error} />
+            )}
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
 export function PlansPage() {
   const { t } = useTranslation();
   const api = useApi();
   const location = useLocation();
-  const deleted = (location.state as { deleted?: string } | null)?.deleted;
+  // A plan deleted in the editor comes back here with its name; one deleted in the list sets it directly.
+  const [deleted, setDeleted] = useState<string | undefined>((location.state as { deleted?: string } | null)?.deleted);
   const load = useCallback(() => api.get<{ plans: Plan[] }>('/admin/plans'), [api]);
   const { state, reload } = useResource(load);
 
@@ -54,26 +140,23 @@ export function PlansPage() {
                     <th scope="col">{t('admin.plans.fields.category')}</th>
                     <th scope="col">{t('admin.plans.fields.price')}</th>
                     <th scope="col">{t('admin.plans.fields.frequency')}</th>
+                    <th scope="col">{t('admin.plans.subscribers')}</th>
                     <th scope="col">{t('admin.plans.status')}</th>
+                    <th scope="col">
+                      <span className="visually-hidden">{t('admin.plans.actions')}</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {plans.map((plan) => (
-                    <tr key={plan.id}>
-                      <td>
-                        <Link to={`/admin/plans/${plan.id}`} className="b">
-                          {plan.name ?? t('admin.plans.untitled')}
-                        </Link>
-                      </td>
-                      <td>{plan.categoryName ?? '–'}</td>
-                      <td>{plan.priceCents === null ? '–' : t('admin.plans.perMonth', { price: euro(plan.priceCents) })}</td>
-                      <td>{t(`admin.plans.frequency.${plan.frequency}`)}</td>
-                      <td>
-                        <span className={`badge ${plan.status === 'published' ? 'g' : 'grey'}`}>
-                          {t(`admin.plans.state.${plan.status}`)}
-                        </span>
-                      </td>
-                    </tr>
+                    <PlanRow
+                      key={plan.id}
+                      plan={plan}
+                      onDeleted={(name) => {
+                        setDeleted(name);
+                        reload();
+                      }}
+                    />
                   ))}
                 </tbody>
               </table>
@@ -86,6 +169,19 @@ export function PlansPage() {
 }
 
 type NumberField = 'visitMinutes' | 'skipsPerMonth' | 'minTermMonths';
+type PlanField = 'name' | 'category' | 'price' | 'tasks' | 'addonPrice';
+
+/** Every field that can stop publishing, with its input, in the order they appear on the page. */
+const FIELD_ORDER: [PlanField | NumberField, string][] = [
+  ['name', 'plan-name'],
+  ['category', 'plan-category'],
+  ['price', 'plan-price'],
+  ['visitMinutes', 'plan-visitMinutes'],
+  ['minTermMonths', 'plan-minTermMonths'],
+  ['tasks', 'plan-new-task'],
+  ['addonPrice', 'plan-addon-price'],
+  ['skipsPerMonth', 'plan-skipsPerMonth'],
+];
 
 /** The limits the API accepts for each number, so the editor can explain them before saving. */
 export const NUMBER_LIMITS: Record<NumberField, { min: number; max: number; step: number }> = {
@@ -103,6 +199,19 @@ export function parseNumberField(key: NumberField, value: string): number | null
   const number = Number(text);
   const { min, max, step } = NUMBER_LIMITS[key];
   return number >= min && number <= max && number % step === 0 ? number : null;
+}
+
+/** What a number field keeps of what was typed or pasted: digits only, without leading zeros ("03" → "3"). */
+export function cleanNumberInput(value: string): string {
+  return value.replace(/\D/g, '').replace(/^0+(?=\d)/, '');
+}
+
+/** The arrow keys' next value: one step up or down, rounded to the step and kept within the limits. */
+export function stepNumber(key: NumberField, value: string, direction: 1 | -1): number {
+  const { min, max, step } = NUMBER_LIMITS[key];
+  const current = /^\d+$/.test(value) ? Number(value) : direction === 1 ? min - step : max + step;
+  const next = direction === 1 ? Math.floor(current / step) * step + step : Math.ceil(current / step) * step - step;
+  return Math.min(max, Math.max(min, next));
 }
 
 interface Draft {
@@ -212,6 +321,42 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
   // Numbers the API would refuse: shown at the field, and nothing is saved until they are fixed.
   const badNumbers = (Object.keys(NUMBER_LIMITS) as NumberField[]).filter((key) => parseNumberField(key, draft[key]) === null);
   const valid = missing.length === 0 && badNumbers.length === 0;
+  // What is wrong with each field, for the message under it. Shown after the first try to publish.
+  const [tried, setTried] = useState(false);
+  const fieldProblems: Record<PlanField, string | null> = {
+    name: draft.name.trim() === '' ? t('admin.plans.errors.name') : null,
+    category: !category ? t('admin.plans.errors.category') : null,
+    price:
+      draft.price.trim() === ''
+        ? t('admin.plans.errors.priceMissing')
+        : priceCents === null || priceCents < 500
+          ? t('admin.plans.priceInvalid')
+          : null,
+    tasks: draft.tasks.length === 0 ? t('admin.plans.errors.tasks') : null,
+    addonPrice: addonInvalid ? (draft.addonPrice === '' ? t('admin.plans.addonPriceNeeded') : t('admin.plans.addonPriceInvalid')) : null,
+  };
+  // A field's message: after a try to publish, or straight away for an amount that was typed wrong.
+  const shownProblem = (field: PlanField) => {
+    const problem = fieldProblems[field];
+    if (!problem) return null;
+    if (tried) return problem;
+    return (field === 'price' && draft.price.trim() !== '') || (field === 'addonPrice' && draft.addonPrice !== '') ? problem : null;
+  };
+  const describe = (field: PlanField) => {
+    const problem = shownProblem(field);
+    return { 'aria-invalid': problem ? true : undefined, 'aria-describedby': problem ? `plan-${field}-error` : undefined } as const;
+  };
+  const fieldError = (field: PlanField) => {
+    const problem = shownProblem(field);
+    return (
+      problem && (
+        <span id={`plan-${field}-error`} className="error-text">
+          {problem}
+        </span>
+      )
+    );
+  };
+  const problemCount = (Object.values(fieldProblems).filter(Boolean).length) + badNumbers.length;
 
   function addTask() {
     const task = draft.newTask.trim();
@@ -290,6 +435,12 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
 
   async function setPublished(published: boolean) {
     if (published && !valid) {
+      setTried(true);
+      // The cursor goes to the first field to fix, in the order the fields appear.
+      const first = FIELD_ORDER.find(([field]) =>
+        field in fieldProblems ? fieldProblems[field as PlanField] : badNumbers.includes(field as NumberField),
+      );
+      if (first) document.getElementById(first[1])?.focus();
       return;
     }
     const savedPlan = published ? await saveDraft() : current;
@@ -309,18 +460,25 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
     return (
       <div className="af">
         <label htmlFor={`plan-${key}`}>{t(`admin.plans.fields.${key}`)}</label>
+        {/* A text field, not type="number": browsers keep a typed leading zero ("03", or the "0" left of "60")
+            in number fields, and React cannot correct it there. Digits only; arrow keys still step. */}
         <input
           id={`plan-${key}`}
-          type="number"
+          type="text"
           inputMode="numeric"
-          min={min}
-          max={max}
-          step={step}
+          pattern="[0-9]*"
+          autoComplete="off"
+          maxLength={3}
           required
           value={draft[key]}
           aria-invalid={invalid || undefined}
           aria-describedby={invalid ? `plan-${key}-error` : undefined}
-          onChange={(e) => set(key, e.target.value)}
+          onChange={(e) => set(key, cleanNumberInput(e.target.value))}
+          onKeyDown={(e) => {
+            if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+            e.preventDefault();
+            set(key, String(stepNumber(key, draft[key], e.key === 'ArrowUp' ? 1 : -1)));
+          }}
         />
         {invalid ? (
           <span id={`plan-${key}-error`} className="error-text">
@@ -369,7 +527,8 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
             <button
               type="button"
               className="abtn big"
-              disabled={!valid || publish.busy || save.busy}
+              disabled={publish.busy || save.busy}
+              aria-describedby={!valid ? 'plan-missing' : undefined}
               onClick={() => void setPublished(true)}
             >
               {t('admin.plans.publish')}
@@ -382,11 +541,16 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
           {t('admin.plans.saved')}
         </p>
       )}
-      {!valid && (
-        <p className="small muted" id="plan-missing">
-          {t('admin.plans.missing.intro', { items: missing.join(', ') })}
-        </p>
-      )}
+      {!valid &&
+        (tried ? (
+          <p className="error-text" id="plan-missing" role="alert">
+            {t('admin.plans.errors.summary', { count: problemCount })}
+          </p>
+        ) : (
+          <p className="small muted" id="plan-missing">
+            {t('admin.plans.missing.intro', { items: missing.join(', ') })}
+          </p>
+        ))}
       {blocker.state === 'blocked' && (
         <div className="panel leave-warning" role="alertdialog" aria-labelledby="leave-title" aria-describedby="leave-text">
           <p id="leave-title" className="b">
@@ -429,11 +593,12 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
         <div className="panel fgrid">
           <div className="af">
             <label htmlFor="plan-name">{t('admin.plans.fields.name')}</label>
-            <input id="plan-name" required maxLength={80} value={draft.name} onChange={(e) => set('name', e.target.value)} />
+            <input id="plan-name" required maxLength={80} value={draft.name} {...describe('name')} onChange={(e) => set('name', e.target.value)} />
+            {fieldError('name')}
           </div>
           <div className="af">
             <label htmlFor="plan-category">{t('admin.plans.fields.category')}</label>
-            <select id="plan-category" value={draft.categoryId} onChange={(e) => set('categoryId', e.target.value)}>
+            <select id="plan-category" value={draft.categoryId} {...describe('category')} onChange={(e) => set('categoryId', e.target.value)}>
               <option value="">{t('admin.plans.chooseCategory')}</option>
               {categories.map((c) => (
                 <option key={c.id} value={c.id}>
@@ -441,14 +606,19 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
                 </option>
               ))}
             </select>
+            {fieldError('category')}
           </div>
           <div className="af">
             <label htmlFor="plan-price">{t('admin.plans.fields.price')}</label>
-            <input id="plan-price" inputMode="decimal" required value={draft.price} onChange={(e) => set('price', e.target.value)} />
-            <span className="hint">{t('admin.plans.priceHint')}</span>
-            {draft.price && (priceCents === null || priceCents < 500) && (
-              <span className="error-text">{t('admin.plans.priceInvalid')}</span>
-            )}
+            <input
+              id="plan-price"
+              inputMode="decimal"
+              required
+              value={draft.price}
+              {...describe('price')}
+              onChange={(e) => set('price', e.target.value)}
+            />
+            {fieldError('price') ?? <span className="hint">{t('admin.plans.priceHint')}</span>}
           </div>
           <div className="af">
             <label htmlFor="plan-frequency">{t('admin.plans.fields.frequency')}</label>
@@ -494,6 +664,7 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
                 placeholder={t('admin.plans.newTaskPlaceholder')}
                 maxLength={60}
                 value={draft.newTask}
+                {...describe('tasks')}
                 onChange={(e) => {
                   set('newTask', e.target.value);
                   setTaskNotice(null);
@@ -514,7 +685,7 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
                 {taskNotice}
               </span>
             )}
-            {draft.tasks.length === 0 && <span className="hint">{t('admin.plans.tasksHint')}</span>}
+            {fieldError('tasks') ?? (draft.tasks.length === 0 && <span className="hint">{t('admin.plans.tasksHint')}</span>)}
           </fieldset>
 
           <div className="af">
@@ -529,13 +700,10 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
               inputMode="decimal"
               disabled={!draft.addonName.trim()}
               value={draft.addonPrice}
+              {...describe('addonPrice')}
               onChange={(e) => set('addonPrice', e.target.value)}
             />
-            {addonInvalid && (
-              <span className="error-text">
-                {draft.addonPrice === '' ? t('admin.plans.addonPriceNeeded') : t('admin.plans.addonPriceInvalid')}
-              </span>
-            )}
+            {fieldError('addonPrice')}
           </div>
 
           <div className="af">
