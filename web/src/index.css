@@ -43,6 +43,22 @@ hr { border: 0; border-top: 1px solid var(--line-2); margin: 12px 0; }
 svg.i { width: 1em; height: 1em; flex: none; vertical-align: -0.125em; }
 .visually-hidden { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
+/* Controls, icons, badges and pictures are not text: clicking or double-clicking them never selects anything
+   (D57). Content stays selectable, so names, addresses, numbers and messages can still be copied. */
+button, [role='button'], [role='switch'], [role='tab'], summary, select, nav, .tabbar, .seg, .tabs, .snav, .psec, .psec-buttons,
+.abtn, .btn, .btn2, .cta, .iconbtn, .link, .mini-btn, .chip, .taskchip button, .toggle, .cbox, .check,
+.badge, .tab-badge, .av, .ci, .logo, .logo-mark, .fxi, .fxa, .ld, .legend, .map-legend i, .split, .rules svg,
+.choice, .svc, .zone-map, svg, img, video, input[type='checkbox'], input[type='radio'], input[type='range'] {
+  -webkit-user-select: none;
+  user-select: none;
+}
+img, svg { -webkit-user-drag: none; }
+/* Fields always keep their text selectable, wherever they sit. */
+input:not([type='checkbox']):not([type='radio']):not([type='range']), textarea, [contenteditable='true'] {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 /* ---------- Utilities ---------- */
 .row { display: flex; align-items: center; gap: 10px; }
 .between { justify-content: space-between; }
