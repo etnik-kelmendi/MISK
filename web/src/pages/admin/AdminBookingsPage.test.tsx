@@ -285,6 +285,11 @@ describe('admin booking side panel', () => {
     ]);
     const profile = within(dialog).getByRole('region', { name: 'Customer profile' });
     expect(within(profile).getByText('Sara Meier')).toBeInTheDocument();
+    // The customer line at the top names them in full and jumps to the profile.
+    const customerLine = within(dialog).getByText('Customer', { selector: 'dt' }).nextElementSibling as HTMLElement;
+    expect(customerLine).toHaveTextContent('Sara Meier · View profile');
+    await user().click(within(customerLine).getByRole('button', { name: 'View profile' }));
+    expect(profile).toHaveFocus();
     expect(within(profile).getByRole('link', { name: '+4915100000001' })).toHaveAttribute('href', 'tel:+4915100000001');
     expect(within(profile).getByRole('link', { name: 'sara@example.com' })).toHaveAttribute('href', 'mailto:sara@example.com');
     expect(profile).toHaveTextContent('7 in total · 5 done · 1 coming up · 1 cancelled');

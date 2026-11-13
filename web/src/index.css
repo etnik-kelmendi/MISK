@@ -585,3 +585,10 @@ input.check { width: 18px; height: 18px; accent-color: var(--brand); }
 .psec.on .badge { background: rgba(255, 255, 255, 0.22); color: #fff; }
 .psec:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 .psec-body { border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
+/* A message that just arrived, at the top of the customer and pro app until opened or closed. */
+.new-message { display: flex; gap: 10px; align-items: flex-start; margin: 10px 16px 0; padding: 12px; border-radius: 14px; background: var(--brand); color: #fff; box-shadow: 0 6px 16px rgba(11, 122, 85, 0.3); animation: slidein 0.3s ease; }
+.new-message > svg { margin-top: 3px; font-size: 18px; flex: none; }
+.new-message a { color: #fff; text-decoration: underline; }
+.new-message .muted { color: rgba(255, 255, 255, 0.8); }
+.new-message .iconbtn { width: 32px; height: 32px; background: rgba(255, 255, 255, 0.18); color: #fff; box-shadow: none; flex: none; }
+@keyframes slidein { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }

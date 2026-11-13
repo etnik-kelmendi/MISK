@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMarket } from '../api/MarketContext';
 import { Icon, type IconKey } from '../components/Icon';
-import { useInbox } from '../inbox/InboxContext';
+import { readable, useInbox } from '../inbox/InboxContext';
 import { dateTime } from '../lib/format';
 import { AppHeader } from '../shells/Shells';
 
@@ -16,12 +16,6 @@ const ICON_OF: Partial<Record<string, IconKey>> = {
   pro_on_the_way: 'pin',
   rating_request: 'star',
 };
-
-/** The text without the "MISK:" that starts every text message, beginning with a capital letter. */
-function readable(body: string): string {
-  const text = body.replace(/^MISK:\s*/, '');
-  return text.charAt(0).toUpperCase() + text.slice(1);
-}
 
 /** Every message MISK sent the person, also when no text message or push reached them. */
 export function MessagesPage() {

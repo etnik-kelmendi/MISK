@@ -12,7 +12,7 @@ export function CustomerProfileCard({ profile }: { profile: CustomerProfile }) {
   const name = [profile.firstName, profile.lastName].filter(Boolean).join(' ') || t('admin.customer.noName');
   const b = profile.bookings;
   return (
-    <section className="stack customer-card" aria-labelledby={headingId}>
+    <section id="customer-profile" className="stack customer-card" aria-labelledby={headingId} tabIndex={-1}>
       <div className="row between gap8 wrap">
         <h3 id={headingId}>{t('admin.customer.title')}</h3>
         {profile.disabled && <span className="badge r">{t('admin.customer.disabled')}</span>}

@@ -752,7 +752,7 @@
         "titleNoPro": "No pro yet: give the job to a pro nearby",
         "titleChange": "Change the pro",
         "loading": "Finding free pros nearby…",
-        "none": "No free pro with this trade is near enough at this time. Change the time, or offer it to pros again later.",
+        "none": "No free pro with this trade is near enough at this time. Change the time of the booking to find one.",
         "line": "{{km}} km away · rating {{rating}}",
         "button": "Assign",
         "buttonLabel": "Assign {{name}}",
@@ -805,7 +805,8 @@
         "billingNote": "Plan visits are paid by the monthly subscription, not one by one. Change the plan from the customer's subscription."
       },
       "problemPhotos": "Customer's photo of the problem",
-      "noProblemPhotos": "The customer sent no photos."
+      "noProblemPhotos": "The customer sent no photos.",
+      "viewProfile": "View profile"
     },
     "pros": {
       "title": "Providers",
@@ -1907,7 +1908,12 @@
     "title": "Messages",
     "empty": "No messages yet. When MISK tells you about a booking or a job, it appears here too.",
     "new": "New",
-    "failed": "Your messages could not be loaded."
+    "failed": "Your messages could not be loaded.",
+    "newTitle": "New message",
+    "more_one": "and 1 more new message",
+    "more_other": "and {{count}} more new messages",
+    "open": "Open messages",
+    "dismiss": "Close the new message"
   },
   "forgot": {
     "title": "Forgot your password?",

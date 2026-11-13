@@ -14,6 +14,32 @@ import { dateTime, euro, zonedParts, zonedToIso } from '../../lib/format';
 import { useAction } from '../../lib/useAction';
 import { usePolling } from '../../lib/usePolling';
 import { CustomerProfileCard } from './CustomerProfileCard';
+import type { CustomerProfile } from '../../api/types';
+
+/** The customer's full name, with a jump to their profile further down the panel. */
+function CustomerLink({ profile }: { profile: CustomerProfile }) {
+  const { t } = useTranslation();
+  const name = [profile.firstName, profile.lastName].filter(Boolean).join(' ') || t('admin.customer.noName');
+  return (
+    <>
+      <span className="b">{name}</span>
+      {' · '}
+      <button
+        type="button"
+        className="link"
+        onClick={() => {
+          const card = document.getElementById('customer-profile');
+          if (!card) return;
+          card.focus({ preventScroll: true });
+          // Not every environment can scroll smoothly (or at all); the focus alone still takes the reader there.
+          if (typeof card.scrollIntoView === 'function') card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }}
+      >
+        {t('admin.booking.viewProfile')}
+      </button>
+    </>
+  );
+}
 
 /** Open bookings and the list refresh themselves this often, so statuses change on screen as pros work. */
 export const REFRESH_MS = 15_000;
@@ -352,7 +378,11 @@ function BookingDetails({ booking, onChanged }: { booking: AdminBooking; onChang
         </dd>
         <dt>{t('admin.booking.customer')}</dt>
         <dd>
-          {booking.customer.firstName}
+          {booking.customerProfile ? (
+            <CustomerLink profile={booking.customerProfile} />
+          ) : (
+            booking.customer.firstName
+          )}
           {/* Phone, email and history are in the customer profile below; without one, the phone is shown here. */}
           {!booking.customerProfile && booking.customer.phone && (
             <>
@@ -488,7 +518,11 @@ function VisitDetails({ visit }: { visit: AdminVisit }) {
         </dd>
         <dt>{t('admin.booking.customer')}</dt>
         <dd>
-          {[visit.customer.firstName, visit.customer.lastName].filter(Boolean).join(' ')}
+          {visit.customerProfile ? (
+            <CustomerLink profile={visit.customerProfile} />
+          ) : (
+            [visit.customer.firstName, visit.customer.lastName].filter(Boolean).join(' ')
+          )}
           {!visit.customerProfile && visit.customer.phone && (
             <>
               {' · '}

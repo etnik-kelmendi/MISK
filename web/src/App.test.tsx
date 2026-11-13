@@ -705,6 +705,40 @@ describe('messages', () => {
     await waitFor(() => expect(within(nav).getByRole('link', { name: 'Messages' })).toBeInTheDocument());
   });
 
+  it('announces a job the team gave the pro, and a cancelled job, at the top of the app', async () => {
+    sessionStorage.clear();
+    const api = fakeApi(users.pro);
+    api.on('GET /pro/offers', { body: { offers: [] } });
+    api.on('GET /pro/jobs', { body: { jobs: [] } });
+    api.on('GET /pro/profile', { body: { profile: { status: 'approved', payoutsEnabled: true } } });
+    let messages = [message('m0', 'MISK: your payout of €37.31 is on its way.', true, 'payout_sent')];
+    api.on('GET /inbox', () => ({ body: { messages, unread: messages.filter((m) => !m.read).length } }));
+    api.on('POST /inbox/read', { status: 204 });
+    renderAt('/pro/week');
+    await screen.findByRole('navigation', { name: 'Pro menu' });
+    // Old, read messages are not announced.
+    expect(screen.queryByText('New message')).not.toBeInTheDocument();
+
+    // The team assigns a job; the next check announces it.
+    messages = [message('m1', 'MISK: the team gave you a job, Lawn mowing on Wed 11 Nov, 10:00. See the app for details.', false), ...messages];
+    fireEvent(document, new Event('visibilitychange'));
+    const banner = await screen.findByText('New message');
+    const box = banner.closest('[role="status"]') as HTMLElement;
+    expect(box).toHaveTextContent('The team gave you a job, Lawn mowing on Wed 11 Nov, 10:00.');
+    expect(within(box).getByRole('link', { name: 'Open messages' })).toHaveAttribute('href', '/pro/messages');
+    await user().click(within(box).getByRole('button', { name: 'Close the new message' }));
+    expect(screen.queryByText('New message')).not.toBeInTheDocument();
+
+    // Then the team cancels it: announced again, and closing one does not hide the next.
+    messages = [message('m2', 'MISK: the Lawn mowing job on Wed 11 Nov, 10:00 was cancelled.', false, 'booking_cancelled'), ...messages];
+    fireEvent(document, new Event('visibilitychange'));
+    expect(await screen.findByText('The Lawn mowing job on Wed 11 Nov, 10:00 was cancelled.')).toBeInTheDocument();
+    // Opening Messages reads them and the banner goes.
+    await user().click(screen.getByRole('link', { name: 'Open messages' }));
+    await waitFor(() => expect(api.calls).toContain('POST /inbox/read'));
+    expect(screen.queryByText('New message')).not.toBeInTheDocument();
+  });
+
   it('gives customers Messages too, with an explanation when there are none', async () => {
     fakeApi(users.customer);
     renderAt('/messages');

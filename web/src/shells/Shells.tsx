@@ -7,6 +7,7 @@ import { Icon, type IconKey } from '../components/Icon';
 import { usePolling } from '../lib/usePolling';
 import { canOpen, firstSettingsTab } from '../auth/AreaGuard';
 import { InboxProvider, useInbox } from '../inbox/InboxContext';
+import { NewMessageBanner } from '../inbox/NewMessageBanner';
 
 interface Tab {
   to: string;
@@ -61,6 +62,7 @@ export function CustomerShell() {
     <InboxProvider>
       <div className="app-frame">
         <main className="app-body">
+          <NewMessageBanner messagesPath="/messages" />
           <Outlet />
         </main>
         <CustomerTabs />
@@ -91,6 +93,7 @@ export function ProShell() {
     <InboxProvider>
       <div className="app-frame pro">
         <main className="app-body">
+          <NewMessageBanner messagesPath="/pro/messages" />
           <Outlet />
         </main>
         <ProTabs />
