@@ -9,6 +9,7 @@ import { AppHeader } from '../shells/Shells';
 const ICON_OF: Partial<Record<string, IconKey>> = {
   job_offer: 'bolt',
   booking_cancelled: 'x',
+  document_expiring: 'file',
   booking_rescheduled: 'calendar',
   booking_confirmed: 'check',
   job_completed: 'check',

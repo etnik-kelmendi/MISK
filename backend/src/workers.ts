@@ -6,6 +6,7 @@ import { expireUnpaid, settleTick } from './bookings/lifecycle.js';
 import { dispatchOnce } from './notifications/outbox.js';
 import { subscriptionTick } from './subscriptions/service.js';
 import { documentExpiryTick } from './pros/management.js';
+import { documentReminderTick } from './pros/document-reminders.js';
 import { ratingRequestTick, reminderTick } from './bookings/reminders.js';
 import { payoutScheduleTick } from './payments/payouts.js';
 import type { Senders } from './notifications/outbox.js';
@@ -28,6 +29,7 @@ export function startWorkers(deps: BookingDeps, senders: Senders, log: FastifyBa
     { name: 'Settling completed jobs', everyMs: 60_000, run: () => settleTick(deps) },
     { name: 'Planning monthly plan visits and billing', everyMs: 5 * 60_000, run: () => subscriptionTick(deps) },
     { name: 'Moving pros with expired documents to Pending approval', everyMs: 15 * 60_000, run: () => documentExpiryTick(deps) },
+    { name: 'Reminding pros 30 days before a document runs out', everyMs: 15 * 60_000, run: () => documentReminderTick(deps) },
     { name: 'Reminding customers of their jobs tomorrow', everyMs: 5 * 60_000, run: () => reminderTick(deps) },
     { name: 'Asking customers to rate finished jobs', everyMs: 5 * 60_000, run: () => ratingRequestTick(deps) },
     { name: 'Keeping pro payout schedules in line with Settings', everyMs: 10 * 60_000, run: () => payoutScheduleTick(deps) },

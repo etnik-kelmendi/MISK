@@ -57,8 +57,6 @@ export const messages = {
   infoRequested: (message: string) => `MISK: we need more for your application: ${message} Please update it in the app.`,
   documentRejected: (document: string, note: string) => `MISK: please upload a new copy of your ${document}. ${note}`,
   documentReminder: (document: string) => `MISK: please upload your ${document} in the app, so you keep getting jobs.`,
-  documentExpiringReminder: (document: string, date: string) =>
-    `MISK: your ${document} runs out on ${date}. Please upload the new one in the app before then.`,
   documentsExpired: (documents: string) =>
     `MISK: your ${documents} ran out, so you get no new jobs for now. Upload the new one in the app and we check it quickly.`,
   backToActive: () => 'MISK: your documents are checked. You get new jobs again.',

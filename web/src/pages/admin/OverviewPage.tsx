@@ -190,7 +190,8 @@ function LiveBookings({ bookings, timezone }: { bookings: LiveBooking[]; timezon
                   <button
                     type="button"
                     className="link b"
-                    aria-label={t('admin.bookings.open', { number: item.number })}
+                    // The name starts with the date it shows, so voice control ("click Mon 16 Nov") finds it.
+                    aria-label={t('admin.overview.openAt', { when: dateTime(item.startsAt, timezone), number: item.number })}
                     onClick={(event) => {
                       event.stopPropagation();
                       open(item);

@@ -630,7 +630,8 @@
       "holds_one": "{{count}} cancelled booking still holding money",
       "holds_other": "{{count}} cancelled bookings still holding money",
       "failedPayouts_one": "{{count}} failed payout (retried automatically)",
-      "failedPayouts_other": "{{count}} failed payouts (retried automatically)"
+      "failedPayouts_other": "{{count}} failed payouts (retried automatically)",
+      "openAt": "{{when}}, open {{number}}"
     },
     "bookings": {
       "title": "Bookings",

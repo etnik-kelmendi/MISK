@@ -213,7 +213,7 @@ describe('Overview', () => {
     expect(booking).toHaveTextContent(/Lawn mowing.*Anna.*Invalidenstraße 1.*Daniel.*Working.*60\.90/);
     expect(visit).toHaveTextContent(/Garden care plan.*Torstraße 9.*Ina.*Planned.*Plan$/);
 
-    await user().click(within(table).getByRole('button', { name: 'Open B-1042' }));
+    await user().click(within(table).getByRole('button', { name: /, open B-1042$/ }));
     expect(await screen.findByRole('heading', { level: 1, name: 'Bookings' })).toBeInTheDocument();
     expect(api.calls).toContain('GET /admin/bookings');
   });

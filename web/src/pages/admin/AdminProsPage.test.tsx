@@ -9,7 +9,7 @@ const PRO_ID = '33333333-3333-4333-8333-333333333333';
 const summary: AdminProSummary = {
   kpis: { activePros: 6, onlineNow: 2, avgAcceptancePct: 91, documentsExpiring: 1 },
   counts: { applications: 2, active: 6, pending_approval: 1, suspended: 1 },
-  inviteUrl: 'http://localhost:5173/signin?as=pro&method=phone',
+  inviteUrl: 'http://localhost:5173/signin?as=pro',
 };
 
 function listItem(overrides: Partial<AdminProListItem> = {}): AdminProListItem {

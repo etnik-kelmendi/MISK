@@ -16,6 +16,7 @@ import {
 import { hashPassword } from '../auth/passwords.js';
 import { addDays, marketToday, proNumbers } from './checks.js';
 import { documentExpiryTick } from './management.js';
+import { documentReminderTick, readableDay } from './document-reminders.js';
 
 let t: TestContext;
 let market: Market;
@@ -247,7 +248,7 @@ describe('active pros', () => {
     const summary = (await get('/admin/pros/summary')).json();
     expect(summary.kpis).toMatchObject({ activePros: 1, avgAcceptancePct: 67, documentsExpiring: 1 });
     expect(summary.counts).toEqual({ applications: 0, active: 1, pending_approval: 0, suspended: 0 });
-    expect(summary.inviteUrl).toBe('http://localhost:5173/signin?as=pro&method=phone');
+    expect(summary.inviteUrl).toBe('http://localhost:5173/signin?as=pro');
     // The pro's own session was just used, so they count as online.
     expect(summary.kpis.onlineNow).toBe(1);
   });
@@ -437,7 +438,7 @@ describe('documents that run out', () => {
     expect((await post(`/admin/pros/${id}/documents/background/remind`)).json()).toEqual({ error: 'reminder_recent' });
 
     await post(`/admin/pros/${id}/documents/insurance/remind`);
-    expect((await texts(id)).at(-1)).toContain(`runs out on ${addDays(today, 10)}`);
+    expect((await texts(id)).at(-1)).toContain(`runs out on ${readableDay(addDays(today, 10))}`);
     expect((await post(`/admin/pros/${id}/documents/id/remind`)).json()).toEqual({ error: 'nothing_to_remind' });
   });
 
@@ -450,5 +451,102 @@ describe('documents that run out', () => {
     expect((await post(`/admin/pros/${id}/documents/id/accept`, {})).json()).toEqual({ error: 'expiry_required' });
     const corrected = await post(`/admin/pros/${id}/documents/id/accept`, { expiresOn: '2032-02-02' });
     expect(corrected.json().pro.checks[0].document).toMatchObject({ expiresOn: '2032-02-02', reviewStatus: 'accepted' });
+  });
+});
+
+describe('reminders before a document runs out (D59)', () => {
+  type Row = { channel: string; subject: string | null; body: string; email: string | null };
+  const sent = async (userId: string) =>
+    (
+      await t.pool.query<Row>(
+        "SELECT channel, subject, body, email FROM notifications WHERE user_id = $1 AND kind = 'document_expiring' ORDER BY channel",
+        [userId],
+      )
+    ).rows;
+  const inbox = async (userId: string) =>
+    (await t.pool.query<{ body: string }>("SELECT body FROM inbox WHERE user_id = $1 AND kind = 'document_expiring'", [userId])).rows;
+  /** Midday in the market, so the daytime-only rule never decides a test. */
+  const noon = (day: string) => new Date(`${day}T11:00:00Z`);
+
+  async function activeProWithInsuranceUntil(validUntil: string, reach: { email?: string; push?: boolean } = {}) {
+    const { id } = await applicant();
+    await acceptAll(id);
+    await post(`/admin/pros/${id}/approve`);
+    await t.pool.query("UPDATE pro_documents SET expires_on = $2, valid_until = $2 WHERE pro_id = $1 AND kind = 'insurance'", [id, validUntil]);
+    if (reach.email) await t.pool.query('UPDATE users SET email = $2 WHERE id = $1', [id, reach.email]);
+    if (reach.push) {
+      await t.pool.query(
+        "INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth) VALUES ($1, 'https://push.example.com/pro', 'BKey', 'auth1')",
+        [id],
+      );
+    }
+    return id;
+  }
+
+  it('sends the reminder 30 days before by push, by email and in the app, naming the document, the date and what happens next', async () => {
+    const today = marketToday(t.config.timezone);
+    const until = addDays(today, 30);
+    const id = await activeProWithInsuranceUntil(until, { email: 'daniel@example.com', push: true });
+
+    expect(await documentReminderTick(t.deps, noon(today))).toBe(1);
+    const rows = await sent(id);
+    expect(rows.map((r) => r.channel)).toEqual(['email', 'push']);
+    const [email, push] = rows;
+    expect(email?.email).toBe('daniel@example.com');
+    expect(email?.subject).toBe(`Your liability insurance runs out on ${readableDay(until)}`);
+    expect(email?.body).toContain(`your liability insurance runs out on ${readableDay(until)}.`);
+    expect(email?.body).toContain('Once it has run out, you get no new jobs until we have checked and accepted the new one.');
+    expect(email?.body).toContain('http://localhost:5173/pro/profile');
+    expect(push?.body).toBe(
+      `MISK: your liability insurance runs out on ${readableDay(until)}. Please upload the new one in the app before then. ` +
+        'Once it has run out, you get no new jobs until the new one is accepted.',
+    );
+    expect(await inbox(id)).toHaveLength(1);
+    // The team sees it in the pro's log, so nobody sends the same reminder by hand straight after.
+    const log = await t.pool.query("SELECT details FROM pro_admin_actions WHERE pro_id = $1 AND action = 'reminder_sent'", [id]);
+    expect(log.rows[0]?.details).toMatchObject({ document: 'insurance', state: 'expiring', automatic: true });
+  });
+
+  it('sends it once per expiry date, not earlier than 30 days, and again for a renewed document', async () => {
+    const today = marketToday(t.config.timezone);
+    const id = await activeProWithInsuranceUntil(addDays(today, 31), { email: 'daniel@example.com' });
+    expect(await documentReminderTick(t.deps, noon(today))).toBe(0);
+    expect(await documentReminderTick(t.deps, noon(addDays(today, 1)))).toBe(1);
+    expect(await documentReminderTick(t.deps, noon(addDays(today, 2)))).toBe(0);
+    expect(await sent(id)).toHaveLength(1);
+
+    // Renewed, and later that copy runs out too.
+    await t.pool.query("UPDATE pro_documents SET expires_on = $2, valid_until = $2 WHERE pro_id = $1 AND kind = 'insurance'", [id, addDays(today, 400)]);
+    expect(await documentReminderTick(t.deps, noon(addDays(today, 369)))).toBe(0);
+    expect(await documentReminderTick(t.deps, noon(addDays(today, 370)))).toBe(1);
+  });
+
+  it('waits for the daytime, and skips a document whose new copy is already waiting for the check', async () => {
+    const today = marketToday(t.config.timezone);
+    const id = await activeProWithInsuranceUntil(addDays(today, 20), { email: 'daniel@example.com' });
+    expect(await documentReminderTick(t.deps, new Date(`${today}T02:00:00Z`))).toBe(0);
+    expect(await documentReminderTick(t.deps, new Date(`${today}T20:30:00Z`))).toBe(0);
+
+    await t.pool.query("UPDATE pro_documents SET review_status = 'pending' WHERE pro_id = $1 AND kind = 'insurance'", [id]);
+    expect(await documentReminderTick(t.deps, noon(today))).toBe(0);
+    expect(await sent(id)).toEqual([]);
+  });
+
+  it('texts a pro who has neither push nor an email address, so the reminder still arrives', async () => {
+    const today = marketToday(t.config.timezone);
+    const id = await activeProWithInsuranceUntil(addDays(today, 15));
+    expect(await documentReminderTick(t.deps, noon(today))).toBe(1);
+    expect((await sent(id)).map((r) => r.channel)).toEqual(['sms']);
+    expect(await inbox(id)).toHaveLength(1);
+  });
+
+  it('sends the same push and email when the team reminds the pro by hand', async () => {
+    const today = marketToday(t.config.timezone);
+    const until = addDays(today, 12);
+    const id = await activeProWithInsuranceUntil(until, { email: 'daniel@example.com', push: true });
+    expect((await post(`/admin/pros/${id}/documents/insurance/remind`)).statusCode).toBe(200);
+    const rows = await sent(id);
+    expect(rows.map((r) => r.channel)).toEqual(['email', 'push']);
+    expect(rows[0]?.subject).toBe(`Your liability insurance runs out on ${readableDay(until)}`);
   });
 });

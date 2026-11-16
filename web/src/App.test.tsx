@@ -52,6 +52,21 @@ function booking(overrides: Partial<CustomerBooking> = {}): CustomerBooking {
 }
 
 describe('log in', () => {
+  it('opens the team’s "Invite pro" link with Email selected, and Phone one click away (D60)', async () => {
+    fakeApi(null);
+    renderAt('/signin?as=pro');
+    const methods = await screen.findByRole('group', { name: 'How to log in' });
+    expect(within(methods).getByRole('button', { name: 'Email' })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(methods).getByRole('button', { name: 'Phone' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByLabelText('Email address')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Mobile number')).not.toBeInTheDocument();
+
+    await user().click(within(methods).getByRole('button', { name: 'Phone' }));
+    expect(screen.getByLabelText('Mobile number')).toBeInTheDocument();
+    // The link remembers "invited as a pro" for the browser tab; later tests start without it.
+    sessionStorage.clear();
+  });
+
   it('logs in with email and password', async () => {
     const api = fakeApi(null);
     api.on('POST /auth/login', { body: { user: { ...users.customer, email: 'sara@example.com' } } });

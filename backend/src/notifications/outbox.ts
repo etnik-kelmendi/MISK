@@ -19,6 +19,7 @@ export type NotificationKind =
   | 'booking_unassigned'
   | 'application_reviewed'
   | 'pro_documents'
+  | 'document_expiring'
   | 'pro_account'
   | 'plan_pro_changed'
   | 'payout_sent'
@@ -57,7 +58,16 @@ const SUBJECTS: Partial<Record<NotificationKind, string>> = {
   waitlist_open: 'MISK now serves your area',
   booking_cancelled: 'Your MISK booking was cancelled',
   booking_rescheduled: 'Your MISK booking has a new time',
+  document_expiring: 'A document of yours runs out soon',
 };
+
+/** How one message overrides the usual channels and email (see enqueue). */
+export interface EnqueueOptions {
+  /** Channels to use instead of those set for the kind; a channel the person cannot be reached on is skipped. */
+  channels?: Record<Channel, boolean>;
+  /** A longer email than the SMS text, with its own subject. */
+  email?: { subject: string; text: string };
+}
 
 export const MAX_ATTEMPTS = 3;
 const BATCH_SIZE = 20;
@@ -82,24 +92,40 @@ export function subjectOf(kind: NotificationKind): string {
  * Pass the transaction's client so the message is only sent if the change it reports is saved.
  * Returns true when at least one channel was queued.
  */
-export async function enqueue(db: Queryable, userId: string, kind: NotificationKind, body: string): Promise<boolean> {
+export async function enqueue(
+  db: Queryable,
+  userId: string,
+  kind: NotificationKind,
+  body: string,
+  options: EnqueueOptions = {},
+): Promise<boolean> {
+  const { channels, email } = options;
   const result = await db.query(
     `WITH person AS (
        SELECT id, phone, email FROM users WHERE id = $1 AND disabled_at IS NULL
      ), chosen AS (
-       SELECT COALESCE(s.push, false) AS push,
-              COALESCE(s.sms, (SELECT phone IS NOT NULL FROM person)) AS sms,
-              COALESCE(s.email, (SELECT phone IS NULL FROM person)) AS email
+       SELECT COALESCE($5::boolean, s.push, false) AS push,
+              COALESCE($6::boolean, s.sms, (SELECT phone IS NOT NULL FROM person)) AS sms,
+              COALESCE($7::boolean, s.email, (SELECT phone IS NULL FROM person)) AS email
        FROM (SELECT 1) one LEFT JOIN notification_settings s ON s.kind = $2
      )
      INSERT INTO notifications (user_id, channel, phone, email, subject, push_subscription_id, kind, body)
      SELECT p.id, 'sms', p.phone, NULL, NULL, NULL::uuid, $2, $3 FROM person p, chosen c WHERE c.sms AND p.phone IS NOT NULL
      UNION ALL
-     SELECT p.id, 'email', NULL, p.email, $4, NULL::uuid, $2, $3 FROM person p, chosen c WHERE c.email AND p.email IS NOT NULL
+     SELECT p.id, 'email', NULL, p.email, $4, NULL::uuid, $2, COALESCE($8, $3) FROM person p, chosen c WHERE c.email AND p.email IS NOT NULL
      UNION ALL
      SELECT p.id, 'push', NULL, NULL, NULL, ps.id, $2, $3
      FROM person p JOIN push_subscriptions ps ON ps.user_id = p.id, chosen c WHERE c.push`,
-    [userId, kind, fitBody(body), subjectOf(kind)],
+    [
+      userId,
+      kind,
+      fitBody(body),
+      email?.subject ?? subjectOf(kind),
+      channels?.push ?? null,
+      channels?.sms ?? null,
+      channels?.email ?? null,
+      email?.text ?? null,
+    ],
   );
   // Customers and pros also find every message in the app (Messages), whatever the channels did.
   if (kind !== 'admin_test') {

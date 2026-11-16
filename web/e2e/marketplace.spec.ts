@@ -136,6 +136,14 @@ test.describe.serial('MISK marketplace', () => {
     await page.getByRole('checkbox', { name: /I accept the terms/ }).check();
     await expectAccessible(page);
     await page.getByRole('button', { name: 'Sign up', exact: true }).click();
+    // Signing up does not sign in: the email has to be confirmed first, with the link that was emailed.
+    await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible();
+    await expect(page.getByRole('status')).toContainText('We sent a link to lena@example.com.');
+    await expectAccessible(page);
+    const email = await (await page.request.get(`${API}/test/last-email?to=lena@example.com`)).json();
+    const link = String(email.text).match(/https?:\/\/\S+\/verify-email#token=[\w-]+/)?.[0];
+    expect(link, 'confirmation link in the email').toBeTruthy();
+    await page.goto(link ?? '');
     await expect(page.getByRole('heading', { name: 'Welcome!' })).toBeVisible();
     await expect(page.getByLabel('Your first name')).toHaveValue('Lena');
     await page.getByRole('button', { name: /Open the customer app/ }).click();
@@ -177,7 +185,9 @@ test.describe.serial('MISK marketplace', () => {
 
     await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible();
     const nav = page.getByRole('navigation', { name: 'Control panel' });
-    await expect(page.getByText('€68.40')).toBeVisible();
+    // The money shows in the revenue tile and again on the job's row in the ten most recent bookings.
+    await expect(page.getByText('Revenue (gross)').locator('..')).toContainText('€68.40');
+    await expect(page.getByRole('cell', { name: '€68.40' })).toBeVisible();
     await expectAccessible(page);
 
     await nav.getByRole('link', { name: 'Bookings', exact: true }).click();

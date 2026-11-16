@@ -7,6 +7,7 @@ import { ApiError, badRequest, conflict, notFound } from '../errors.js';
 import { uuidParams } from '../http.js';
 import { formatSlot, messages } from '../notifications/messages.js';
 import { enqueue } from '../notifications/outbox.js';
+import { sendExpiringReminder } from './document-reminders.js';
 import {
   addDays,
   DOCUMENT_COLUMNS,
@@ -266,8 +267,9 @@ export async function adminProRoutes(app: FastifyInstance, ctx: AppContext) {
         pending_approval: r.pendingApproval,
         suspended: r.suspended,
       },
-      // Pros sign in with their phone (job offers come by text); the link opens that sign-in with "pro" chosen.
-      inviteUrl: `${ctx.config.webOrigin}/signin?as=pro&method=phone`,
+      // The link opens the app's sign-in with "pro" chosen and Email selected (D60); the pro can still switch
+      // to Phone there.
+      inviteUrl: `${ctx.config.webOrigin}/signin?as=pro`,
     };
   });
 
@@ -512,12 +514,11 @@ export async function adminProRoutes(app: FastifyInstance, ctx: AppContext) {
         throw conflict('reminder_recent');
       }
       const name = DOCUMENT_NAMES[kind];
-      const text =
-        check.state === 'expiring' && check.document?.expiresOn
-          ? messages.documentExpiringReminder(name, check.document.expiresOn)
-          : messages.documentReminder(name);
+      const expiresOn = check.state === 'expiring' ? check.document?.expiresOn : undefined;
       await withTransaction(pool, async (client) => {
-        await enqueue(client, proId, 'pro_documents', text);
+        // An expiring document gets the same reminder as the automatic one: app, push and email (D59).
+        if (expiresOn) await sendExpiringReminder(client, ctx.config, proId, kind, expiresOn);
+        else await enqueue(client, proId, 'pro_documents', messages.documentReminder(name));
         await logProAction(client, proId, currentUser(request).id, 'reminder_sent', { document: kind, state: check.state });
       });
       return { pro: await detail(proId) };
