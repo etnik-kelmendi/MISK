@@ -190,7 +190,9 @@
     "sendCode": "Send me a sign-in code",
     "noAccount": "Don't have an account?",
     "signUp": "Sign up",
-    "forgot": "Forgot password?"
+    "forgot": "Forgot password?",
+    "forgotOther": "Forgot your password?",
+    "forgotPhoneHint": "Logging in with email and forgot your password?"
   },
   "home": {
     "hello": "Good to see you,",
@@ -1650,7 +1652,8 @@
       "email": "Please enter a valid email address",
       "emailTaken": "An account with this email already exists",
       "mismatch": "Passwords do not match"
-    }
+    },
+    "forgot": "Forgot your password?"
   },
   "month": {
     "1": "Jan",
@@ -1920,10 +1923,10 @@
     "title": "Forgot your password?",
     "intro": "Enter the email address of your MISK account. We will email you a link to choose a new password.",
     "submit": "Send reset link",
-    "sent": "If {{email}} belongs to a MISK account, a reset link is on its way.",
-    "sentHint": "The link works once, for 30 minutes. Check your spam folder if you cannot find the email.",
-    "again": "Use another email",
-    "back": "Back to log in"
+    "sent": "We sent an email to {{email}}. If it has a MISK account, the email has a link to choose a new password; if not, it says why.",
+    "sentHint": "The link works once, for 30 minutes. No email after a few minutes? Check your spam folder, or type another email address above.",
+    "back": "Back to log in",
+    "sendAgain": "Send the link again"
   },
   "reset": {
     "title": "Choose a new password",

@@ -246,8 +246,33 @@ describe('forgot password', () => {
 
   it('checks the email format, and answers the same whether or not the account exists', async () => {
     expect((await forgot('not-an-email')).json()).toEqual({ error: 'invalid_email' });
-    expect((await forgot('nobody@example.com')).statusCode).toBe(202);
     expect(t.emails).toEqual([]);
+    const unknown = await forgot('nobody@example.com');
+    expect(unknown.statusCode).toBe(202);
+    expect(unknown.json()).toEqual({});
+    // Only the inbox owner learns that no account uses the address, with a way to sign up (D61).
+    expect(t.emails).toEqual([
+      expect.objectContaining({
+        to: 'nobody@example.com',
+        subject: 'Your MISK password reset request',
+        text: expect.stringContaining('no MISK account uses it'),
+      }),
+    ]);
+    expect(t.emails[0]?.text).toContain('http://localhost:5173/signup');
+    expect(t.emails[0]?.text).not.toContain('reset-password#token=');
+  });
+
+  it('tells a phone-only account that there is no password, and stays silent for a disabled one', async () => {
+    await t.pool.query(`INSERT INTO users (phone, email, role, first_name) VALUES ('+4915100000099', 'phone@example.com', 'customer', 'Pia')`);
+    await t.pool.query(
+      `INSERT INTO users (phone, email, password_hash, role, first_name, disabled_at) VALUES ('+4915100000098', 'gone@example.com', 'x', 'customer', 'Gil', now())`,
+    );
+    expect((await forgot('phone@example.com')).statusCode).toBe(202);
+    expect(t.emails.at(-1)).toMatchObject({ to: 'phone@example.com', subject: 'Log in to MISK with your phone' });
+    expect(t.emails.at(-1)?.text).toContain('http://localhost:5173/signin?method=phone');
+    const before = t.emails.length;
+    expect((await forgot('gone@example.com')).statusCode).toBe(202);
+    expect(t.emails).toHaveLength(before);
   });
 
   it('signs the account out everywhere and confirms an unconfirmed email', async () => {
@@ -266,7 +291,11 @@ describe('forgot password', () => {
   it('never resets an admin account from the app, and limits how often a link can be asked for', async () => {
     await t.pool.query(`INSERT INTO users (username, email, password_hash, role) VALUES ('boss', 'boss@example.com', 'x', 'admin')`);
     expect((await forgot('boss@example.com')).statusCode).toBe(202);
-    expect(t.emails).toEqual([]);
+    // The team member is pointed to the control panel instead, and no reset link is made (D61).
+    expect(t.emails).toEqual([expect.objectContaining({ to: 'boss@example.com', subject: 'Reset your MISK team password on the control panel' })]);
+    expect(t.emails[0]?.text).not.toContain('reset-password#token=');
+    expect((await t.pool.query('SELECT count(*)::int AS n FROM password_resets')).rows[0]?.n).toBe(0);
+    t.emails.length = 0;
 
     await registerAndVerify();
     t.emails.length = 0;

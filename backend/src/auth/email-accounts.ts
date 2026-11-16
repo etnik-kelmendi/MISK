@@ -71,6 +71,57 @@ export function userResetEmail(firstName: string, link: string) {
   };
 }
 
+/** "Forgot password?" for an email with no MISK account: says so, and where to sign up. */
+export function noAccountEmail(signUpLink: string) {
+  return {
+    subject: 'Your MISK password reset request',
+    text: [
+      'Hello,',
+      '',
+      'someone asked to reset the MISK password for this email address, but no MISK account uses it.',
+      '',
+      'If you have an account, try the email address you signed up with. To create an account, open:',
+      signUpLink,
+      '',
+      'If this was not you, you can ignore this email.',
+    ].join('\n'),
+  };
+}
+
+/** For a MISK team member who used the app's "Forgot password?": their password is reset on the control panel. */
+export function teamAccountEmail(adminLoginLink: string) {
+  return {
+    subject: 'Reset your MISK team password on the control panel',
+    text: [
+      'Hello,',
+      '',
+      'this email address belongs to a MISK team account. Its password is reset on the control panel, not in the app.',
+      '',
+      'Open the control panel and choose "Forgot your password?":',
+      adminLoginLink,
+      '',
+      'If this was not you, you can ignore this email.',
+    ].join('\n'),
+  };
+}
+
+/** For an account that signs in with a phone code: there is no password to reset. */
+export function phoneAccountEmail(phoneSignInLink: string) {
+  return {
+    subject: 'Log in to MISK with your phone',
+    text: [
+      'Hello,',
+      '',
+      'your MISK account logs in with a code we text to your phone, so it has no password to reset.',
+      '',
+      'Log in with your phone number here:',
+      phoneSignInLink,
+      '',
+      'If this was not you, you can ignore this email.',
+    ].join('\n'),
+  };
+}
+
 interface RegisterBody {
   firstName: string;
   lastName: string;
@@ -353,7 +404,28 @@ export async function emailAccountRoutes(app: FastifyInstance, ctx: AppContext) 
       );
       const user = found.rows[0];
       if (!user) {
-        request.log.info({ event: 'password_reset_no_match' });
+        // Nobody can reset this email from the app, but the person asking should still hear why (D61). The
+        // answer here stays the same, so the page reveals nothing; only the inbox owner reads the reason.
+        const other = await pool.query<{ role: string | null; hasPassword: boolean; disabled: boolean }>(
+          `SELECT role, password_hash IS NOT NULL AS "hasPassword", disabled_at IS NOT NULL AS disabled FROM users WHERE email = $1`,
+          [email],
+        );
+        const account = other.rows[0];
+        const explanation = !account
+          ? noAccountEmail(`${config.webOrigin}/signup`)
+          : account.disabled
+            ? null
+            : account.role === 'admin'
+              ? teamAccountEmail(`${config.adminOrigin}/admin/login`)
+              : phoneAccountEmail(`${config.webOrigin}/signin?method=phone`);
+        request.log.info({ event: 'password_reset_no_match', reason: !account ? 'no_account' : account.disabled ? 'disabled' : account.role === 'admin' ? 'admin' : 'no_password' });
+        if (explanation) {
+          try {
+            await deliver({ to: email, ...explanation });
+          } catch (error) {
+            request.log.error({ event: 'password_reset_explanation_failed', err: error });
+          }
+        }
         return reply.code(202).send({});
       }
       const token = randomBytes(32).toString('base64url');

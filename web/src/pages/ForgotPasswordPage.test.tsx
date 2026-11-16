@@ -30,9 +30,30 @@ describe('forgot password', () => {
 
     await user().type(email, '.com');
     await user().click(screen.getByRole('button', { name: 'Send reset link' }));
-    expect(await screen.findByRole('status')).toHaveTextContent('If sara@example.com belongs to a MISK account, a reset link is on its way.');
+    expect(await screen.findByRole('status')).toHaveTextContent('We sent an email to sara@example.com.');
     expect(api.bodies['POST /auth/forgot-password']).toEqual({ email: 'sara@example.com' });
     expect(screen.getByText(/works once, for 30 minutes/)).toBeInTheDocument();
+
+    // The field stays, so another email can be typed and sent straight away (D61).
+    expect(email).toBeInTheDocument();
+    expect(email).toHaveValue('sara@example.com');
+    await user().clear(email);
+    await user().type(email, 'sara.meier@example.com');
+    await user().click(screen.getByRole('button', { name: 'Send the link again' }));
+    expect(await screen.findByRole('status')).toHaveTextContent('We sent an email to sara.meier@example.com.');
+    expect(api.bodies['POST /auth/forgot-password']).toEqual({ email: 'sara.meier@example.com' });
+    expect(api.calls.filter((c) => c === 'POST /auth/forgot-password')).toHaveLength(2);
+  });
+
+  it('offers "Forgot your password?" on the phone tab and on the sign-up page too', async () => {
+    fakeApi(null);
+    renderAt('/signin?method=phone');
+    expect(await screen.findByLabelText('Mobile number')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Forgot your password?' })).toHaveAttribute('href', '/forgot-password');
+
+    renderAt('/signup');
+    const links = await screen.findAllByRole('link', { name: 'Forgot your password?' });
+    expect(links.every((link) => link.getAttribute('href') === '/forgot-password')).toBe(true);
   });
 
   it('sets a new password that meets the rules and is confirmed, then sends the person to log in', async () => {

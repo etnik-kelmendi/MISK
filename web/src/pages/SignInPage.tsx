@@ -171,6 +171,10 @@ function PhoneLogin({ onSent }: { onSent: (phone: string) => void }) {
       <button className="cta" type="submit" disabled={busy}>
         <Icon name="phone" /> {busy ? t('common.sending') : t('signIn.sendCode')}
       </button>
+      {/* Phone log-in has no password, but someone who uses email may be on this tab: the reset is one click away. */}
+      <p className="small center muted">
+        {t('signIn.forgotPhoneHint')} <Link to="/forgot-password">{t('signIn.forgotOther')}</Link>
+      </p>
     </form>
   );
 }

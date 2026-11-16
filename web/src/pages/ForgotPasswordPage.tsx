@@ -47,45 +47,39 @@ export function ForgotPasswordPage() {
             <p className="brand">{t('app.name')}</p>
           </div>
           <h1 className="signin-title">{t('forgot.title')}</h1>
-          {sentTo ? (
-            <div className="stack">
-              <p className="info" role="status">
-                <Icon name="check" />
-                <span>{t('forgot.sent', { email: sentTo })}</span>
-              </p>
-              <p className="small muted">{t('forgot.sentHint')}</p>
-              <button type="button" className="btn btn-ghost" onClick={() => setSentTo(null)}>
-                {t('forgot.again')}
-              </button>
-              <Link to="/signin" className="cta">
-                {t('forgot.back')}
-              </Link>
-            </div>
-          ) : (
-            <form className="stack" onSubmit={submit} noValidate aria-label={t('forgot.title')}>
-              <p className="muted">{t('forgot.intro')}</p>
-              <Field id={id} label={t('signUp.email')} error={form.message('email')}>
-                <input
-                  id={id}
-                  type="email"
-                  inputMode="email"
-                  autoComplete="email"
-                  required
-                  maxLength={254}
-                  value={email}
-                  {...form.describe('email')}
-                  onChange={(event) => setEmail(event.target.value)}
-                />
-              </Field>
-              <ErrorText error={error} />
-              <button className="cta" type="submit" disabled={busy}>
-                {busy ? t('common.sending') : t('forgot.submit')}
-              </button>
-              <Link to="/signin" className="center small">
-                {t('forgot.back')}
-              </Link>
-            </form>
-          )}
+          {/* The field stays after sending, so another email can be typed and sent straight away (D61). */}
+          <form className="stack" onSubmit={submit} noValidate aria-label={t('forgot.title')}>
+            <p className="muted">{t('forgot.intro')}</p>
+            <Field id={id} label={t('signUp.email')} error={form.message('email')}>
+              <input
+                id={id}
+                type="email"
+                inputMode="email"
+                autoComplete="email"
+                required
+                maxLength={254}
+                value={email}
+                {...form.describe('email')}
+                onChange={(event) => setEmail(event.target.value)}
+              />
+            </Field>
+            <ErrorText error={error} />
+            <button className="cta" type="submit" disabled={busy}>
+              {busy ? t('common.sending') : sentTo ? t('forgot.sendAgain') : t('forgot.submit')}
+            </button>
+            {sentTo && (
+              <div className="stack tight">
+                <p className="info" role="status">
+                  <Icon name="check" />
+                  <span>{t('forgot.sent', { email: sentTo })}</span>
+                </p>
+                <p className="small muted">{t('forgot.sentHint')}</p>
+              </div>
+            )}
+            <Link to="/signin" className="center small">
+              {t('forgot.back')}
+            </Link>
+          </form>
         </div>
       </main>
     </div>

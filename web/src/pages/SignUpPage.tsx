@@ -1,6 +1,6 @@
 import { useId, useState, type FormEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Navigate, useNavigate } from 'react-router';
+import { Link, Navigate, useNavigate } from 'react-router';
 import { useApi } from '../api/ApiContext';
 import { ApiError } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
@@ -370,6 +370,9 @@ export function SignUpPage() {
             <button type="button" className="link" onClick={() => navigate('/signin?method=phone')}>
               {t('signUp.usePhone')}
             </button>
+          </p>
+          <p className="small center">
+            <Link to="/forgot-password">{t('signUp.forgot')}</Link>
           </p>
         </form>
       </main>
