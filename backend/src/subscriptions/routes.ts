@@ -171,6 +171,7 @@ export async function subscriptionRoutes(app: FastifyInstance, ctx: AppContext) 
           days,
           starts,
           visitMinutes: plan.visitMinutes,
+          customerId: customer.id,
         });
         if (!proId) {
           throw conflict('no_pro_available');

@@ -18,7 +18,7 @@ export interface User {
 
 export const ADMIN_ROLES = ['admin', 'operations', 'support', 'finance'] as const;
 export type AdminRole = (typeof ADMIN_ROLES)[number];
-export type AdminArea = 'overview' | 'bookings' | 'providers' | 'plans' | 'catalogue' | 'fees' | 'zones' | 'notifications' | 'team';
+export type AdminArea = 'overview' | 'bookings' | 'providers' | 'users' | 'plans' | 'catalogue' | 'fees' | 'zones' | 'notifications' | 'team';
 
 export type IconName = 'leaf' | 'hammer' | 'drop' | 'bolt' | 'sparkle' | 'brush' | 'wrench' | 'sun';
 export type JobSize = 'S' | 'M' | 'L';

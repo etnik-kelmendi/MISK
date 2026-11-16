@@ -69,7 +69,7 @@ export async function plannedStarts(db: Queryable, pattern: VisitPattern, timezo
  */
 export async function chooseRegularPro(
   db: Queryable,
-  input: { categoryId: string; postcode: string; days: number[]; starts: Date[]; visitMinutes: number },
+  input: { categoryId: string; postcode: string; days: number[]; starts: Date[]; visitMinutes: number; customerId: string },
 ): Promise<string | null> {
   const result = await db.query<{ user_id: string }>(
     `SELECT p.user_id FROM pro_profiles p
@@ -77,6 +77,7 @@ export async function chooseRegularPro(
      JOIN postcodes home ON home.code = p.home_postcode
      JOIN postcodes dest ON dest.code = $2
      WHERE p.status = 'approved' AND p.payouts_enabled AND p.jobs_paused_at IS NULL
+       AND p.user_id <> $6
        AND EXISTS (SELECT 1 FROM pro_trades t WHERE t.pro_id = p.user_id AND t.category_id = $1)
        AND distance_km(home.lat, home.lng, dest.lat, dest.lng) <= p.radius_km
        AND p.working_days @> $3::smallint[]
@@ -92,7 +93,7 @@ export async function chooseRegularPro(
      ORDER BY COALESCE((SELECT avg(stars) FROM ratings r WHERE r.pro_id = p.user_id), 4.5) DESC,
        distance_km(home.lat, home.lng, dest.lat, dest.lng), p.user_id
      LIMIT 1`,
-    [input.categoryId, input.postcode, input.days, input.starts, input.visitMinutes],
+    [input.categoryId, input.postcode, input.days, input.starts, input.visitMinutes, input.customerId],
   );
   return result.rows[0]?.user_id ?? null;
 }

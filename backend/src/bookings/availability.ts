@@ -14,6 +14,8 @@ export interface SlotQuery {
   postcode: string;
   durationMinutes: number;
   timezone: string;
+  /** The person booking: when they are a pro too, they are not counted as free for their own job (D64). */
+  customerId?: string;
 }
 
 export interface Slot {
@@ -29,8 +31,9 @@ export interface Slot {
  * and with no job or pending offer at an overlapping time. The caller supplies the alias `p`
  * for `pro_profiles` and the four expressions.
  */
-export function eligibleProFilter(cat: string, pc: string, s: string, e: string, tz: string): string {
+export function eligibleProFilter(cat: string, pc: string, s: string, e: string, tz: string, customer = 'NULL::uuid'): string {
   return `p.status = 'approved' AND p.payouts_enabled AND p.jobs_paused_at IS NULL
+    AND p.user_id IS DISTINCT FROM ${customer}
     AND EXISTS (SELECT 1 FROM users u WHERE u.id = p.user_id AND u.disabled_at IS NULL)
     AND EXISTS (SELECT 1 FROM pro_trades t WHERE t.pro_id = p.user_id AND t.category_id = ${cat})
     AND EXISTS (
@@ -75,7 +78,7 @@ export async function findSlots(db: Queryable, query: SlotQuery, onlyStart?: Dat
      )
      SELECT s.starts_at AS "startsAt", s.ends_at AS "endsAt",
        (SELECT count(*)::int FROM pro_profiles p
-        WHERE ${eligibleProFilter('$1', '$2', 's.starts_at', 's.ends_at', '$4')}) AS "freePros",
+        WHERE ${eligibleProFilter('$1', '$2', 's.starts_at', 's.ends_at', '$4', '$10::uuid')}) AS "freePros",
        (SELECT count(*)::int FROM bookings b
         WHERE b.category_id = $1 AND b.status IN ('awaiting_payment', 'searching')
           AND tstzrange(b.starts_at, b.ends_at) && tstzrange(s.starts_at, s.ends_at)
@@ -95,6 +98,7 @@ export async function findSlots(db: Queryable, query: SlotQuery, onlyStart?: Dat
       SLOT_HOURS,
       MIN_LEAD_MINUTES,
       onlyStart ?? null,
+      query.customerId ?? null,
     ],
   );
   return result.rows.map(({ startsAt, endsAt, freePros, demand }) => ({

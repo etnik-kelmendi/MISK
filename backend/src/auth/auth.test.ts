@@ -108,8 +108,12 @@ describe('roles', () => {
     const customer = await signIn(t, PHONE, 'customer');
     const pro = await signIn(t, '+4915199999999', 'pro');
     expect((await call(t, 'GET', '/pro/profile', { cookie: customer })).statusCode).toBe(403);
-    expect((await call(t, 'GET', '/bookings', { cookie: pro })).statusCode).toBe(403);
+    // A pro may also book as a customer with the same account (D64), and sees only their own bookings.
+    const own = await call(t, 'GET', '/bookings', { cookie: pro });
+    expect(own.statusCode).toBe(200);
+    expect(own.json().bookings).toEqual([]);
     expect((await call(t, 'GET', '/admin/pros', { cookie: customer })).statusCode).toBe(403);
+    expect((await call(t, 'GET', '/admin/users', { cookie: pro })).statusCode).toBe(403);
     expect((await call(t, 'GET', '/admin/pros')).statusCode).toBe(401);
   });
 });

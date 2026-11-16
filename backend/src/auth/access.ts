@@ -5,15 +5,15 @@
 export const ADMIN_ROLES = ['admin', 'operations', 'support', 'finance'] as const;
 export type AdminRole = (typeof ADMIN_ROLES)[number];
 
-export const AREAS = ['overview', 'bookings', 'providers', 'plans', 'catalogue', 'fees', 'zones', 'notifications', 'team'] as const;
+export const AREAS = ['overview', 'bookings', 'providers', 'users', 'plans', 'catalogue', 'fees', 'zones', 'notifications', 'team'] as const;
 export type Area = (typeof AREAS)[number];
 
 export const ACCESS: Record<AdminRole, readonly Area[]> = {
   admin: AREAS,
   // Runs the marketplace day to day: jobs, pros, what is sold and where, and the messages.
-  operations: ['overview', 'bookings', 'providers', 'plans', 'catalogue', 'zones', 'notifications'],
+  operations: ['overview', 'bookings', 'providers', 'users', 'plans', 'catalogue', 'zones', 'notifications'],
   // Helps customers and pros with their bookings.
-  support: ['overview', 'bookings', 'providers'],
+  support: ['overview', 'bookings', 'providers', 'users'],
   // Money: bookings and refunds, fees, commission and payouts.
   finance: ['overview', 'bookings', 'fees'],
 };
@@ -35,6 +35,7 @@ const PREFIXES: [string, Area][] = (
     ['/admin/zones', 'zones'],
     ['/admin/notifications', 'notifications'],
     ['/admin/team', 'team'],
+    ['/admin/users', 'users'],
     ['/admin/activity', 'team'],
   ] as [string, Area][]
 ).sort((a, b) => b[0].length - a[0].length);

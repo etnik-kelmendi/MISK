@@ -48,4 +48,8 @@ export const ACTIVITY_FEED = `
   UNION ALL
   SELECT 'catalogue-' || cc.id, 'catalogue', cc.action, cc.details, cc.created_at, cc.admin_id,
     COALESCE(s.name, c.name)
-  FROM catalogue_changes cc JOIN categories c ON c.id = cc.category_id LEFT JOIN services s ON s.id = cc.service_id`;
+  FROM catalogue_changes cc JOIN categories c ON c.id = cc.category_id LEFT JOIN services s ON s.id = cc.service_id
+  UNION ALL
+  SELECT 'user-' || ua.id, 'users', 'user_' || ua.action, ua.details, ua.created_at, ua.admin_id,
+    COALESCE(NULLIF(concat_ws(' ', u.first_name, u.last_name), ''), ua.details->>'name', 'Closed account')
+  FROM user_admin_actions ua JOIN users u ON u.id = ua.user_id`;

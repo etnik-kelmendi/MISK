@@ -7,7 +7,9 @@ import { useAuth } from './AuthContext';
 export const HOME_OF: Record<Role, string> = { customer: '/', pro: '/pro', admin: '/admin' };
 
 /** Only renders its children for the given role; everyone else is sent where they belong. */
-export function RequireRole({ allow: role, children }: { allow: Role; children: ReactNode }) {
+export function RequireRole({ allow, children }: { allow: Role | Role[]; children: ReactNode }) {
+  const allowed = Array.isArray(allow) ? allow : [allow];
+  const role = allowed[0] ?? 'customer';
   const { t } = useTranslation();
   const { state, refresh } = useAuth();
   const location = useLocation();
@@ -37,7 +39,7 @@ export function RequireRole({ allow: role, children }: { allow: Role; children: 
   if (!userRole) {
     return <Navigate to="/signin" replace />;
   }
-  if (userRole !== role) {
+  if (!allowed.includes(userRole)) {
     return <Navigate to={HOME_OF[userRole]} replace />;
   }
   return <>{children}</>;

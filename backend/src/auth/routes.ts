@@ -109,7 +109,7 @@ export async function authRoutes(app: FastifyInstance, ctx: AppContext) {
       const result = await verifyPhoneSignIn(pool, { phone, code: request.body.code, ip: request.ip });
       if (result.outcome !== 'success') {
         request.log.warn({ event: 'sign_in_rejected', reason: result.outcome });
-        const status = { invalid_code: 401, too_many_attempts: 429, account_disabled: 403 }[result.outcome];
+        const status = { invalid_code: 401, too_many_attempts: 429, account_disabled: 403, account_suspended: 403 }[result.outcome];
         return reply.code(status).send({ error: result.outcome });
       }
       await startSession(request, reply, result.token);

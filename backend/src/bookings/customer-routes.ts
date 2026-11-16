@@ -106,6 +106,7 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
         postcode,
         durationMinutes: service.durationMinutes,
         timezone: ctx.config.timezone,
+        customerId: currentUser(request).id,
       });
       return { timezone: ctx.config.timezone, slots };
     },
@@ -144,7 +145,13 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
         await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`book:${service.categoryId}`]);
         const [slot] = await findSlots(
           client,
-          { categoryId: service.categoryId, postcode, durationMinutes: service.durationMinutes, timezone: ctx.config.timezone },
+          {
+            categoryId: service.categoryId,
+            postcode,
+            durationMinutes: service.durationMinutes,
+            timezone: ctx.config.timezone,
+            customerId: customer.id,
+          },
           startsAt,
         );
         if (!slot?.available) {

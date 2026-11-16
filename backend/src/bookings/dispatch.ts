@@ -53,7 +53,7 @@ export async function offerNext(deps: BookingDeps, bookingId: string): Promise<'
       ? { rows: [] }
       : await client.query<{ user_id: string }>(
           `SELECT p.user_id FROM pro_profiles p
-           WHERE ${eligibleProFilter('$1', '$2', '$3', '$4', '$5')}
+           WHERE ${eligibleProFilter('$1', '$2', '$3', '$4', '$5', '$8::uuid')}
              AND NOT EXISTS (SELECT 1 FROM booking_offers o WHERE o.booking_id = $6 AND o.pro_id = p.user_id)
            ORDER BY
              COALESCE((SELECT avg(stars) FROM ratings r WHERE r.pro_id = p.user_id), $7) DESC,
@@ -73,6 +73,7 @@ export async function offerNext(deps: BookingDeps, bookingId: string): Promise<'
             deps.config.timezone,
             bookingId,
             NEW_PRO_RATING,
+            booking.customer_id,
           ],
         );
     const when = formatSlot(booking.starts_at, deps.config.timezone);

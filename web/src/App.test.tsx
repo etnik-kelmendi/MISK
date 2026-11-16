@@ -1071,6 +1071,8 @@ describe('admin navigation', () => {
     ['Overview', '/admin'],
     ['Bookings', '/admin/bookings'],
     ['Providers', '/admin/providers'],
+    // Added after the design: every customer and pro in one place (D65).
+    ['Users', '/admin/users'],
     ['Plans', '/admin/plans'],
     ['Catalogue', '/admin/catalogue'],
     ['Settings', '/admin/settings'],

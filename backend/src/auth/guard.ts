@@ -97,5 +97,13 @@ export function createGuards(pool: Pool, config: Config): Guards {
     }
   }
 
-  return { signedIn, customer: withRole('customer'), pro: withRole('pro'), admin };
+  // Pros may also book jobs and plans for themselves with the same account (D64).
+  async function customer(request: FastifyRequest, reply: FastifyReply) {
+    await signedIn(request, reply);
+    if (!reply.sent && request.user?.role !== 'customer' && request.user?.role !== 'pro') {
+      return reply.code(403).send({ error: 'forbidden' });
+    }
+  }
+
+  return { signedIn, customer, pro: withRole('pro'), admin };
 }

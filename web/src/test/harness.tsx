@@ -56,7 +56,7 @@ export const users: Record<'customer' | 'pro' | 'admin' | 'new', User> = {
     firstName: null,
     lastName: null,
     adminRole: 'admin',
-    areas: ['overview', 'bookings', 'providers', 'plans', 'catalogue', 'fees', 'zones', 'notifications', 'team'],
+    areas: ['overview', 'bookings', 'providers', 'users', 'plans', 'catalogue', 'fees', 'zones', 'notifications', 'team'],
   },
   new: { id: 'u-new', role: null, phone: '+4915100000003', username: null, email: null, firstName: null, lastName: null },
 };

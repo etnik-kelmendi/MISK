@@ -145,6 +145,7 @@ async function movePlan(client: PoolClient, deps: BookingDeps, subscriptionId: s
     days: plan.days,
     starts,
     visitMinutes: plan.visit_minutes,
+    customerId: plan.customer_id,
   });
   await client.query('UPDATE subscriptions SET pro_id = $2, updated_at = now() WHERE id = $1', [subscriptionId, newPro]);
   if (!newPro) {

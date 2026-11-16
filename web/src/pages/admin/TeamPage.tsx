@@ -364,6 +364,10 @@ const KNOWN_ACTIONS = [
   'invite_link_created',
   'invite_link_revoked',
   'joined_by_invite',
+  'user_messaged',
+  'user_suspended',
+  'user_reinstated',
+  'user_deleted',
 ] as const;
 type KnownAction = (typeof KNOWN_ACTIONS)[number];
 

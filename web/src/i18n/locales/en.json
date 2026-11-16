@@ -141,7 +141,12 @@
     "invalid_postcode": "Enter a 5-digit postcode, for example 10115.",
     "coordinates_taken": "Another zone already has these coordinates. Use the centre point of this postcode.",
     "invalid_invite_link": "This invitation link has expired, was already used or was withdrawn. Ask the team for a new one.",
-    "invite_not_found": "This invitation link was already used, withdrawn or has run out."
+    "invite_not_found": "This invitation link was already used, withdrawn or has run out.",
+    "pro_is_customer": "This pro booked the job themselves, so it cannot be given to them. Choose another pro.",
+    "account_suspended": "Your account is suspended, so you cannot sign in for now. Please contact the MISK team.",
+    "already_suspended": "This account is already suspended.",
+    "not_suspended": "This account is not suspended.",
+    "account_deleted": "This account was closed, so nothing more can be done with it."
   },
   "nav": {
     "customer": "Main menu",
@@ -153,7 +158,8 @@
     "week": "Week",
     "profile": "Profile",
     "plans": "Plans",
-    "messages": "Messages"
+    "messages": "Messages",
+    "proApp": "Pro app"
   },
   "signIn": {
     "tagline": "Trusted help for your home and garden",
@@ -560,7 +566,8 @@
       "plans": "Plans",
       "catalogue": "Catalogue",
       "settings": "Settings",
-      "providersBadge": "{{count}} applications waiting"
+      "providersBadge": "{{count}} applications waiting",
+      "users": "Users"
     },
     "login": {
       "username": "Username",
@@ -1349,7 +1356,8 @@
           "fees": "Fees",
           "zones": "Service area",
           "notifications": "Notifications",
-          "team": "Team"
+          "team": "Team",
+          "users": "Users"
         },
         "everything": "Everything",
         "invite": "Invite teammate",
@@ -1368,7 +1376,8 @@
           "team": "Team",
           "bookings": "Bookings",
           "providers": "Providers",
-          "catalogue": "Catalogue"
+          "catalogue": "Catalogue",
+          "users": "Users"
         },
         "action": {
           "service_fee": "Changed the service fee from {{from}} to {{to}}",
@@ -1393,7 +1402,11 @@
           "request_declined": "Declined the account request from {{name}}",
           "invite_link_created": "Created an invitation link for {{role}}",
           "invite_link_revoked": "Withdrew an invitation link for {{role}}",
-          "joined_by_invite": "{{name}} joined the team as {{role}} with an invitation link"
+          "joined_by_invite": "{{name}} joined the team as {{role}} with an invitation link",
+          "user_messaged": "Sent a message",
+          "user_suspended": "Suspended the account",
+          "user_reinstated": "Reinstated the account",
+          "user_deleted": "Closed the account"
         },
         "requests": "Account requests",
         "online": "Online now",
@@ -1634,6 +1647,110 @@
       "done": "Welcome to the team! Sign in with {{email}} and your new password.",
       "signIn": "Sign in",
       "invalid": "This invitation link has expired, was already used or was withdrawn. Ask the person who invited you for a new one."
+    },
+    "users": {
+      "title": "Users",
+      "intro": "Every customer and pro on MISK in one place. Team members are under Settings, Team & access.",
+      "search": "Search",
+      "searchPlaceholder": "Name, email or phone number",
+      "typeFilter": "Type",
+      "statusFilter": "Status",
+      "typeOption": {
+        "all": "All",
+        "customer": "Customers",
+        "pro": "Pros"
+      },
+      "statusOption": {
+        "all": "All statuses",
+        "active": "Active",
+        "suspended": "Suspended",
+        "deleted": "Deleted"
+      },
+      "shown": "{{shown}} of {{total}} shown",
+      "matching_one": "{{count}} match",
+      "matching_other": "{{count}} match",
+      "more": "Show {{count}} more",
+      "none": "No users match this search and these filters.",
+      "col": {
+        "name": "Name",
+        "email": "Email",
+        "phone": "Phone number",
+        "type": "Type",
+        "status": "Status",
+        "joined": "Joined",
+        "lastActive": "Last active"
+      },
+      "type": {
+        "customer": "Customer",
+        "pro": "Pro",
+        "none": "No type yet"
+      },
+      "status": {
+        "active": "Active",
+        "suspended": "Suspended",
+        "deleted": "Deleted"
+      },
+      "never": "Never",
+      "noName": "No name yet",
+      "closedAccount": "Closed account",
+      "loading": "Loading…",
+      "close": "Close user",
+      "details": "Details",
+      "signIn": "Signs in with",
+      "signInEmail": "Email and password",
+      "signInPhone": "Phone code",
+      "bookings": "Bookings",
+      "bookingsLine": "{{total}} in total · {{upcoming}} coming up · {{completed}} done · {{cancelled}} cancelled",
+      "plans": "Active plans",
+      "noPlans": "None",
+      "asPro": "As a pro",
+      "proStatus": "Pro status",
+      "rating": "Rating",
+      "noRating": "No ratings yet",
+      "ratingValue": "{{average}} from {{count}} ratings",
+      "jobsDone": "Jobs done",
+      "until": "valid until {{date}}",
+      "suspendedNote": "Suspended on {{date}}: {{reason}}",
+      "deletedNote": "Closed on {{date}}: {{reason}}",
+      "keep": "Keep it",
+      "reasonMissing": "Write the reason. It is saved in the activity log.",
+      "message": {
+        "button": "Message",
+        "title": "Send a message",
+        "label": "Message from the MISK team",
+        "hint": "Goes to the app, by push, and by text (or email when there is no phone). Up to 500 characters.",
+        "missing": "Write the message first.",
+        "send": "Send message",
+        "sent": "Message sent."
+      },
+      "suspend": {
+        "button": "Suspend",
+        "title": "Suspend this account?",
+        "text": "They are signed out and cannot sign in until you reinstate them. Their upcoming bookings and plans are cancelled and held money is released. A pro gets no new jobs, and their jobs go to other pros.",
+        "reason": "Reason (saved in the activity log)",
+        "confirm": "Suspend account"
+      },
+      "delete": {
+        "button": "Delete user",
+        "title": "Delete this account for good?",
+        "text": "The account is closed and nobody can sign in with it again. Name, phone number and email are removed. Upcoming bookings and plans are cancelled; past bookings and payments stay for the records. This cannot be undone.",
+        "reason": "Reason (saved in the activity log)",
+        "confirm": "Delete account"
+      },
+      "reinstate": "Reinstate",
+      "reinstated": "The account is active again. They were told.",
+      "suspended": "The account is suspended. They were told.",
+      "deleted": "The account is closed.",
+      "log": {
+        "title": "Activity log",
+        "none": "Nothing changed by the team yet.",
+        "messaged": "Sent a message",
+        "suspended": "Suspended the account",
+        "reinstated": "Reinstated the account",
+        "deleted": "Closed the account",
+        "reasonLine": "Reason: {{reason}} · {{bookings}} bookings and {{plans}} plans cancelled",
+        "by": "{{name}} · {{date}}"
+      }
     }
   },
   "signUp": {
@@ -1953,5 +2070,9 @@
     "submit": "Save new password",
     "done": "Your password has been changed. Log in with your new password.",
     "newLink": "Ask for a new link"
+  },
+  "proBook": {
+    "hint": "Need help at your own home? Book a service with the same account. Your own bookings never come to you as jobs.",
+    "button": "Book a service for yourself"
   }
 }

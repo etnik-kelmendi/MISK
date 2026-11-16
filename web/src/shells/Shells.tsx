@@ -42,6 +42,8 @@ function TabBar({ tabs, label }: { tabs: Tab[]; label: string }) {
 function CustomerTabs() {
   const { t } = useTranslation();
   const { inbox } = useInbox();
+  // A pro booking for themselves gets back to their pro app from the last tab (D64).
+  const isPro = useUser().role === 'pro';
   return (
     <TabBar
       label={t('nav.customer')}
@@ -50,7 +52,7 @@ function CustomerTabs() {
         { to: '/bookings', icon: 'list', label: t('nav.bookings') },
         { to: '/plans', icon: 'repeat', label: t('nav.plans') },
         { to: '/messages', icon: 'chat', label: t('nav.messages'), badge: inbox?.unread },
-        { to: '/account', icon: 'user', label: t('nav.account') },
+        isPro ? { to: '/pro', icon: 'wrench', label: t('nav.proApp') } : { to: '/account', icon: 'user', label: t('nav.account') },
       ]}
     />
   );
@@ -166,6 +168,12 @@ export function AdminShell() {
       icon: 'users',
       label: t('admin.nav.providers'),
       show: canOpen(user, 'providers'),
+    },
+    {
+      to: '/admin/users',
+      icon: 'user',
+      label: t('admin.nav.users'),
+      show: canOpen(user, 'users'),
     },
     {
       to: '/admin/plans',

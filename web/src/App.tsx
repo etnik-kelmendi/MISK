@@ -14,6 +14,7 @@ import { AdminLoginPage } from './pages/admin/AdminLoginPage';
 import { AdminSignUpPage } from './pages/admin/AdminSignUpPage';
 import { ApproveRequestPage } from './pages/admin/ApproveRequestPage';
 import { AdminProRedirect, AdminProsPage } from './pages/admin/AdminProsPage';
+import { UsersPage } from './pages/admin/UsersPage';
 import { AreasPage } from './pages/admin/AreasPage';
 import { CataloguePage } from './pages/admin/CataloguePage';
 import { OverviewPage } from './pages/admin/OverviewPage';
@@ -70,7 +71,7 @@ function CustomerAndProRoutes() {
       <Route path="/terms" element={<TermsPage />} />
       <Route
         element={
-          <RequireRole allow="customer">
+          <RequireRole allow={['customer', 'pro']}>
             <CustomerShell />
           </RequireRole>
         }
@@ -144,6 +145,14 @@ function AdminRoutes() {
           }
         />
         <Route path="providers/:id" element={<AdminProRedirect />} />
+        <Route
+          path="users"
+          element={
+            <AreaGuard area="users">
+              <UsersPage />
+            </AreaGuard>
+          }
+        />
         <Route
           path="plans"
           element={

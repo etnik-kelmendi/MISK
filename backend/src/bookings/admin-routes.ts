@@ -76,6 +76,7 @@ export async function adminBookingRoutes(app: FastifyInstance, ctx: AppContext) 
          JOIN postcodes dest ON dest.code = b.postcode
          WHERE b.id = $1 AND p.status = 'approved' AND p.payouts_enabled AND p.jobs_paused_at IS NULL AND u.disabled_at IS NULL
            AND p.user_id IS DISTINCT FROM b.pro_id
+           AND p.user_id <> b.customer_id
            AND NOT EXISTS (
              SELECT 1 FROM bookings busy WHERE busy.pro_id = p.user_id AND busy.id <> b.id
                AND busy.status IN ('accepted', 'on_the_way', 'working')
@@ -152,6 +153,9 @@ export async function adminBookingRoutes(app: FastifyInstance, ctx: AppContext) 
         }
         if (!REASSIGNABLE.includes(booking.status)) {
           throw conflict('invalid_status');
+        }
+        if (targetPro && targetPro === booking.customer_id) {
+          throw conflict('pro_is_customer');
         }
         const when = formatSlot(booking.starts_at, ctx.config.timezone);
         await client.query(

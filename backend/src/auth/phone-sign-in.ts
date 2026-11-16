@@ -52,7 +52,8 @@ export type VerifyResult =
   | { outcome: 'success'; user: User; token: string; isNew: boolean }
   | { outcome: 'invalid_code' }
   | { outcome: 'too_many_attempts' }
-  | { outcome: 'account_disabled' };
+  | { outcome: 'account_disabled' }
+  | { outcome: 'account_suspended' };
 
 export async function verifyPhoneSignIn(
   pool: Pool,
@@ -93,16 +94,19 @@ export async function verifyPhoneSignIn(
     if (!consumed.rowCount) {
       return { outcome: 'invalid_code' } as const;
     }
-    const upserted = await client.query<User & { disabled: boolean; isNew: boolean }>(
+    const upserted = await client.query<User & { disabled: boolean; suspended: boolean; isNew: boolean }>(
       `INSERT INTO users (phone) VALUES ($1)
        ON CONFLICT (phone) DO UPDATE SET phone = EXCLUDED.phone
        RETURNING id, role, phone, username, email, first_name AS "firstName", last_name AS "lastName",
-                 disabled_at IS NOT NULL AS disabled, (xmax = 0) AS "isNew"`,
+                 disabled_at IS NOT NULL AS disabled, suspended_at IS NOT NULL AS suspended, (xmax = 0) AS "isNew"`,
       [input.phone],
     );
-    const { disabled, isNew, ...user } = onlyRow(upserted);
+    const { disabled, suspended, isNew, ...user } = onlyRow(upserted);
     if (disabled) {
       return { outcome: 'account_disabled' } as const;
+    }
+    if (suspended) {
+      return { outcome: 'account_suspended' } as const;
     }
     await clearAttempts(client, [`code:${input.phone}`]);
     return { outcome: 'success', user, token: await createSession(client, user.id), isNew } as const;

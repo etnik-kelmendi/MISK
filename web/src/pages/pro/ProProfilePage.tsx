@@ -114,6 +114,11 @@ export function ProProfilePage() {
             </div>
           )}
         </ResourceState>
+        {/* A pro can book help for their own home with the same account (D64). */}
+        <p className="small muted">{t('proBook.hint')}</p>
+        <Link to="/" className="btn btn-ghost wide">
+          <Icon name="home" /> {t('proBook.button')}
+        </Link>
         <Link to="/pro/account" className="btn btn-ghost wide">
           <Icon name="user" /> {t('account.title')}
         </Link>

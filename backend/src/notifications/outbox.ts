@@ -21,6 +21,8 @@ export type NotificationKind =
   | 'pro_documents'
   | 'document_expiring'
   | 'pro_account'
+  | 'account'
+  | 'team_message'
   | 'plan_pro_changed'
   | 'payout_sent'
   | 'waitlist_open'
@@ -59,6 +61,8 @@ const SUBJECTS: Partial<Record<NotificationKind, string>> = {
   booking_cancelled: 'Your MISK booking was cancelled',
   booking_rescheduled: 'Your MISK booking has a new time',
   document_expiring: 'A document of yours runs out soon',
+  team_message: 'A message from the MISK team',
+  account: 'About your MISK account',
 };
 
 /** How one message overrides the usual channels and email (see enqueue). */

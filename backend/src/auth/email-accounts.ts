@@ -335,8 +335,9 @@ export async function emailAccountRoutes(app: FastifyInstance, ctx: AppContext) 
       }
       const email = normalizeEmail(request.body.email);
       // Admins sign in with their username on the control panel, never here.
-      const found = await pool.query<User & { passwordHash: string; disabled: boolean; verified: boolean }>(
+      const found = await pool.query<User & { passwordHash: string; disabled: boolean; suspended: boolean; verified: boolean }>(
         `SELECT ${USER_COLUMNS}, users.password_hash AS "passwordHash", users.disabled_at IS NOT NULL AS disabled,
+           users.suspended_at IS NOT NULL AS suspended,
            users.email_verified_at IS NOT NULL AS verified
          FROM users WHERE users.email = $1 AND users.password_hash IS NOT NULL AND users.role IS DISTINCT FROM 'admin'`,
         [email],
@@ -353,6 +354,9 @@ export async function emailAccountRoutes(app: FastifyInstance, ctx: AppContext) 
       }
       if (row.disabled) {
         return reply.code(403).send({ error: 'account_disabled' });
+      }
+      if (row.suspended) {
+        return reply.code(403).send({ error: 'account_suspended' });
       }
       // Said only after the right password, so it does not reveal which emails have accounts.
       if (!row.verified) {
