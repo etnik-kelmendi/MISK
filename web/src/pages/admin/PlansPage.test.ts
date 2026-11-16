@@ -1,4 +1,4 @@
-import { cleanNumberInput, parseNumberField, stepNumber } from './PlansPage';
+import { cleanNumberInput, numberProblem, parseNumberField, stepNumber } from './PlansPage';
 
 describe('plan number fields', () => {
   it.each([
@@ -34,5 +34,23 @@ describe('plan number fields', () => {
     expect(stepNumber('minTermMonths', '', -1)).toBe(12);
     expect(stepNumber('skipsPerMonth', '2', 1)).toBe(3);
     expect(stepNumber('skipsPerMonth', '8', 1)).toBe(8);
+  });
+});
+
+describe('what is wrong with a visit length (D62)', () => {
+  it.each([
+    ['', 'empty'],
+    ['0', 'tooSmall'],
+    ['10', 'tooSmall'],
+    ['14', 'tooSmall'],
+    ['20', 'step'],
+    ['50', 'step'],
+    ['601', 'tooBig'],
+    ['700', 'tooBig'],
+    ['15', null],
+    ['45', null],
+    ['600', null],
+  ] as const)('%j is %j', (value, problem) => {
+    expect(numberProblem('visitMinutes', value)).toBe(problem);
   });
 });

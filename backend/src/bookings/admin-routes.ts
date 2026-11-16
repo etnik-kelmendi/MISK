@@ -3,7 +3,7 @@ import type { Queryable } from '../db.js';
 import { currentUser } from '../auth/guard.js';
 import type { AppContext } from '../context.js';
 import { onlyRow, withTransaction } from '../db.js';
-import { ApiError, conflict, notFound } from '../errors.js';
+import { ApiError, badRequest, conflict, notFound } from '../errors.js';
 import { isExclusionViolation, uuidParams } from '../http.js';
 import { formatSlot, messages } from '../notifications/messages.js';
 import { enqueue } from '../notifications/outbox.js';
@@ -12,6 +12,8 @@ import { setStatus, type BookingDeps } from './events.js';
 import { cancelBooking, settleBooking } from './lifecycle.js';
 import { loadBooking } from './views.js';
 
+/** A cancellation note fits in one text message with the rest of the message (D63). */
+export const CANCEL_NOTE_MAX = 300;
 const REASSIGNABLE = ['searching', 'unassigned', 'accepted', 'on_the_way'];
 /** The time can be changed until the pro sets off. */
 const RESCHEDULABLE = ['searching', 'unassigned', 'accepted'];
@@ -86,12 +88,29 @@ export async function adminBookingRoutes(app: FastifyInstance, ctx: AppContext) 
     },
   );
 
-  app.post<{ Params: { id: string } }>(
+  // An optional note says why; it is kept in the activity log, and reaches the customer only when the admin
+  // ticks "Send this note to the customer". The pro never gets it (D63).
+  app.post<{ Params: { id: string }; Body: { note?: string; sendToCustomer?: boolean } | undefined }>(
     '/admin/bookings/:id/cancel',
-    { preHandler: guards.admin, schema: { params: uuidParams } },
+    {
+      preHandler: guards.admin,
+      schema: {
+        params: uuidParams,
+        body: {
+          type: ['object', 'null'],
+          additionalProperties: false,
+          properties: { note: { type: 'string', maxLength: CANCEL_NOTE_MAX }, sendToCustomer: { type: 'boolean' } },
+        },
+      },
+    },
     async (request) => {
-      await cancelBooking(deps(), request.params.id, 'admin');
-      await logAction(pool, request.params.id, currentUser(request).id, 'cancelled');
+      const note = request.body?.note?.trim() || null;
+      const sendToCustomer = request.body?.sendToCustomer === true;
+      if (sendToCustomer && !note) {
+        throw badRequest('note_required');
+      }
+      await cancelBooking(deps(), request.params.id, 'admin', undefined, sendToCustomer && note ? { customerNote: note } : {});
+      await logAction(pool, request.params.id, currentUser(request).id, 'cancelled', note ? { note, sentToCustomer: sendToCustomer } : {});
       request.log.info({
         event: 'admin_cancelled_booking',
         bookingId: request.params.id,

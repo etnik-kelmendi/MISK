@@ -55,7 +55,7 @@
     "already_submitted": "Your application has already been sent.",
     "application_incomplete": "Please choose your trades, home postcode and working days, and upload all three documents first.",
     "not_approved": "Your account is not approved for this yet.",
-    "note_required": "Please write what the pro needs to change.",
+    "note_required": "Write the note to send it to the customer, or untick \"Send this note to the customer\".",
     "invalid_status": "This is not possible at this stage. The page has old information; please reload it.",
     "slot_unavailable": "That time was just taken. Please choose another.",
     "payment_unavailable": "Payments are not working right now. Nothing was charged. Please try again shortly.",
@@ -809,7 +809,17 @@
       },
       "problemPhotos": "Customer's photo of the problem",
       "noProblemPhotos": "The customer sent no photos.",
-      "viewProfile": "View profile"
+      "viewProfile": "View profile",
+      "cancelNote": {
+        "label": "Note (optional): why is the booking cancelled?",
+        "hint": "Saved in the activity log with your name and the time. {{left}} characters left.",
+        "send": "Send this note to the customer",
+        "proNever": "Without the tick, only the team sees the note. The pro never sees it.",
+        "missing": "Write the note to send it to the customer, or untick \"Send this note to the customer\".",
+        "logged": "Note: {{note}}",
+        "sentToCustomer": "(sent to the customer)",
+        "teamOnly": "(only the team sees this)"
+      }
     },
     "pros": {
       "title": "Providers",
@@ -1502,7 +1512,7 @@
       "saveDraft": "Save draft",
       "publish": "Publish plan",
       "unpublish": "Unpublish",
-      "saved": "Draft saved.",
+      "saved": "Draft saved",
       "liveNote": "Customers can subscribe now.",
       "draftNote": "Changes appear in the app once you publish.",
       "newTaskPlaceholder": "Add task + Enter",
@@ -1557,7 +1567,14 @@
         "tasks": "Add at least one task the pro does on each visit.",
         "summary_one": "1 field needs fixing before the plan can be published. It is marked in red below. You can still save a draft.",
         "summary_other": "{{count}} fields need fixing before the plan can be published. They are marked in red below. You can still save a draft."
-      }
+      },
+      "visitError": {
+        "empty": "Enter a visit length, for example 60 minutes",
+        "tooSmall": "Visit length must be at least {{min}} minutes",
+        "tooBig": "Visit length can be at most {{max}} minutes",
+        "step": "Visit length must be in steps of {{step}} minutes, for example 30, 45 or 60"
+      },
+      "savedClose": "Close"
     },
     "signUp": {
       "title": "Request an admin account",

@@ -609,3 +609,7 @@ input.check { width: 18px; height: 18px; accent-color: var(--brand); }
 .new-message .muted { color: #fff; }
 .new-message .iconbtn { width: 32px; height: 32px; background: rgba(255, 255, 255, 0.18); color: #fff; box-shadow: none; flex: none; }
 @keyframes slidein { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+/* "Draft saved" in the plan editor: a short confirmation with one button to close it. */
+.saved-note { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; background: var(--brand-soft); color: var(--brand); }
+.saved-note .iconbtn { width: 32px; height: 32px; box-shadow: none; background: transparent; color: var(--brand); }
+.log-note { margin-top: 2px; white-space: pre-wrap; }

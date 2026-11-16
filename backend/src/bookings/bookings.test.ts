@@ -498,6 +498,70 @@ describe('cancelling', () => {
     const response = await call(t, 'POST', `/admin/bookings/${bookingId}/cancel`, { cookie: admin });
     expect(response.json().booking).toMatchObject({ status: 'cancelled', cancelledBy: 'admin', paymentStatus: 'released' });
   });
+
+  describe('a note when the team cancels (D63)', () => {
+    async function assignedBooking() {
+      const pro = await approvedPro(t, '+4915100000101', { trades: [market.gardening] });
+      await bookFirst();
+      const bookingId = await acceptFirstOffer(pro.cookie);
+      return { bookingId, admin: await signInAdmin(t) };
+    }
+    const cancelTexts = async (bookingId: string) =>
+      (
+        await t.pool.query<{ role: string; body: string }>(
+          `SELECT u.role, n.body FROM notifications n JOIN users u ON u.id = n.user_id
+           WHERE n.kind = 'booking_cancelled' AND u.id IN (SELECT customer_id FROM bookings WHERE id = $1 UNION SELECT pro_id FROM bookings WHERE id = $1)
+           ORDER BY u.role`,
+          [bookingId],
+        )
+      ).rows;
+    const loggedNote = async (bookingId: string) =>
+      (await t.pool.query("SELECT admin_id, details, created_at FROM booking_admin_actions WHERE booking_id = $1 AND action = 'cancelled'", [bookingId]))
+        .rows[0];
+
+    it('keeps the note in the activity log with who and when, and tells nobody by default', async () => {
+      const { bookingId, admin } = await assignedBooking();
+      const response = await call(t, 'POST', `/admin/bookings/${bookingId}/cancel`, {
+        cookie: admin,
+        body: { note: '  Customer asked by phone; pro is ill.  ' },
+      });
+      expect(response.json().booking).toMatchObject({ status: 'cancelled', cancelledBy: 'admin' });
+      const log = await loggedNote(bookingId);
+      expect(log?.details).toEqual({ note: 'Customer asked by phone; pro is ill.', sentToCustomer: false });
+      expect(log?.admin_id).toEqual(expect.any(String));
+      expect(log?.created_at).toBeInstanceOf(Date);
+      for (const text of await cancelTexts(bookingId)) expect(text.body).not.toContain('pro is ill');
+      // The booking's log in the control panel shows it too.
+      const view = (await call(t, 'GET', `/admin/bookings/${bookingId}`, { cookie: admin })).json().booking;
+      expect(view.actions.find((a: { action: string }) => a.action === 'cancelled')).toMatchObject({
+        details: { note: 'Customer asked by phone; pro is ill.', sentToCustomer: false },
+        adminName: expect.any(String),
+      });
+    });
+
+    it('sends the note to the customer only when the admin ticks it, never to the pro', async () => {
+      const { bookingId, admin } = await assignedBooking();
+      await call(t, 'POST', `/admin/bookings/${bookingId}/cancel`, {
+        cookie: admin,
+        body: { note: 'Storm warning for that day.', sendToCustomer: true },
+      });
+      const texts = await cancelTexts(bookingId);
+      expect(texts.find((x) => x.role === 'customer')?.body).toContain('Note from the MISK team: Storm warning for that day.');
+      expect(texts.find((x) => x.role === 'pro')?.body).not.toContain('Storm warning');
+      expect((await loggedNote(bookingId))?.details).toEqual({ note: 'Storm warning for that day.', sentToCustomer: true });
+    });
+
+    it('works without a note, and refuses to send an empty or too long note', async () => {
+      const { bookingId, admin } = await assignedBooking();
+      expect((await call(t, 'POST', `/admin/bookings/${bookingId}/cancel`, { cookie: admin, body: { note: ' ', sendToCustomer: true } })).json()).toEqual({
+        error: 'note_required',
+      });
+      expect((await call(t, 'POST', `/admin/bookings/${bookingId}/cancel`, { cookie: admin, body: { note: 'x'.repeat(301) } })).statusCode).toBe(400);
+      const plain = await call(t, 'POST', `/admin/bookings/${bookingId}/cancel`, { cookie: admin, body: {} });
+      expect(plain.json().booking.status).toBe('cancelled');
+      expect((await loggedNote(bookingId))?.details).toEqual({});
+    });
+  });
 });
 
 describe('card payments that need the customer', () => {

@@ -1352,7 +1352,7 @@ describe('plan page', () => {
     await user().clear(length);
     expect(length).toHaveValue('');
     expect(length).toHaveAttribute('aria-invalid', 'true');
-    expect(screen.getByText('Enter a visit length from 15 to 600 minutes, in steps of 15.')).toBeInTheDocument();
+    expect(screen.getByText('Enter a visit length, for example 60 minutes')).toBeInTheDocument();
     // Publish stays clickable (D42): it points at the field to fix and sends nothing.
     await user().click(screen.getByRole('button', { name: 'Publish plan' }));
     expect(length).toHaveFocus();
@@ -1362,7 +1362,7 @@ describe('plan page', () => {
     expect(length).toHaveFocus();
 
     await user().type(length, '50');
-    expect(screen.getByText('Enter a visit length from 15 to 600 minutes, in steps of 15.')).toBeInTheDocument();
+    expect(screen.getByText('Visit length must be in steps of 15 minutes, for example 30, 45 or 60')).toBeInTheDocument();
     await user().clear(length);
     await user().type(length, '45');
     expect(length).toHaveValue('45');
@@ -1441,7 +1441,7 @@ describe('plan page', () => {
     expect(save).toBeEnabled();
     await user().type(screen.getByLabelText('Plan name'), 'Half done');
     await user().click(save);
-    expect(await screen.findByText('Draft saved.')).toBeInTheDocument();
+    expect(await screen.findByText('Draft saved')).toBeInTheDocument();
     expect(api.bodies['POST /admin/plans']).toMatchObject({ name: 'Half done', categoryId: null, priceCents: null, tasks: [] });
   });
 
@@ -1480,6 +1480,50 @@ describe('plan page', () => {
     expect(screen.queryByText(/To publish, add/)).not.toBeInTheDocument();
   });
 
+  it('says exactly what is wrong with the visit length, under the field, and refuses to publish until it is fixed (D62)', async () => {
+    const api = openNewPlan();
+    await fillComplete();
+    const visit = screen.getByLabelText('Visit length (minutes)');
+    const typeVisit = async (value: string) => {
+      await user().clear(visit);
+      if (value) await user().type(visit, value);
+    };
+
+    await typeVisit('10');
+    expect(visit).toHaveAccessibleDescription('Visit length must be at least 15 minutes');
+    expect(visit.nextElementSibling).toHaveTextContent('Visit length must be at least 15 minutes');
+    await typeVisit('50');
+    expect(visit).toHaveAccessibleDescription('Visit length must be in steps of 15 minutes, for example 30, 45 or 60');
+    await typeVisit('700');
+    expect(visit).toHaveAccessibleDescription('Visit length can be at most 600 minutes');
+
+    await user().click(screen.getByRole('button', { name: 'Publish plan' }));
+    expect(api.calls).not.toContain('POST /admin/plans');
+    expect(api.calls.some((c) => c.endsWith('/status'))).toBe(false);
+    expect(visit).toHaveFocus();
+
+    // Valid again: the message goes at once.
+    await typeVisit('45');
+    expect(visit).not.toHaveAttribute('aria-invalid');
+    expect(screen.queryByText(/Visit length (must|can)/)).not.toBeInTheDocument();
+  });
+
+  it('confirms a saved draft with only "Draft saved" and one button to close it (D62)', async () => {
+    const api = openNewPlan();
+    await user().type(await screen.findByLabelText('Plan name'), 'Lawn care');
+    await user().click(screen.getByRole('button', { name: 'Save draft' }));
+    // A new plan opens again under its own address after the first save; the confirmation comes along.
+    await waitFor(() => expect(api.calls).toContain('GET /admin/plans/p1'));
+    await screen.findByDisplayValue('Lawn care');
+    const note = await screen.findByRole('status');
+    expect(note).toHaveTextContent(/^Draft saved$/);
+    expect(within(note).getAllByRole('button')).toHaveLength(1);
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Stay/ })).not.toBeInTheDocument();
+    await user().click(within(note).getByRole('button', { name: 'Close' }));
+    expect(screen.queryByText('Draft saved')).not.toBeInTheDocument();
+  });
+
   it('explains a missing price for the extra and a bad number of minutes', async () => {
     openNewPlan();
     await user().type(await screen.findByLabelText('Optional extra'), 'Hedge trimming');
@@ -1488,7 +1532,7 @@ describe('plan page', () => {
     await user().type(visit, '20');
     await user().click(screen.getByRole('button', { name: 'Publish plan' }));
     expect(screen.getByLabelText('Extra price (€ / month)')).toHaveAccessibleDescription('Enter a monthly price for the extra, or clear its name.');
-    expect(visit).toHaveAccessibleDescription('Enter a visit length from 15 to 600 minutes, in steps of 15.');
+    expect(visit).toHaveAccessibleDescription('Visit length must be in steps of 15 minutes, for example 30, 45 or 60');
   });
 
   it('publishes a complete plan', async () => {
@@ -1510,7 +1554,7 @@ describe('plan page', () => {
     expect(screen.getByLabelText('Plan name')).toHaveValue('Unsaved');
 
     await user().click(screen.getByRole('button', { name: 'Save draft' }));
-    expect(await screen.findByText('Draft saved.')).toBeInTheDocument();
+    expect(await screen.findByText('Draft saved')).toBeInTheDocument();
     await user().click(within(screen.getByRole('navigation', { name: 'Control panel' })).getByRole('link', { name: 'Plans' }));
     expect(await screen.findByRole('heading', { level: 1, name: 'Plans' })).toBeInTheDocument();
   });

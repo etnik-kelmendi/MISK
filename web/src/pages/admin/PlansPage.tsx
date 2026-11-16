@@ -201,6 +201,17 @@ export function parseNumberField(key: NumberField, value: string): number | null
   return number >= min && number <= max && number % step === 0 ? number : null;
 }
 
+/** Why a number field's value is not accepted, or null when it is. "tooSmall" wins over "step" (10 is both). */
+export function numberProblem(key: NumberField, value: string): 'empty' | 'tooSmall' | 'tooBig' | 'step' | null {
+  const text = value.trim();
+  if (!/^\d+$/.test(text)) return 'empty';
+  const number = Number(text);
+  const { min, max, step } = NUMBER_LIMITS[key];
+  if (number < min) return 'tooSmall';
+  if (number > max) return 'tooBig';
+  return number % step === 0 ? null : 'step';
+}
+
 /** What a number field keeps of what was typed or pasted: digits only, without leading zeros ("03" → "3"). */
 export function cleanNumberInput(value: string): string {
   return value.replace(/\D/g, '').replace(/^0+(?=\d)/, '');
@@ -482,7 +493,10 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
         />
         {invalid ? (
           <span id={`plan-${key}-error`} className="error-text">
-            {t(`admin.plans.numberError.${key}`, { min, max, step })}
+            {/* The visit length says exactly what is wrong (D62); the other numbers name their range. */}
+            {key === 'visitMinutes'
+              ? t(`admin.plans.visitError.${numberProblem(key, draft[key]) ?? 'empty'}`, { min, max, step })
+              : t(`admin.plans.numberError.${key}`, { min, max, step })}
           </span>
         ) : (
           key === 'visitMinutes' && <span className="hint">{t('admin.plans.visitHint')}</span>
@@ -536,10 +550,15 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
           )}
         </div>
       </div>
+      {/* Saving a draft only confirms it: no choice to make, one button to close (D62). */}
       {saved && !live && (
-        <p className="small brand-text" role="status">
-          {t('admin.plans.saved')}
-        </p>
+        <div className="saved-note" role="status">
+          <Icon name="check" />
+          <span className="grow b">{t('admin.plans.saved')}</span>
+          <button type="button" className="iconbtn" aria-label={t('admin.plans.savedClose')} onClick={() => setSaved(false)}>
+            <Icon name="x" />
+          </button>
+        </div>
       )}
       {!valid &&
         (tried ? (

@@ -93,7 +93,7 @@ export async function cancelBooking(
   bookingId: string,
   by: CancelledBy,
   customerId?: string,
-  options: { acceptLateCharge?: boolean } = {},
+  options: { acceptLateCharge?: boolean; customerNote?: string } = {},
 ): Promise<void> {
   let late = false;
   const holds = await withTransaction(deps.pool, async (client) => {
@@ -149,7 +149,10 @@ export async function cancelBooking(
 
     const when = formatSlot(booking.starts_at, deps.config.timezone);
     if (by !== 'customer') {
-      await enqueue(client, booking.customer_id, 'booking_cancelled', messages.bookingCancelled(booking.service_name, when));
+      const text = options.customerNote
+        ? messages.bookingCancelledWithNote(booking.service_name, when, options.customerNote)
+        : messages.bookingCancelled(booking.service_name, when);
+      await enqueue(client, booking.customer_id, 'booking_cancelled', text);
     }
     if (booking.pro_id && !late) {
       await enqueue(client, booking.pro_id, 'booking_cancelled', messages.bookingCancelledForPro(booking.service_name, when));

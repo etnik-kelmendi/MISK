@@ -43,6 +43,9 @@ export const messages = {
     `MISK: your pro asks to add "${description}" for ${formatEuro(priceCents)}. Approve or decline in the app.`,
   bookingCancelled: (service: string, when: string) =>
     `MISK: your ${service} on ${when} was cancelled. Any money held on your card is released.`,
+  // The team's note goes to the customer only when the admin chose to send it (D63).
+  bookingCancelledWithNote: (service: string, when: string, note: string) =>
+    `MISK: your ${service} on ${when} was cancelled. Note from the MISK team: ${note} Any money held on your card is released.`,
   bookingCancelledForPro: (service: string, when: string) => `MISK: the ${service} job on ${when} was cancelled.`,
   bookingRescheduled: (service: string, when: string) => `MISK: your ${service} has moved to ${when}.`,
   jobRescheduled: (service: string, when: string) => `MISK: the ${service} job has moved to ${when}. See the app.`,

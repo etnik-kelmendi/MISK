@@ -186,7 +186,16 @@ export type AdminActionKind = 'assigned' | 'restarted_search' | 'rescheduled' | 
 export interface AdminAction {
   id: string;
   action: AdminActionKind;
-  details: { proName?: string | null; from?: string; to?: string; amountCents?: number; wasCharged?: boolean };
+  details: {
+    proName?: string | null;
+    from?: string;
+    to?: string;
+    amountCents?: number;
+    wasCharged?: boolean;
+    /** Why the team cancelled, and whether the customer was sent it (D63). */
+    note?: string;
+    sentToCustomer?: boolean;
+  };
   createdAt: string;
   adminName: string | null;
 }

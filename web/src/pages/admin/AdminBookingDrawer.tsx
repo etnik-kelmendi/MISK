@@ -158,6 +158,14 @@ function LogLine({ entry }: { entry: AdminAction }) {
   return (
     <li>
       {text}
+      {entry.action === 'cancelled' && entry.details.note && (
+        <div className="small log-note">
+          {t('admin.booking.cancelNote.logged', { note: entry.details.note })}{' '}
+          <span className="muted">
+            {entry.details.sentToCustomer ? t('admin.booking.cancelNote.sentToCustomer') : t('admin.booking.cancelNote.teamOnly')}
+          </span>
+        </div>
+      )}
       <div className="small muted">
         {t('admin.booking.logBy', { name: entry.adminName ?? '–', date: dateTime(entry.createdAt, timezone) })}
       </div>
@@ -287,12 +295,18 @@ function MoveBooking({ booking, onChanged }: { booking: AdminBooking; onChanged:
 }
 
 type Confirmable = 'cancel' | 'refund' | 'charge';
+/** Must match CANCEL_NOTE_MAX in the API: the note fits in one text message with the rest (D63). */
+const CANCEL_NOTE_MAX = 300;
 
 function MoneyActions({ booking, onChanged }: { booking: AdminBooking; onChanged: (b: AdminBooking) => void }) {
   const { t } = useTranslation();
   const api = useApi();
   const action = useAction();
   const [confirm, setConfirm] = useState<Confirmable | null>(null);
+  const [note, setNote] = useState('');
+  const [sendNote, setSendNote] = useState(false);
+  const [noteMissing, setNoteMissing] = useState(false);
+  const noteId = useId();
   const available: Confirmable[] = [];
   if (booking.status !== 'completed' && booking.status !== 'cancelled') available.push('cancel');
   if (booking.status === 'completed' && (booking.paymentStatus === 'held' || booking.paymentStatus === 'captured'))
@@ -304,8 +318,23 @@ function MoneyActions({ booking, onChanged }: { booking: AdminBooking; onChanged
     return null;
   }
 
+  function open(kind: Confirmable) {
+    action.clearError();
+    setNote('');
+    setSendNote(false);
+    setNoteMissing(false);
+    setConfirm(kind);
+  }
+
   async function act(kind: Confirmable) {
-    const result = await action.run(() => api.post<{ booking: AdminBooking }>(`/admin/bookings/${booking.id}/${kind}`));
+    // Sending the note needs a note; the field says so and nothing is sent (D42).
+    if (kind === 'cancel' && sendNote && !note.trim()) {
+      setNoteMissing(true);
+      document.getElementById(noteId)?.focus();
+      return;
+    }
+    const body = kind === 'cancel' ? { note: note.trim() || undefined, sendToCustomer: sendNote } : undefined;
+    const result = await action.run(() => api.post<{ booking: AdminBooking }>(`/admin/bookings/${booking.id}/${kind}`, body));
     if (result) {
       setConfirm(null);
       onChanged(result.booking);
@@ -317,6 +346,36 @@ function MoneyActions({ booking, onChanged }: { booking: AdminBooking; onChanged
       {confirm ? (
         <div role="alertdialog" aria-labelledby="confirm-text" className="stack confirm">
           <p id="confirm-text">{t(`admin.booking.confirm.${confirm}`)}</p>
+          {confirm === 'cancel' && (
+            <div className="stack tight">
+              <div className="af">
+                <label htmlFor={noteId}>{t('admin.booking.cancelNote.label')}</label>
+                <textarea
+                  id={noteId}
+                  rows={3}
+                  maxLength={CANCEL_NOTE_MAX}
+                  value={note}
+                  aria-invalid={noteMissing && !note.trim() ? true : undefined}
+                  aria-describedby={noteMissing && !note.trim() ? `${noteId}-error` : `${noteId}-hint`}
+                  onChange={(e) => setNote(e.target.value)}
+                />
+                {noteMissing && !note.trim() ? (
+                  <span id={`${noteId}-error`} className="error-text small" role="alert">
+                    {t('admin.booking.cancelNote.missing')}
+                  </span>
+                ) : (
+                  <span id={`${noteId}-hint`} className="hint">
+                    {t('admin.booking.cancelNote.hint', { left: CANCEL_NOTE_MAX - note.length })}
+                  </span>
+                )}
+              </div>
+              <label className="row gap8 small">
+                <input type="checkbox" checked={sendNote} onChange={(e) => setSendNote(e.target.checked)} />
+                {t('admin.booking.cancelNote.send')}
+              </label>
+              <p className="tiny muted">{t('admin.booking.cancelNote.proNever')}</p>
+            </div>
+          )}
           <div className="row gap8">
             <button type="button" className="abtn ghost" onClick={() => setConfirm(null)}>
               {t('admin.booking.keep')}
@@ -334,7 +393,7 @@ function MoneyActions({ booking, onChanged }: { booking: AdminBooking; onChanged
       ) : (
         <div className="row gap8 wrap">
           {available.map((kind) => (
-            <button key={kind} type="button" className="abtn ghost" onClick={() => setConfirm(kind)}>
+            <button key={kind} type="button" className="abtn ghost" aria-haspopup="dialog" onClick={() => open(kind)}>
               {t(`admin.booking.do.${kind}`)}
             </button>
           ))}

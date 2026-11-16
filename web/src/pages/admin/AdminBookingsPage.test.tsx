@@ -337,6 +337,73 @@ describe('admin booking side panel', () => {
     expect(await within(dialog).findByText('Moved. The customer and the pro were texted.')).toBeInTheDocument();
   });
 
+  describe('a note when cancelling (D63)', () => {
+    function openCancel() {
+      const api = setUp();
+      api.on(`GET /admin/bookings/${BOOKING_ID}`, { body: { booking: detail({ status: 'accepted' }) } });
+      api.on(`POST /admin/bookings/${BOOKING_ID}/cancel`, { body: { booking: detail({ status: 'cancelled', cancelledBy: 'admin' }) } });
+      renderAt(`/admin/bookings?open=b:${BOOKING_ID}`);
+      return api;
+    }
+
+    it('opens a confirmation with an optional note and a tick to send it to the customer', async () => {
+      const api = openCancel();
+      const dialog = await screen.findByRole('dialog', { name: 'B-1042' });
+      await user().click(within(dialog).getByRole('button', { name: 'Cancel booking' }));
+      const confirm = within(dialog).getByRole('alertdialog');
+      const note = within(confirm).getByLabelText('Note (optional): why is the booking cancelled?');
+      const send = within(confirm).getByRole('checkbox', { name: 'Send this note to the customer' });
+      expect(note).toHaveValue('');
+      expect(send).not.toBeChecked();
+      expect(confirm).toHaveTextContent('The pro never sees it.');
+
+      // Sending needs a note: the field says so, and nothing is sent.
+      await user().click(send);
+      await user().click(within(confirm).getByRole('button', { name: 'Cancel booking' }));
+      expect(note).toHaveFocus();
+      expect(note).toHaveAccessibleDescription(/Write the note to send it to the customer/);
+      expect(api.calls).not.toContain(`POST /admin/bookings/${BOOKING_ID}/cancel`);
+
+      await user().type(note, 'Storm warning for that day.');
+      await user().click(within(confirm).getByRole('button', { name: 'Cancel booking' }));
+      await waitFor(() =>
+        expect(api.bodies[`POST /admin/bookings/${BOOKING_ID}/cancel`]).toEqual({ note: 'Storm warning for that day.', sendToCustomer: true }),
+      );
+    });
+
+    it('cancels without a note, which stays optional', async () => {
+      const api = openCancel();
+      const dialog = await screen.findByRole('dialog', { name: 'B-1042' });
+      await user().click(within(dialog).getByRole('button', { name: 'Cancel booking' }));
+      await user().click(within(within(dialog).getByRole('alertdialog')).getByRole('button', { name: 'Cancel booking' }));
+      await waitFor(() => expect(api.bodies[`POST /admin/bookings/${BOOKING_ID}/cancel`]).toEqual({ sendToCustomer: false }));
+    });
+
+    it('shows the note in the activity log with who cancelled and when, and whether the customer got it', async () => {
+      const api = setUp();
+      const cancelled = detail({
+        status: 'cancelled',
+        cancelledBy: 'admin',
+        actions: [
+          {
+            id: 'a1',
+            action: 'cancelled',
+            details: { note: 'Pro is ill.', sentToCustomer: false },
+            createdAt: '2026-11-16T09:30:00.000Z',
+            adminName: 'Fiona Weiss',
+          },
+        ],
+      });
+      api.on(`GET /admin/bookings/${BOOKING_ID}`, { body: { booking: cancelled } });
+      renderAt(`/admin/bookings?open=b:${BOOKING_ID}`);
+      const dialog = await screen.findByRole('dialog', { name: 'B-1042' });
+      const line = within(dialog).getByText('Note: Pro is ill.', { exact: false }).closest('li') as HTMLElement;
+      expect(line).toHaveTextContent('(only the team sees this)');
+      expect(line).toHaveTextContent('Fiona Weiss');
+      expect(line).toHaveTextContent('16 Nov');
+    });
+  });
+
   it('asks before refunding a finished job', async () => {
     const api = setUp();
     const pro = { id: 'u-pro', firstName: 'Daniel', ratingAverage: null, ratingCount: 0 };
