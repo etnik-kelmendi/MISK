@@ -1871,11 +1871,14 @@
       "letter": "At least one letter",
       "number": "At least one number",
       "met": "done",
-      "notMet": "not yet"
+      "notMet": "not yet",
+      "special": "Special characters like ! ? # are allowed, but not needed.",
+      "summary": "{{met}} of {{total}} password requirements met"
     },
     "terms": "I accept the terms and conditions.",
     "readTerms": "Read the terms and conditions",
-    "submit": "Sign up",
+    "submit": "Create account",
+    "passwordFirst": "Meet all password requirements to create your account.",
     "creating": "Creating your account…",
     "fillAll": "Fill in all fields and accept the terms to sign up.",
     "haveAccount": "Already have an account?",
@@ -2169,6 +2172,7 @@
     "confirm": "Confirm new password",
     "submit": "Save new password",
     "done": "Your password has been changed. Log in with your new password.",
+    "passwordFirst": "Meet all password requirements to save your new password.",
     "newLink": "Ask for a new link"
   },
   "proBook": {

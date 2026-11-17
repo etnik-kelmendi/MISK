@@ -7,7 +7,7 @@ import { ErrorText } from '../components/ErrorText';
 import { Icon } from '../components/Icon';
 import { useAction } from '../lib/useAction';
 import { useValidation } from '../lib/useValidation';
-import { Field, MIN_PASSWORD_LENGTH, PasswordInput, passwordChecks } from './SignUpPage';
+import { Field, PasswordInput, PasswordRules, passwordChecks } from './SignUpPage';
 
 /** Reads the token from the link's #fragment once, then removes it from the address bar and history. */
 function takeToken(): string {
@@ -22,10 +22,11 @@ function takeToken(): string {
 export function ResetPasswordPage() {
   const { t } = useTranslation();
   const api = useApi();
-  const ids = { password: useId(), confirm: useId(), rules: useId() };
+  const ids = { password: useId(), confirm: useId(), rules: useId(), passwordFirst: useId() };
   const [token] = useState(takeToken);
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
+  const [passwordLeft, setPasswordLeft] = useState(false);
   const [done, setDone] = useState(false);
   const { run, busy, error } = useAction();
   const checks = passwordChecks(password);
@@ -87,22 +88,13 @@ export function ResetPasswordPage() {
                 id={ids.password}
                 label={t('reset.password')}
                 error={form.message('password')}
-                hint={
-                  <ul id={ids.rules} className="rules" aria-label={t('signUp.rules.title')}>
-                    {(['length', 'letter', 'number'] as const).map((rule) => (
-                      <li key={rule} className={checks[rule] ? 'ok' : form.tried ? 'bad' : ''}>
-                        <Icon name={checks[rule] ? 'check' : 'x'} />
-                        <span>{t(`signUp.rules.${rule}`, { min: MIN_PASSWORD_LENGTH })}</span>
-                        <span className="visually-hidden">{checks[rule] ? t('signUp.rules.met') : t('signUp.rules.notMet')}</span>
-                      </li>
-                    ))}
-                  </ul>
-                }
+                hint={<PasswordRules id={ids.rules} password={password} showProblems={form.tried || (passwordLeft && password !== '')} />}
               >
                 <PasswordInput
                   id={ids.password}
                   value={password}
                   onChange={setPassword}
+                  onBlur={() => setPasswordLeft(true)}
                   describedBy={form.message('password') ? `${ids.password}-error ${ids.rules}` : ids.rules}
                   invalid={Boolean(form.message('password'))}
                 />
@@ -117,9 +109,14 @@ export function ResetPasswordPage() {
                 />
               </Field>
               <ErrorText error={error} />
-              <button className="cta" type="submit" disabled={busy}>
+              <button className="cta" type="submit" disabled={busy || !passwordOk} aria-describedby={passwordOk ? undefined : ids.passwordFirst}>
                 {busy ? t('common.checking') : t('reset.submit')}
               </button>
+              {!passwordOk && (
+                <p id={ids.passwordFirst} className="hint center">
+                  {t('reset.passwordFirst')}
+                </p>
+              )}
             </form>
           )}
         </div>

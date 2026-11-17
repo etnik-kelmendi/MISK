@@ -207,7 +207,7 @@ describe('sign up', () => {
     await screen.findByRole('heading', { name: 'Create your account' });
     await fill(complete);
     await user().click(screen.getByRole('checkbox', { name: /I accept the terms and conditions/ }));
-    await user().click(screen.getByRole('button', { name: 'Sign up' }));
+    await user().click(screen.getByRole('button', { name: 'Create account' }));
 
     expect(await screen.findByRole('heading', { name: 'Check your email' })).toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent('We sent a link to sara@example.com.');
@@ -255,7 +255,7 @@ describe('sign up', () => {
     expect(screen.getByRole('heading', { level: 2, name: '1. What MISK is' })).toBeInTheDocument();
   });
 
-  it('marks required fields and says under each one what is missing when Sign up is clicked', async () => {
+  it('marks required fields and says under each one what is missing when Create account is clicked', async () => {
     const api = fakeApi(null);
     renderAt('/signup');
     await screen.findByRole('heading', { name: 'Create your account' });
@@ -263,7 +263,8 @@ describe('sign up', () => {
       expect(field(label)).toBeRequired();
       expect(field(label).closest('.field')?.querySelector('label .required')).toHaveTextContent('*');
     }
-    const submit = screen.getByRole('button', { name: 'Sign up' });
+    await fill({ Password: 'garden42' });
+    const submit = screen.getByRole('button', { name: 'Create account' });
     expect(submit).toBeEnabled();
     expect(screen.queryByText('Enter your first name.')).not.toBeInTheDocument();
     await user().click(submit);
@@ -271,7 +272,6 @@ describe('sign up', () => {
       'Enter your first name.',
       'Enter your last name.',
       'Enter your email address.',
-      'Enter a password.',
       'Enter the password a second time to confirm it.',
       'Tick the box to accept the terms and conditions.',
     ]) {
@@ -284,7 +284,7 @@ describe('sign up', () => {
 
     await fill({ 'First name': 'Sara' });
     expect(screen.queryByText('Enter your first name.')).not.toBeInTheDocument();
-    await fill({ 'Last name': 'Meier', 'Email address': 'sara@example.com', Password: 'garden42', 'Confirm password': 'garden42' });
+    await fill({ 'Last name': 'Meier', 'Email address': 'sara@example.com', 'Confirm password': 'garden42' });
     await user().click(submit);
     expect(screen.getByRole('checkbox', { name: /I accept the terms and conditions/ })).toHaveFocus();
     expect(api.calls).not.toContain('POST /auth/register');
@@ -297,7 +297,7 @@ describe('sign up', () => {
     await screen.findByRole('heading', { name: 'Create your account' });
     await fill(complete);
     await user().click(screen.getByRole('checkbox', { name: /I accept/ }));
-    await user().click(screen.getByRole('button', { name: 'Sign up' }));
+    await user().click(screen.getByRole('button', { name: 'Create account' }));
     expect(await screen.findByText('An account with this email already exists')).toBeInTheDocument();
     expect(field('Email address')).toHaveAttribute('aria-invalid', 'true');
   });
@@ -315,51 +315,108 @@ describe('sign up', () => {
     expect(screen.queryByText('Please enter a valid email address')).not.toBeInTheDocument();
   });
 
-  it('shows the password rules while typing and lets the person show or hide the password', async () => {
-    fakeApi(null);
-    renderAt('/signup');
-    await screen.findByRole('heading', { name: 'Create your account' });
-    const password = field('Password');
-    await user().type(password, 'garden');
-    const rules = screen.getByRole('list', { name: 'Password requirements' });
-    const rule = (text: string) => within(rules).getByText(text).closest('li');
-    expect(rule('At least 8 characters')).not.toHaveClass('ok');
-    expect(rule('At least one letter')).toHaveClass('ok');
-    expect(rule('At least one number')).not.toHaveClass('ok');
-    await user().type(password, '42');
-    expect(rule('At least 8 characters')).toHaveClass('ok');
-    expect(rule('At least one number')).toHaveClass('ok');
+  describe('password step', () => {
+    const rulesList = () => screen.getByRole('list', { name: 'Password requirements' });
+    const rule = (text: string) => within(rulesList()).getByText(text).closest('li');
+    const open = async () => {
+      fakeApi(null);
+      renderAt('/signup');
+      await screen.findByRole('heading', { name: 'Create your account' });
+    };
 
-    expect(password).toHaveAttribute('type', 'password');
-    const toggle = password.parentElement?.querySelector('button') as HTMLButtonElement;
-    expect(toggle).toHaveAccessibleName('Show password');
-    await user().click(toggle);
-    expect(password).toHaveAttribute('type', 'text');
-    expect(toggle).toHaveAccessibleName('Hide password');
-    await user().click(toggle);
-    expect(password).toHaveAttribute('type', 'password');
+    it('shows the checklist before typing and ticks each rule as it is met', async () => {
+      await open();
+      for (const text of ['At least 8 characters', 'At least one letter', 'At least one number']) {
+        expect(rule(text)).not.toHaveClass('ok');
+        expect(rule(text)).not.toHaveClass('bad');
+      }
+      expect(screen.getByText('0 of 3 password requirements met')).toBeInTheDocument();
+      expect(screen.getByText('Special characters like ! ? # are allowed, but not needed.')).toBeInTheDocument();
+      expect(field('Password')).toHaveAttribute('aria-describedby', rulesList().id);
+
+      await user().type(field('Password'), 'abc');
+      expect(rule('At least 8 characters')).not.toHaveClass('ok');
+      expect(rule('At least one letter')).toHaveClass('ok');
+      expect(rule('At least one number')).not.toHaveClass('ok');
+      expect(rule('At least one number')).not.toHaveClass('bad');
+      expect(screen.getByText('1 of 3 password requirements met')).toHaveAttribute('aria-live', 'polite');
+
+      await user().type(field('Password'), 'defg1');
+      expect(rule('At least 8 characters')).toHaveClass('ok');
+      expect(rule('At least one letter')).toHaveClass('ok');
+      expect(rule('At least one number')).toHaveClass('ok');
+      expect(screen.getByText('3 of 3 password requirements met')).toBeInTheDocument();
+    });
+
+    it('keeps Create account disabled, with a reason, until every rule is met', async () => {
+      await open();
+      const submit = screen.getByRole('button', { name: 'Create account' });
+      expect(submit).toBeDisabled();
+      expect(submit).toHaveAccessibleDescription('Meet all password requirements to create your account.');
+      await user().type(field('Password'), 'abcdefgh');
+      expect(submit).toBeDisabled();
+      await user().type(field('Password'), '1');
+      expect(submit).toBeEnabled();
+      expect(screen.queryByText('Meet all password requirements to create your account.')).not.toBeInTheDocument();
+    });
+
+    it.each(['pässwörd!1', 'abc!def#9'])('accepts special characters in %s', async (password) => {
+      await open();
+      await user().type(field('Password'), password);
+      expect(screen.getByRole('button', { name: 'Create account' })).toBeEnabled();
+    });
+
+    it('does not count special characters as a number', async () => {
+      await open();
+      await user().type(field('Password'), 'abc!def#?!');
+      expect(rule('At least one number')).not.toHaveClass('ok');
+      expect(screen.getByRole('button', { name: 'Create account' })).toBeDisabled();
+    });
+
+    it('shows unmet rules in red only after the field was left', async () => {
+      await open();
+      await user().type(field('Password'), 'garden');
+      expect(rule('At least one number')).not.toHaveClass('bad');
+      await user().tab();
+      expect(rule('At least one number')).toHaveClass('bad');
+      expect(rule('At least one letter')).toHaveClass('ok');
+    });
+
+    it('lets the person show or hide the password', async () => {
+      await open();
+      const password = field('Password');
+      expect(password).toHaveAttribute('type', 'password');
+      const toggle = password.parentElement?.querySelector('button') as HTMLButtonElement;
+      expect(toggle).toHaveAccessibleName('Show password');
+      await user().click(toggle);
+      expect(password).toHaveAttribute('type', 'text');
+      expect(toggle).toHaveAccessibleName('Hide password');
+      await user().click(toggle);
+      expect(password).toHaveAttribute('type', 'password');
+    });
   });
 
-  it('says the passwords do not match when Sign up is clicked, and sends nothing', async () => {
+  it('says the passwords do not match when Create account is clicked, and sends nothing', async () => {
     const api = fakeApi(null);
     renderAt('/signup');
     await screen.findByRole('heading', { name: 'Create your account' });
     await fill({ ...complete, 'Confirm password': 'garden43' });
     await user().click(screen.getByRole('checkbox', { name: /I accept/ }));
     expect(screen.queryByText('Passwords do not match')).not.toBeInTheDocument();
-    await user().click(screen.getByRole('button', { name: 'Sign up' }));
+    await user().click(screen.getByRole('button', { name: 'Create account' }));
     expect(await screen.findByText('Passwords do not match')).toBeInTheDocument();
     expect(api.calls).not.toContain('POST /auth/register');
   });
 
-  it('does not sign up with a weak password', async () => {
+  it('does not send a weak password', async () => {
     const api = fakeApi(null);
     renderAt('/signup');
     await screen.findByRole('heading', { name: 'Create your account' });
     await fill({ ...complete, Password: 'gardening', 'Confirm password': 'gardening' });
     await user().click(screen.getByRole('checkbox', { name: /I accept/ }));
-    await user().click(screen.getByRole('button', { name: 'Sign up' }));
-    expect(screen.getByText('At least one number').closest('li')).toHaveClass('bad');
+    const submit = screen.getByRole('button', { name: 'Create account' });
+    expect(submit).toBeDisabled();
+    await user().click(submit);
     expect(api.calls).not.toContain('POST /auth/register');
   });
 
@@ -368,6 +425,24 @@ describe('sign up', () => {
     renderAt('/signup');
     await user().click(await screen.findByRole('button', { name: 'Log in' }));
     expect(await screen.findByRole('heading', { name: 'Log in to MISK' })).toBeInTheDocument();
+  });
+});
+
+describe('reset password page', () => {
+  it('keeps Save new password disabled until the password meets every rule', async () => {
+    fakeApi(null);
+    window.history.replaceState(null, '', '/reset-password#token=abcdefghijklmnopqrstuvwxyz123456');
+    renderAt('/reset-password');
+    const password = await screen.findByLabelText(/^New password/, { selector: 'input' });
+    const submit = screen.getByRole('button', { name: 'Save new password' });
+    expect(screen.getByRole('list', { name: 'Password requirements' })).toBeInTheDocument();
+    expect(submit).toBeDisabled();
+    expect(submit).toHaveAccessibleDescription('Meet all password requirements to save your new password.');
+    await user().type(password, 'abcdefgh');
+    expect(submit).toBeDisabled();
+    await user().type(password, '!9');
+    expect(screen.getByText('3 of 3 password requirements met')).toBeInTheDocument();
+    expect(submit).toBeEnabled();
   });
 });
 

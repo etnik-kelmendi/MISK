@@ -1,5 +1,6 @@
 /** Line icons from the product demo, drawn on a 24×24 grid. Decorative unless given a label. */
 const PATHS = {
+  circle: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z',
   search: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z M21 21l-4.35-4.35',
   leaf: 'M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z M2 21c0-3 1.85-5.36 5.08-6',
   hammer:

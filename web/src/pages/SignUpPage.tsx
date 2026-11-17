@@ -58,6 +58,35 @@ export function Field({
   );
 }
 
+/**
+ * The password requirements under a password field. Always visible and updated on every keystroke; a rule
+ * turns green when met, and red only once `showProblems` is set (after a submit attempt or leaving the field).
+ */
+export function PasswordRules({ id, password, showProblems }: { id: string; password: string; showProblems: boolean }) {
+  const { t } = useTranslation();
+  const checks = passwordChecks(password);
+  const rules = ['length', 'letter', 'number'] as const;
+  const met = rules.filter((rule) => checks[rule]).length;
+  return (
+    <>
+      <ul id={id} className="rules" aria-label={t('signUp.rules.title')}>
+        {rules.map((rule) => (
+          <li key={rule} className={checks[rule] ? 'ok' : showProblems ? 'bad' : ''}>
+            {/* Not met yet: an empty circle; a red cross only once the person has left the field or tried to continue. */}
+            <Icon name={checks[rule] ? 'check' : showProblems ? 'x' : 'circle'} />
+            <span>{t(`signUp.rules.${rule}`, { min: MIN_PASSWORD_LENGTH })}</span>
+            <span className="visually-hidden">{checks[rule] ? t('signUp.rules.met') : t('signUp.rules.notMet')}</span>
+          </li>
+        ))}
+      </ul>
+      <p className="hint">{t('signUp.rules.special')}</p>
+      <span className="visually-hidden" aria-live="polite">
+        {t('signUp.rules.summary', { met, total: rules.length })}
+      </span>
+    </>
+  );
+}
+
 /** A password input with a show/hide button. */
 export function PasswordInput({
   id,
@@ -65,14 +94,14 @@ export function PasswordInput({
   onChange,
   describedBy,
   invalid,
-  onFocus,
+  onBlur,
 }: {
   id: string;
   value: string;
   onChange: (value: string) => void;
   describedBy?: string;
   invalid?: boolean;
-  onFocus?: () => void;
+  onBlur?: () => void;
 }) {
   const { t } = useTranslation();
   const [visible, setVisible] = useState(false);
@@ -87,7 +116,7 @@ export function PasswordInput({
         value={value}
         aria-invalid={invalid || undefined}
         aria-describedby={describedBy}
-        onFocus={onFocus}
+        onBlur={onBlur}
         onChange={(e) => onChange(e.target.value)}
       />
       <button
@@ -109,10 +138,11 @@ export function SignUpPage() {
   const api = useApi();
   const navigate = useNavigate();
   const { state } = useAuth();
-  const ids = { first: useId(), last: useId(), email: useId(), password: useId(), confirm: useId(), terms: useId(), rules: useId() };
+  const ids = { first: useId(), last: useId(), email: useId(), password: useId(), confirm: useId(), terms: useId(), rules: useId(), passwordFirst: useId() };
   const [form, setForm] = useState({ firstName: '', lastName: '', email: '', password: '', confirm: '', acceptTerms: false });
   const [emailTouched, setEmailTouched] = useState(false);
-  const [showRules, setShowRules] = useState(false);
+  // Set once the password field has been left, so unmet rules turn red only after that (or after Sign up).
+  const [passwordLeft, setPasswordLeft] = useState(false);
   // The email the API said is already registered; the message goes away once the email changes.
   const [takenEmail, setTakenEmail] = useState<string | null>(null);
   const { run, busy, error } = useAction();
@@ -157,7 +187,6 @@ export function SignUpPage() {
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    setShowRules(true);
     if (!v.check()) {
       return;
     }
@@ -280,25 +309,13 @@ export function SignUpPage() {
             id={ids.password}
             label={t('signUp.password')}
             error={v.message('password')}
-            hint={
-              (showRules || form.password !== '') && (
-                <ul id={ids.rules} className="rules" aria-label={t('signUp.rules.title')}>
-                  {(['length', 'letter', 'number'] as const).map((rule) => (
-                    <li key={rule} className={checks[rule] ? 'ok' : v.tried ? 'bad' : ''}>
-                      <Icon name={checks[rule] ? 'check' : 'x'} />
-                      <span>{t(`signUp.rules.${rule}`, { min: MIN_PASSWORD_LENGTH })}</span>
-                      <span className="visually-hidden">{checks[rule] ? t('signUp.rules.met') : t('signUp.rules.notMet')}</span>
-                    </li>
-                  ))}
-                </ul>
-              )
-            }
+            hint={<PasswordRules id={ids.rules} password={form.password} showProblems={v.tried || (passwordLeft && form.password !== '')} />}
           >
             <PasswordInput
               id={ids.password}
               value={form.password}
               onChange={(value) => set('password', value)}
-              onFocus={() => setShowRules(true)}
+              onBlur={() => setPasswordLeft(true)}
               describedBy={v.message('password') ? `${ids.password}-error ${ids.rules}` : ids.rules}
               invalid={Boolean(v.message('password'))}
             />
@@ -356,9 +373,14 @@ export function SignUpPage() {
           )}
 
           <ErrorText error={error} />
-          <button className="cta" type="submit" disabled={busy}>
+          <button className="cta" type="submit" disabled={busy || !passwordOk} aria-describedby={passwordOk ? undefined : ids.passwordFirst}>
             {busy ? t('signUp.creating') : t('signUp.submit')}
           </button>
+          {!passwordOk && (
+            <p id={ids.passwordFirst} className="hint center">
+              {t('signUp.passwordFirst')}
+            </p>
+          )}
 
           <div className="switch-account">
             <span className="small">{t('signUp.haveAccount')}</span>

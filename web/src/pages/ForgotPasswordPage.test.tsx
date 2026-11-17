@@ -67,8 +67,7 @@ describe('forgot password', () => {
 
     await user().type(password, 'short');
     await user().type(confirm, 'short');
-    await user().click(screen.getByRole('button', { name: 'Save new password' }));
-    expect(password).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByRole('button', { name: 'Save new password' })).toBeDisabled();
     expect(api.calls).not.toContain('POST /auth/reset-password');
 
     await user().clear(password);
