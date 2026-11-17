@@ -110,7 +110,7 @@
     "unknown_task": "That task is not part of this plan.",
     "checks_open": "All four checks must be OK before you can approve this pro.",
     "expiry_required": "Enter the date the document is valid until.",
-    "document_expired": "This document has already run out. Please use a valid one.",
+    "document_expired": "This document has expired. Please upload a valid document: the date it is valid until must be today or later.",
     "document_not_found": "This document has not been uploaded.",
     "nothing_to_remind": "This document is fine, so there is nothing to remind the pro about.",
     "reminder_recent": "A reminder about this document was sent less than an hour ago.",
@@ -523,11 +523,12 @@
     },
     "expiresOn": "Valid until",
     "expiresOnHint": "Enter the date printed on the document before uploading it.",
+    "expiredDate": "This date has passed, so the document has expired. A valid document is required: use one that is valid until today or later.",
     "docState": {
       "missing": "PDF or photo, up to 8 MB",
       "waiting_review": "Uploaded {{date}}. The MISK team checks it soon.",
       "rejected": "Please upload a new copy: {{note}}",
-      "expired": "Ran out on {{date}}. Please upload the new one.",
+      "expired": "Expired on {{date}}. A valid document is required: please replace it.",
       "expiring": "Runs out on {{date}}. Please upload the new one soon.",
       "valid": "Checked"
     },

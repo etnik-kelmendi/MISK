@@ -188,6 +188,14 @@ export async function proRoutes(app: FastifyInstance, ctx: AppContext) {
     if (!EDITABLE_TRADES.has(profile.status)) {
       throw conflict('already_submitted');
     }
+    // A document waiting for review still has its date, so judge the date itself, not only the check state.
+    const today = marketToday(ctx.config.timezone);
+    for (const kind of DOCUMENT_KINDS) {
+      const doc = profile.documents[kind];
+      if (doc && (doc.state === 'expired' || (doc.expiresOn && doc.expiresOn < today))) {
+        throw badRequest('document_expired');
+      }
+    }
     const missing: string[] = [];
     if (!profile.trades.length) missing.push('trades');
     if (!profile.homePostcode) missing.push('homePostcode');

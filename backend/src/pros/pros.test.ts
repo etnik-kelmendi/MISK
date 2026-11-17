@@ -119,6 +119,21 @@ describe('pro documents', () => {
     expect(noExpiryNeeded.json().profile.documents.background).toMatchObject({ expiresOn: null, fileName: 'conduct.pdf' });
   });
 
+  it('refuses to send an application with a document that has run out, until it is replaced', async () => {
+    const cookie = await signIn(t, PRO_PHONE, 'pro');
+    await completeApplication(cookie);
+    await t.pool.query("UPDATE pro_documents SET expires_on = '2020-01-01' WHERE kind = 'id'");
+    const refused = await call(t, 'POST', '/pro/submit', { cookie });
+    expect(refused.statusCode).toBe(400);
+    expect(refused.json()).toEqual({ error: 'document_expired' });
+
+    const stillExpired = await upload(t, '/pro/documents/id?expiresOn=2020-02-02', cookie, FILES.jpeg, 'id.jpg');
+    expect(stillExpired.json()).toEqual({ error: 'document_expired' });
+    await upload(t, '/pro/documents/id?expiresOn=2031-05-01', cookie, FILES.jpeg, 'id-new.jpg');
+    const submitted = await call(t, 'POST', '/pro/submit', { cookie });
+    expect(submitted.json().profile.status).toBe('submitted');
+  });
+
   it('lets a pro asked for more information change and send the application again', async () => {
     const cookie = await signIn(t, PRO_PHONE, 'pro');
     await completeApplication(cookie);

@@ -1184,6 +1184,44 @@ describe('pro app', () => {
     expect(uploadUrl).toBe('?expiresOn=2027-06-30');
   });
 
+  it('catches a date that has passed as soon as it is typed, and lets the pro fix it', async () => {
+    const api = fakeApi(users.pro);
+    api.on('GET /pro/profile', { body: { profile: draft } });
+    api.on('GET /postcodes', { body: { postcodes: [] } });
+    renderAt('/pro');
+    await screen.findByText('Documents (0/4)');
+    const date = screen.getByLabelText('Valid until', { selector: '#expiry-id' });
+    fireEvent.change(date, { target: { value: '2020-01-01' } });
+    expect(
+      screen.getByText(
+        'This date has passed, so the document has expired. A valid document is required: use one that is valid until today or later.',
+      ),
+    ).toBeInTheDocument();
+    expect(date).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByLabelText('Upload ID card or passport')).toBeDisabled();
+    fireEvent.change(date, { target: { value: '2031-05-01' } });
+    expect(screen.queryByText(/This date has passed/)).not.toBeInTheDocument();
+    expect(date).not.toHaveAttribute('aria-invalid');
+    expect(screen.getByLabelText('Upload ID card or passport')).toBeEnabled();
+  });
+
+  it('shows an expired answer to an upload next to that document', async () => {
+    const api = fakeApi(users.pro);
+    api.on('GET /pro/profile', { body: { profile: draft } });
+    api.on('GET /postcodes', { body: { postcodes: [] } });
+    api.on('POST /pro/documents/insurance', { status: 400, body: { error: 'document_expired' } });
+    renderAt('/pro');
+    await screen.findByText('Documents (0/4)');
+    fireEvent.change(screen.getByLabelText('Valid until', { selector: '#expiry-insurance' }), { target: { value: '2027-06-30' } });
+    await user().upload(screen.getByLabelText('Upload Liability insurance'), new File(['%PDF'], 'policy.pdf', { type: 'application/pdf' }));
+    const message = await screen.findByText(
+      'This document has expired. Please upload a valid document: the date it is valid until must be today or later.',
+    );
+    expect(message.closest('.doc')).toHaveTextContent('Liability insurance');
+    fireEvent.change(screen.getByLabelText('Valid until', { selector: '#expiry-insurance' }), { target: { value: '2028-01-01' } });
+    expect(message).not.toBeInTheDocument();
+  });
+
   it('shows what the team asked for and lets the pro send the application again', async () => {
     const api = fakeApi(users.pro);
     const asked = { ...draft, status: 'info_requested' as const, reviewNote: 'Please send the back of your ID card.' };
@@ -2067,10 +2105,11 @@ describe('plan page', () => {
     api.on('GET /admin/plans/p1', () => ({ body: { plan: published ? live : savedPlan({}) } }));
     await fillComplete();
     await user().click(screen.getByRole('button', { name: 'Publish plan' }));
-    expect(await screen.findByRole('heading', { name: 'Plan published' })).toBeInTheDocument();
-    expect(api.bodies['POST /admin/plans/p1/status']).toEqual({ published: true });
+    // The editor opens the new plan under its own address and loads it again, which replaces the heading;
+    // so the heading is looked up afresh each time instead of keeping an element that may be gone.
     await waitFor(() => expect(api.calls).toContain('GET /admin/plans/p1'));
-    expect(await screen.findByRole('heading', { name: 'Plan published' })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Plan published' })).toBeInTheDocument());
+    expect(api.bodies['POST /admin/plans/p1/status']).toEqual({ published: true });
     expect(api.calls.indexOf('POST /admin/plans/p1/status')).toBeLessThan(api.calls.indexOf('GET /admin/plans/p1'));
   });
 

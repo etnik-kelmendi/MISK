@@ -34,6 +34,11 @@ export function ApplicationForm({ profile, onChange }: { profile: ProProfile; on
   const docsDone = DOCUMENT_KINDS.filter((kind) => profile.documents[kind]).length;
   // Expiry dates typed for documents that run out, sent along with the file.
   const [expiry, setExpiry] = useState<Partial<Record<DocumentKind, string>>>({});
+  // The document the last upload was for, so its error shows next to it.
+  const [uploadKind, setUploadKind] = useState<DocumentKind | null>(null);
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: market.timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(
+    new Date(),
+  );
 
   async function patch(body: Partial<Pick<ProProfile, 'trades' | 'homePostcode' | 'radiusKm' | 'workingDays'>>) {
     const result = await save.run(() => api.patch<{ profile: ProProfile }>('/pro/profile', body));
@@ -88,6 +93,8 @@ export function ApplicationForm({ profile, onChange }: { profile: ProProfile; on
             }
           })();
           const dateId = `expiry-${kind}`;
+          // Today still counts as valid; the day is judged in the market's time zone.
+          const datePassed = needsDate && date !== '' && date < today;
           return (
             <div key={kind} className={`doc ${ok ? 'ok' : ''} ${state === 'rejected' || state === 'expired' ? 'bad' : ''}`}>
               <span className="di">
@@ -106,21 +113,32 @@ export function ApplicationForm({ profile, onChange }: { profile: ProProfile; on
                       id={dateId}
                       type="date"
                       value={date}
-                      aria-describedby={`${dateId}-hint`}
-                      onChange={(event) => setExpiry((current) => ({ ...current, [kind]: event.target.value }))}
+                      aria-invalid={datePassed || undefined}
+                      aria-describedby={`${dateId}-hint${datePassed ? ` ${dateId}-passed` : ''}`}
+                      onChange={(event) => {
+                        setExpiry((current) => ({ ...current, [kind]: event.target.value }));
+                        if (uploadKind === kind) docs.clearError();
+                      }}
                     />
                     <span id={`${dateId}-hint`} className="tiny muted">
                       {t('apply.expiresOnHint')}
                     </span>
+                    {datePassed && (
+                      <span id={`${dateId}-passed`} role="alert" className="tiny error-text">
+                        {t('apply.expiredDate')}
+                      </span>
+                    )}
                   </span>
                 )}
+                {uploadKind === kind && <ErrorText error={docs.error} />}
               </span>
               <FileButton
                 label={doc ? t('apply.replace') : t('apply.upload')}
                 target={t(`apply.doc.${kind}`)}
                 accept={DOCUMENT_TYPES}
-                disabled={needsDate && !date}
+                disabled={needsDate && (!date || datePassed)}
                 onFile={async (file) => {
+                  setUploadKind(kind);
                   const query = needsDate ? `?expiresOn=${encodeURIComponent(date)}` : '';
                   const result = await docs.run(() => api.upload<{ profile: ProProfile }>(`/pro/documents/${kind}${query}`, file));
                   if (result) {
@@ -132,7 +150,6 @@ export function ApplicationForm({ profile, onChange }: { profile: ProProfile; on
             </div>
           );
         })}
-        <ErrorText error={docs.error} />
       </section>
 
       <section aria-labelledby="area-heading" className="card stack">
