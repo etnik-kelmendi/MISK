@@ -741,7 +741,7 @@ describe('booking a job', () => {
     await user().click(screen.getByRole('radio', { name: /Medium/ }));
     await user().click(screen.getByRole('button', { name: 'Continue · €45.50' }));
 
-    expect(await screen.findByRole('button', { name: /08:00/ })).toBeDisabled();
+    expect(await screen.findByRole('button', { name: /08:00\s*Full · waitlist/ })).toBeInTheDocument();
     await user().click(screen.getByRole('button', { name: /10:00/ }));
     await user().click(screen.getByRole('button', { name: /Continue · Fri 6 Nov, 10:00/ }));
 
@@ -1244,6 +1244,133 @@ describe('pro app', () => {
     await user().click(within(offer).getByRole('button', { name: 'Accept job' }));
     expect(await screen.findByRole('button', { name: /Start driving/ })).toBeInTheDocument();
   });
+
+  it('(D70) lets a pro pick the start of a flexible job when accepting it', async () => {
+    const api = fakeApi(users.pro);
+    api.on('GET /pro/profile', { body: { profile: { ...draft, status: 'approved', payoutsEnabled: true, trades: ['cat-garden'] } } });
+    api.on('GET /pro/jobs', { body: { jobs: [] } });
+    api.on('GET /pro/offers', {
+      body: {
+        offers: [
+          {
+            id: 'o1',
+            bookingId: 'b1',
+            expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+            serviceName: 'Lawn mowing',
+            size: 'M',
+            startsAt: '2026-11-06T07:00:00.000Z',
+            endsAt: '2026-11-06T10:00:00.000Z',
+            address: '12 Linden Street',
+            postcode: '10115',
+            notes: '',
+            customerName: 'Sara',
+            distanceKm: 2.3,
+            photoIds: [],
+            earningsCents: 3731,
+            flexibleWindow: 'morning',
+            startOptions: ['2026-11-06T07:00:00.000Z', '2026-11-06T09:00:00.000Z'],
+          },
+        ],
+      },
+    });
+    api.on('POST /pro/offers/o1/accept', { body: { job: { id: 'b1' } } });
+    api.on('GET /pro/jobs/b1', { body: { job: { ...booking(), customer: { firstName: 'Sara' }, earningsCents: 3731 } } });
+    renderAt('/pro');
+    const offer = await screen.findByRole('article', { name: 'New job request' });
+    expect(within(offer).getByText('Fri 6 Nov, morning · you pick the time')).toBeInTheDocument();
+    expect(within(offer).getByRole('button', { name: 'Accept job' })).toBeDisabled();
+    await user().click(within(offer).getByRole('radio', { name: '10:00' }));
+    await user().click(within(offer).getByRole('button', { name: 'Accept, start 10:00' }));
+    expect(api.bodies['POST /pro/offers/o1/accept']).toEqual({ startsAt: '2026-11-06T09:00:00.000Z' });
+  });
+});
+
+describe('Choose time (D70)', () => {
+  /** A slot `days` days ahead at a local hour (Berlin winter time is UTC+1). */
+  const at = (days: number, localHour: number) => {
+    const date = new Date();
+    date.setUTCDate(date.getUTCDate() + days);
+    date.setUTCHours(localHour - 1, 0, 0, 0);
+    return date.toISOString();
+  };
+  const slot = (startsAt: string, available: boolean, freePros = available ? 2 : 0) => ({
+    startsAt,
+    endsAt: new Date(new Date(startsAt).getTime() + 3600_000).toISOString(),
+    freePros,
+    available,
+  });
+  const berlinDay = (iso: string) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin' }).format(new Date(iso));
+
+  function setUp(slots: ReturnType<typeof slot>[], waitlist: object[] = []) {
+    const api = fakeApi(users.customer);
+    api.on('GET /postcodes', { body: { postcodes: [{ code: '10115', name: 'Mitte' }] } });
+    api.on('GET /bookings', { body: { bookings: [] } });
+    api.on('GET /availability', { body: { slots, waitlist } });
+    return api;
+  }
+
+  async function toTimeStep() {
+    renderAt('/book?services=svc-mow');
+    await user().type(await screen.findByLabelText('Street and house number'), '12 Linden Street');
+    await user().selectOptions(await screen.findByLabelText('Postcode'), '10115');
+    await user().click(screen.getByRole('button', { name: /Continue · / }));
+  }
+
+  it('puts the customer on the waiting list for a full time, or for the whole day, and off again', async () => {
+    const full = at(3, 8);
+    const api = setUp([slot(full, false), slot(at(3, 10), true)]);
+    let entries = 0;
+    api.on('POST /time-waitlist', ({ body }) => {
+      entries += 1;
+      const b = body as { day: string; startsAt?: string };
+      return { status: 201, body: { entry: { id: `w${entries}`, day: b.day, startsAt: b.startsAt ?? null, notifiedAt: null } } };
+    });
+    api.on('DELETE /time-waitlist/w1', { status: 204 });
+    await toTimeStep();
+
+    await user().click(await screen.findByRole('button', { name: /08:00\s*Full · waitlist/ }));
+    expect(api.bodies['POST /time-waitlist']).toEqual({ serviceIds: ['svc-mow'], postcode: '10115', day: berlinDay(full), startsAt: full });
+    expect(await screen.findByRole('button', { name: /08:00\s*✓ On waitlist/ })).toHaveAttribute('aria-pressed', 'true');
+    await user().click(screen.getByRole('button', { name: /08:00\s*✓ On waitlist/ }));
+    expect(await screen.findByRole('button', { name: /08:00\s*Full · waitlist/ })).toBeInTheDocument();
+    expect(api.calls).toContain('DELETE /time-waitlist/w1');
+
+    await user().click(screen.getByRole('button', { name: /No time that suits you\?/ }));
+    expect(api.bodies['POST /time-waitlist']).toEqual({ serviceIds: ['svc-mow'], postcode: '10115', day: berlinDay(full) });
+    expect(await screen.findByText("You're on the waitlist")).toBeInTheDocument();
+    expect(screen.getByText('Joined')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Select a time' })).toBeDisabled();
+  });
+
+  it('books a flexible window: the pro picks the time by the evening before', async () => {
+    const day = at(3, 8);
+    const api = setUp([slot(day, false), slot(at(3, 12), true), slot(at(3, 14), true)]);
+    api.on('POST /bookings', { status: 201, body: { booking: booking({ status: 'searching', pro: null }), payment: null } });
+    api.on('GET /bookings/b1', { body: { booking: booking({ status: 'searching', pro: null, flexibleWindow: 'afternoon', timeConfirmed: false, confirmBy: day }) } });
+    await toTimeStep();
+    await user().click(await screen.findByRole('button', { name: "I'm flexible" }));
+    // Morning has no free pro on this day.
+    expect(screen.getByText(/No pro is free in this window/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Select a time' })).toBeDisabled();
+    await user().click(screen.getByRole('button', { name: 'Afternoon' }));
+    expect(screen.getByText('Flexible booking.')).toBeInTheDocument();
+    await user().click(screen.getByRole('button', { name: /Continue · .+, afternoon/ }));
+    expect(screen.getByText(/afternoon · your pro picks the time by 18:00 the evening before/)).toBeInTheDocument();
+    await user().click(screen.getByRole('button', { name: /Book and pay/ }));
+    expect(await screen.findByText(/your pro picks the time by/)).toBeInTheDocument();
+    const sent = api.bodies['POST /bookings'] as Record<string, unknown>;
+    expect(sent).toMatchObject({ flexibleWindow: 'afternoon', day: berlinDay(day) });
+    expect(sent.startsAt).toBeUndefined();
+  });
+
+  it('does not offer a flexible time for today', async () => {
+    setUp([slot(at(0, 23), true)]);
+    await toTimeStep();
+    await user().click(await screen.findByRole('button', { name: "I'm flexible" }));
+    expect(screen.getByText(/needs a pro to confirm it by 18:00 the evening before/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Select a time' })).toBeDisabled();
+  });
+
 });
 
 describe('monthly plans in the apps', () => {
@@ -1928,11 +2055,22 @@ describe('plan page', () => {
 
   it('publishes a complete plan', async () => {
     const api = openNewPlan();
-    api.on('POST /admin/plans/p1/status', { body: { plan: savedPlan({ name: 'Lawn care', categoryId: 'cat-garden', priceCents: 4900, tasks: ['Mow'] }, 'published') } });
+    const live = savedPlan({ name: 'Lawn care', categoryId: 'cat-garden', priceCents: 4900, tasks: ['Mow'] }, 'published');
+    let published = false;
+    api.on('POST /admin/plans/p1/status', () => {
+      published = true;
+      return { body: { plan: live } };
+    });
+    // Like the API: once published, the plan loads as published. The new plan opens under its own address
+    // after publishing, so the editor loads it again (D70a).
+    api.on('GET /admin/plans/p1', () => ({ body: { plan: published ? live : savedPlan({}) } }));
     await fillComplete();
     await user().click(screen.getByRole('button', { name: 'Publish plan' }));
     expect(await screen.findByRole('heading', { name: 'Plan published' })).toBeInTheDocument();
     expect(api.bodies['POST /admin/plans/p1/status']).toEqual({ published: true });
+    await waitFor(() => expect(api.calls).toContain('GET /admin/plans/p1'));
+    expect(await screen.findByRole('heading', { name: 'Plan published' })).toBeInTheDocument();
+    expect(api.calls.indexOf('POST /admin/plans/p1/status')).toBeLessThan(api.calls.indexOf('GET /admin/plans/p1'));
   });
 
   it('warns before leaving with unsaved changes', async () => {

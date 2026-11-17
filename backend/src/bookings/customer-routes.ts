@@ -7,10 +7,18 @@ import { onlyRow, withTransaction } from '../db.js';
 import { ApiError, badRequest, conflict, notFound } from '../errors.js';
 import { isUniqueViolation, uuidParams } from '../http.js';
 import { readSingleFile, storeUpload } from '../uploads/uploads.js';
-import { findSlots } from './availability.js';
+import {
+  FLEXIBLE_CONFIRM_HOUR,
+  FLEXIBLE_WINDOWS,
+  findSlots,
+  windowSlots,
+  type FlexibleWindow,
+  type Slot,
+} from './availability.js';
 import { setStatus, type BookingDeps } from './events.js';
 import { cancelBooking, CHARGE_DELAY_HOURS, confirmHold, settleBooking } from './lifecycle.js';
 import { loadBooking } from './views.js';
+import { waitlistFor } from './time-waitlist.js';
 
 export const MAX_CUSTOMER_PHOTOS = 3;
 /** Photos a customer can add to a problem report. */
@@ -41,7 +49,10 @@ interface BookingBody {
   address: string;
   postcode: string;
   notes?: string;
-  startsAt: string;
+  /** A fixed start, or for a flexible booking `flexibleWindow` on `day` (D70). */
+  startsAt?: string;
+  flexibleWindow?: FlexibleWindow;
+  day?: string;
 }
 
 const paymentUnavailable = () => new ApiError(502, 'payment_unavailable');
@@ -141,7 +152,9 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
         timezone: ctx.config.timezone,
         customerId: currentUser(request).id,
       });
-      return { timezone: ctx.config.timezone, slots };
+      // The times (or days) this customer waits for in this trade (D70).
+      const waitlist = await waitlistFor(pool, currentUser(request).id, services[0].categoryId, postcode);
+      return { timezone: ctx.config.timezone, slots, waitlist };
     },
   );
 
@@ -152,7 +165,7 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
       schema: {
         body: {
           type: 'object',
-          required: ['size', 'address', 'postcode', 'startsAt'],
+          required: ['size', 'address', 'postcode'],
           additionalProperties: false,
           properties: {
             serviceId: { type: 'string', format: 'uuid' },
@@ -168,6 +181,8 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
             postcode: { type: 'string', minLength: 2, maxLength: 10 },
             notes: { type: 'string', maxLength: 1000 },
             startsAt: { type: 'string', format: 'date-time' },
+            flexibleWindow: { type: 'string', enum: FLEXIBLE_WINDOWS },
+            day: { type: 'string', format: 'date' },
           },
         },
       },
@@ -178,7 +193,11 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
       const services = await activeServices(requestedServices(body));
       const service = services[0];
       const postcode = await servedPostcode(body.postcode);
-      const startsAt = new Date(body.startsAt);
+      // Either a fixed time, or a window on a day for a flexible booking.
+      const flexible = body.flexibleWindow && body.day ? { window: body.flexibleWindow, day: body.day } : null;
+      if (!flexible && !body.startsAt) {
+        throw badRequest('time_missing');
+      }
       const price = packagePrice(services, body.size);
       const priceCents = price.jobCents;
       const serviceName = services.map((s) => s.name).join(' + ');
@@ -186,19 +205,40 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
       const created = await withTransaction(pool, async (client) => {
         // One booking per trade at a time, so two customers cannot both take the last free pro.
         await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`book:${service.categoryId}`]);
-        const [slot] = await findSlots(
-          client,
-          {
-            categoryId: service.categoryId,
-            postcode,
-            durationMinutes: price.durationMinutes,
-            timezone: ctx.config.timezone,
-            customerId: customer.id,
-          },
-          startsAt,
-        );
-        if (!slot?.available) {
-          throw conflict('slot_unavailable');
+        const query = {
+          categoryId: service.categoryId,
+          postcode,
+          durationMinutes: price.durationMinutes,
+          timezone: ctx.config.timezone,
+          customerId: customer.id,
+        };
+        let slot: Slot;
+        let confirmBy: Date | null = null;
+        if (flexible) {
+          const deadline = await client.query<{ confirmBy: Date; open: boolean }>(
+            `SELECT (($1::date - 1) + make_interval(hours => $2)) AT TIME ZONE $3 AS "confirmBy",
+               (($1::date - 1) + make_interval(hours => $2)) AT TIME ZONE $3 > now() AS open`,
+            [flexible.day, FLEXIBLE_CONFIRM_HOUR, ctx.config.timezone],
+          );
+          // A pro needs until the evening before to pick the time, so flexible jobs start tomorrow at the earliest.
+          if (!onlyRow(deadline).open) {
+            throw conflict('too_late_for_flexible');
+          }
+          confirmBy = onlyRow(deadline).confirmBy;
+          // The booking covers every start in the window until a pro picks one (D70).
+          const starts = windowSlots(await findSlots(client, query), flexible.day, flexible.window, ctx.config.timezone);
+          const first = starts[0];
+          const last = starts.at(-1);
+          if (!first || !last || !starts.some((s) => s.available)) {
+            throw conflict('slot_unavailable');
+          }
+          slot = { startsAt: first.startsAt, endsAt: last.endsAt, freePros: 0, available: true };
+        } else {
+          const [fixed] = await findSlots(client, query, new Date(body.startsAt ?? ''));
+          if (!fixed?.available) {
+            throw conflict('slot_unavailable');
+          }
+          slot = fixed;
         }
         const settings = await client.query<{ fee: number; share: number }>(
           'SELECT service_fee_cents AS fee, pro_share_pct AS share FROM settings',
@@ -206,8 +246,8 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
         const { fee, share } = onlyRow(settings);
         const inserted = await client.query<{ id: string }>(
           `INSERT INTO bookings (customer_id, service_id, category_id, service_name, size, address, postcode, notes,
-             starts_at, ends_at, price_cents, fee_cents, pro_share_pct, package_discount_cents)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id`,
+             starts_at, ends_at, price_cents, fee_cents, pro_share_pct, package_discount_cents, flexible_window, confirm_by)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING id`,
           [
             customer.id,
             service.id,
@@ -223,6 +263,8 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
             fee,
             share,
             price.discountCents,
+            flexible?.window ?? null,
+            confirmBy,
           ],
         );
         const id = onlyRow(inserted).id;
@@ -287,6 +329,8 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
         `SELECT b.id, b.status, b.service_name AS "serviceName", b.category_id AS "categoryId", b.starts_at AS "startsAt",
            b.ends_at AS "endsAt", b.completed_at AS "completedAt", b.payment_status AS "paymentStatus",
            b.address, b.postcode,
+           -- A flexible booking still waiting for its time shows its window (D70).
+           CASE WHEN b.time_confirmed_at IS NULL THEN b.flexible_window END AS "flexibleWindow",
            b.price_cents + CASE WHEN b.late_cancel THEN 0 ELSE b.fee_cents END
              + COALESCE((SELECT sum(x.price_cents) FROM extra_requests x WHERE x.booking_id = b.id AND x.status = 'approved'), 0)::int
              AS "totalCents",

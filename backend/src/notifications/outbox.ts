@@ -24,6 +24,7 @@ export type NotificationKind =
   | 'account'
   | 'team_message'
   | 'chat_message'
+  | 'time_free'
   | 'plan_pro_changed'
   | 'payout_sent'
   | 'waitlist_open'
@@ -64,6 +65,7 @@ const SUBJECTS: Partial<Record<NotificationKind, string>> = {
   document_expiring: 'A document of yours runs out soon',
   team_message: 'A message from the MISK team',
   chat_message: 'A new message about your MISK job',
+  time_free: 'A time you wanted is free',
   account: 'About your MISK account',
 };
 

@@ -17,6 +17,8 @@ export async function reminderTick(deps: BookingDeps): Promise<number> {
   const due = await deps.pool.query<{ id: string; customer_id: string; service_name: string; starts_at: Date }>(
     `UPDATE bookings b SET reminder_sent_at = now()
      WHERE b.status IN ('searching', 'accepted') AND b.reminder_sent_at IS NULL
+       -- A flexible job without a time yet is reminded of once a pro has picked it (D70).
+       AND NOT (b.flexible_window IS NOT NULL AND b.time_confirmed_at IS NULL)
        AND extract(hour FROM now() AT TIME ZONE $1) >= $2
        AND (b.starts_at AT TIME ZONE $1)::date = (now() AT TIME ZONE $1)::date + 1
      RETURNING b.id, b.customer_id, b.service_name, b.starts_at`,

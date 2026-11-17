@@ -152,7 +152,15 @@
     "no_email": "Add an email address to your account to get receipts by email.",
     "chat_closed": "This chat is closed.",
     "services_mixed_trades": "Services of different trades cannot be booked in one visit.",
-    "invalid_services": "Choose at least one service."
+    "invalid_services": "Choose at least one service.",
+    "time_missing": "Choose a time, or that you are flexible.",
+    "too_late_for_flexible": "A flexible time needs to be booked by 18:00 the evening before. Pick a time instead, or a later day.",
+    "start_required": "Choose the time you will start.",
+    "start_not_free": "You are not free at that time any more. Choose another time.",
+    "already_waiting": "You are already on the waiting list for this.",
+    "day_not_bookable": "That day cannot be booked yet.",
+    "time_not_on_day": "That time is not on the day you chose.",
+    "flexible_needs_time": "This flexible job has no time yet. Set the time with Change time first, then choose the pro."
   },
   "nav": {
     "customer": "Main menu",
@@ -553,7 +561,11 @@
     "photos": "Customer photo",
     "paymentSecured": "Payment is already secured by MISK.",
     "accept": "Accept job",
-    "decline": "Decline"
+    "decline": "Decline",
+    "flexibleWhen": "{{day}}, {{window}} · you pick the time",
+    "pickStart": "Pick your start time",
+    "noStart": "You are not free at any time in this window.",
+    "acceptAt": "Accept, start {{time}}"
   },
   "job": {
     "title": "Job",
@@ -2289,5 +2301,36 @@
     "fixedPriceHourly": "Fixed price {{price}} for this job.",
     "planTitle": "Need this regularly? Make it a plan",
     "planText": "{{name}} from {{price}}/month, same pro every time"
+  },
+  "time": {
+    "kind": "A set time or flexible",
+    "pick": "Pick a time",
+    "flexible": "I'm flexible",
+    "window": {
+      "morning": "Morning",
+      "afternoon": "Afternoon",
+      "any": "Any time"
+    },
+    "windowLabel": "When suits you",
+    "whenSuits": "When suits you on {{day}}?",
+    "flexibleTitle": "Flexible booking.",
+    "flexibleText": "The first free pro picks a time in your window and confirms it by 18:00 the evening before. Flexible jobs are usually matched faster.",
+    "flexibleTooLate": "A flexible time needs a pro to confirm it by 18:00 the evening before. Pick a time, or a later day.",
+    "windowFull": "No pro is free in this window on this day. Try another window or day, or pick a time.",
+    "prosFree_one": "{{count}} pro free",
+    "prosFree_other": "{{count}} pros free",
+    "fullWaitlist": "Full · waitlist",
+    "onWaitlist": "✓ On waitlist",
+    "noTimeSuits": "No time that suits you?",
+    "joinDay": "Join the waitlist for this day",
+    "dayWaiting": "You're on the waitlist",
+    "dayWaitingText": "We'll tell you the moment a time opens on {{day}}",
+    "joined": "Joined",
+    "slotsFree": "{{free}} of {{total}} times",
+    "slotsFreeText": "have a verified pro free near {{place}}. Tap a full time to join its waitlist: if a pro becomes free, we tell you straight away, and the first to book gets it.",
+    "reminder": "We'll remind you the evening before, and when your pro is on the way.",
+    "select": "Select a time",
+    "flexibleSummary": "{{day}}, {{window}} · your pro picks the time by 18:00 the evening before",
+    "flexibleBooked": "{{day}}, {{window}} · your pro picks the time by {{by}}"
   }
 }

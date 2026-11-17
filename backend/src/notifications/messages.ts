@@ -12,11 +12,34 @@ export function formatSlot(date: Date, timezone: string): string {
   }).format(date);
 }
 
+/** A local day, e.g. "Fri 6 Nov", for flexible jobs whose time is not fixed yet (D70). */
+export function formatDay(date: Date, timezone: string): string {
+  return new Intl.DateTimeFormat('en-GB', { timeZone: timezone, weekday: 'short', day: 'numeric', month: 'short' }).format(date);
+}
+
+const WINDOW_TEXT: Record<string, string> = { morning: 'morning', afternoon: 'afternoon', any: 'any time' };
+
+/** When a booking happens, as messages say it: the day and window while a flexible job waits for its time (D70). */
+export function bookingWhen(
+  booking: { starts_at: Date; flexible_window?: string | null; time_confirmed_at?: Date | null },
+  timezone: string,
+): string {
+  return booking.flexible_window && !booking.time_confirmed_at
+    ? `${formatDay(booking.starts_at, timezone)} (${WINDOW_TEXT[booking.flexible_window] ?? booking.flexible_window})`
+    : formatSlot(booking.starts_at, timezone);
+}
+
 export function formatEuro(cents: number): string {
   return `€${(cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)}`;
 }
 
 export const messages = {
+  // Choose time (D70).
+  flexibleJobOffer: (service: string, day: string, window: string, earnCents: number) =>
+    `MISK: new flexible job, ${service} on ${day} (${WINDOW_TEXT[window] ?? window}), you pick the time. You earn ${formatEuro(earnCents)}. Open the app within 15 minutes to accept.`,
+  timeFree: (service: string, when: string) =>
+    `MISK: a pro is now free for ${service} on ${when}. Book it in the app soon: the first to book gets it.`,
+  flexibleWhen: (day: string, window: string) => `${day} (${WINDOW_TEXT[window] ?? window})`,
   signInCode: (code: string) => `${code} is your MISK code. It works for 10 minutes. Never share it.`,
   jobOffer: (service: string, when: string, earnCents: number) =>
     `MISK: new job, ${service} on ${when}. You earn ${formatEuro(earnCents)}. Open the app within 15 minutes to accept.`,

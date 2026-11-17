@@ -11,7 +11,7 @@ import { Icon } from '../../components/Icon';
 import { FileButton, IMAGE_TYPES, PhotoGrid } from '../../components/Photos';
 import { ResourceState } from '../../components/ResourceState';
 import { Stars, StatusBadge } from '../../components/StatusBadge';
-import { dateTime, euro, parseEuroToCents, proShare, time } from '../../lib/format';
+import { dateTime, dayName, euro, parseEuroToCents, proShare, time } from '../../lib/format';
 import { useAction } from '../../lib/useAction';
 import { useNow } from '../../lib/useNow';
 import { usePolling } from '../../lib/usePolling';
@@ -24,6 +24,11 @@ const TIMELINE = ['searching', 'accepted', 'on_the_way', 'working', 'completed']
 export const LIVE = new Set<BookingStatus>(['awaiting_payment', 'searching', 'accepted', 'on_the_way', 'working']);
 /** A pro who has not set off this long after the start time counts as running late. */
 const LATE_AFTER_MS = 10 * 60_000;
+
+/** A flexible booking whose pro has not picked the time yet (D70). */
+export function waitingForTime(booking: Pick<CustomerBooking, 'flexibleWindow' | 'timeConfirmed'>): boolean {
+  return Boolean(booking.flexibleWindow) && booking.timeConfirmed === false;
+}
 
 /** The pro's first name, or "your pro" before one is assigned. */
 export function proName(booking: CustomerBooking, fallback: string): string {
@@ -41,10 +46,12 @@ function Timeline({ booking }: { booking: CustomerBooking }) {
         const at = reached.get(status);
         const done = at !== undefined && index < currentIndex;
         const now = index === currentIndex && booking.status !== 'completed';
-        // Until the pro sets off, the arrival time is the booked start.
+        // Until the pro sets off, the arrival time is the booked start; a flexible job has only its window yet.
         const hint =
           status === 'on_the_way' && !at
-            ? t('timeline.arrivingAround', { time: time(booking.startsAt, timezone) })
+            ? waitingForTime(booking)
+              ? t(`time.window.${booking.flexibleWindow ?? 'any'}`)
+              : t('timeline.arrivingAround', { time: time(booking.startsAt, timezone) })
             : t(`timeline.${status}Hint`);
         return (
           <li key={status} className={`tl-item ${done || booking.status === 'completed' ? 'done' : ''} ${now ? 'now' : ''}`}>
@@ -322,7 +329,14 @@ function BookingView({
             <StatusBadge status={booking.status} />
           </div>
           <p className="row small">
-            <Icon name="calendar" /> {dateTime(booking.startsAt, timezone)}
+            <Icon name="calendar" />{' '}
+            {waitingForTime(booking)
+              ? t('time.flexibleBooked', {
+                  day: dayName(booking.startsAt, timezone),
+                  window: t(`time.window.${booking.flexibleWindow ?? 'any'}`).toLowerCase(),
+                  by: booking.confirmBy ? dateTime(booking.confirmBy, timezone) : '',
+                })
+              : dateTime(booking.startsAt, timezone)}
           </p>
           {!tracking && (
             <p className="row small">

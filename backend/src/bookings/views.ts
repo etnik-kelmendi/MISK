@@ -24,6 +24,9 @@ interface BookingRow {
   endsAt: Date;
   priceCents: number;
   packageDiscountCents: number;
+  flexibleWindow: string | null;
+  timeConfirmedAt: Date | null;
+  confirmBy: Date | null;
   feeCents: number;
   proSharePct: number;
   paymentStatus: string;
@@ -44,6 +47,7 @@ export const BOOKING_COLUMNS = `b.id, 'B-' || b.number AS number, cat.name AS "c
   b.problem_reported_at AS "problemReportedAt", b.problem_note AS "problemNote", b.problem_resolved_at AS "problemResolvedAt",
   b.completed_at + make_interval(hours => ${CHARGE_DELAY_HOURS}) AS "chargeAt", b.status, b.service_name AS "serviceName", b.category_id AS "categoryId", b.size,
   b.address, b.postcode, b.notes, b.starts_at AS "startsAt", b.ends_at AS "endsAt", b.price_cents AS "priceCents", b.package_discount_cents AS "packageDiscountCents",
+  b.flexible_window AS "flexibleWindow", b.time_confirmed_at AS "timeConfirmedAt", b.confirm_by AS "confirmBy",
   b.fee_cents AS "feeCents", b.pro_share_pct AS "proSharePct", b.payment_status AS "paymentStatus",
   b.cancelled_by AS "cancelledBy", b.created_at AS "createdAt", b.completed_at AS "completedAt",
   extract(epoch FROM b.starts_at - now()) / 3600 AS "hoursLeft", b.late_cancel AS "lateCancel",
@@ -105,6 +109,10 @@ export async function loadBooking(db: Queryable, bookingId: string, viewer: View
     status: b.status,
     serviceName: b.serviceName,
     services: services.rows,
+    // A flexible booking (D70): its window, and whether the pro has picked the time yet.
+    flexibleWindow: b.flexibleWindow,
+    timeConfirmed: !b.flexibleWindow || b.timeConfirmedAt !== null,
+    confirmBy: b.confirmBy,
     categoryId: b.categoryId,
     size: b.size,
     address: b.address,

@@ -9,6 +9,7 @@ import { documentExpiryTick } from './pros/management.js';
 import { documentReminderTick } from './pros/document-reminders.js';
 import { ratingRequestTick, reminderTick } from './bookings/reminders.js';
 import { payoutScheduleTick } from './payments/payouts.js';
+import { timeWaitlistTick } from './bookings/time-waitlist.js';
 import type { Senders } from './notifications/outbox.js';
 
 interface Job {
@@ -32,6 +33,7 @@ export function startWorkers(deps: BookingDeps, senders: Senders, log: FastifyBa
     { name: 'Reminding pros 30 days before a document runs out', everyMs: 15 * 60_000, run: () => documentReminderTick(deps) },
     { name: 'Reminding customers of their jobs tomorrow', everyMs: 5 * 60_000, run: () => reminderTick(deps) },
     { name: 'Asking customers to rate finished jobs', everyMs: 5 * 60_000, run: () => ratingRequestTick(deps) },
+    { name: 'Telling customers a time they waited for is free', everyMs: 2 * 60_000, run: () => timeWaitlistTick(deps) },
     { name: 'Keeping pro payout schedules in line with Settings', everyMs: 10 * 60_000, run: () => payoutScheduleTick(deps) },
     { name: 'Removing expired sign-in data', everyMs: 15 * 60_000, run: () => deleteExpiredRows(deps.pool) },
   ];

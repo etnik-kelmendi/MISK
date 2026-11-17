@@ -8,7 +8,8 @@ import { uuidParams } from '../http.js';
 import { messages } from '../notifications/messages.js';
 import { enqueue } from '../notifications/outbox.js';
 import { readSingleFile, storeUpload } from '../uploads/uploads.js';
-import { acceptOffer, declineOffer } from './dispatch.js';
+import { acceptOffer, declineOffer, flexibleStarts } from './dispatch.js';
+import { eligibleProFilter } from './availability.js';
 import { setStatus, type BookingDeps } from './events.js';
 import { loadBooking } from './views.js';
 
@@ -47,6 +48,8 @@ export async function proJobRoutes(app: FastifyInstance, ctx: AppContext) {
       proSharePct: number;
       distanceKm: number | null;
       photoIds: string[];
+      flexibleWindow: string | null;
+      startOptions: Date[] | null;
     }>(
       `SELECT o.id, o.booking_id AS "bookingId", o.expires_at AS "expiresAt", b.service_name AS "serviceName", b.size,
          b.starts_at AS "startsAt", b.ends_at AS "endsAt", b.address, b.postcode, b.notes,
@@ -55,11 +58,23 @@ export async function proJobRoutes(app: FastifyInstance, ctx: AppContext) {
           FROM pro_profiles p, postcodes home, postcodes dest
           WHERE p.user_id = o.pro_id AND home.code = p.home_postcode AND dest.code = b.postcode) AS "distanceKm",
          COALESCE((SELECT array_agg(ph.upload_id ORDER BY ph.created_at) FROM booking_photos ph
-                   WHERE ph.booking_id = b.id), '{}') AS "photoIds"
+                   WHERE ph.booking_id = b.id), '{}') AS "photoIds",
+         -- A flexible job (D70): its window and the starts this pro is free for, to pick one when accepting.
+         CASE WHEN b.time_confirmed_at IS NULL THEN b.flexible_window END AS "flexibleWindow",
+         CASE WHEN b.flexible_window IS NOT NULL AND b.time_confirmed_at IS NULL THEN (
+           SELECT array_agg(st ORDER BY st)
+           FROM pro_profiles p, ${flexibleStarts('b.starts_at', 'b.ends_at', 'bd.minutes')} AS st
+           WHERE p.user_id = o.pro_id
+             AND ${eligibleProFilter('b.category_id', 'b.postcode', 'st', 'st + make_interval(mins => bd.minutes)', '$2', 'b.customer_id', 'b.id')}
+         ) END AS "startOptions"
        FROM booking_offers o JOIN bookings b ON b.id = o.booking_id JOIN users cu ON cu.id = b.customer_id
+       CROSS JOIN LATERAL (
+         SELECT COALESCE((SELECT sum(duration_minutes)::int FROM booking_services bs WHERE bs.booking_id = b.id),
+           (extract(epoch FROM b.ends_at - b.starts_at) / 60)::int) AS minutes
+       ) bd
        WHERE o.pro_id = $1 AND o.status = 'pending' AND o.expires_at > now() AND b.status = 'searching'
        ORDER BY o.expires_at`,
-      [proId],
+      [proId, ctx.config.timezone],
     );
     return {
       offers: result.rows.map(({ priceCents, proSharePct, ...offer }) => ({
@@ -69,12 +84,20 @@ export async function proJobRoutes(app: FastifyInstance, ctx: AppContext) {
     };
   });
 
-  app.post<{ Params: { id: string } }>(
+  app.post<{ Params: { id: string }; Body: { startsAt?: string } | undefined }>(
     '/pro/offers/:id/accept',
-    { preHandler: guards.pro, schema: { params: uuidParams } },
+    {
+      preHandler: guards.pro,
+      schema: {
+        params: uuidParams,
+        // A flexible job needs the start the pro picked (D70).
+        body: { type: ['object', 'null'], additionalProperties: false, properties: { startsAt: { type: 'string', format: 'date-time' } } },
+      },
+    },
     async (request) => {
       const proId = currentUser(request).id;
-      const bookingId = await acceptOffer(deps(), proId, request.params.id);
+      const chosen = request.body?.startsAt ? new Date(request.body.startsAt) : undefined;
+      const bookingId = await acceptOffer(deps(), proId, request.params.id, chosen);
       return { job: await ownJob(proId, bookingId) };
     },
   );

@@ -8,7 +8,7 @@ import { useResource } from '../../api/useResource';
 import { Icon } from '../../components/Icon';
 import { ResourceState } from '../../components/ResourceState';
 import { StatusBadge } from '../../components/StatusBadge';
-import { dateTime, dayParts, euro, time } from '../../lib/format';
+import { dateTime, dayName, dayParts, euro, time } from '../../lib/format';
 import { RECENT_BOOKINGS } from '../../lib/recent';
 import { AppHeader } from '../../shells/Shells';
 import { ReceiptSheet, ReportSheet } from './BookingSheets';
@@ -47,7 +47,9 @@ function BookingRow({
             {booking.serviceName}
           </Link>
           <span className="tiny muted block">
-            {dateTime(booking.startsAt, timezone)}
+            {booking.flexibleWindow
+              ? `${dayName(booking.startsAt, timezone)}, ${t(`time.window.${booking.flexibleWindow}`).toLowerCase()}`
+              : dateTime(booking.startsAt, timezone)}
             {booking.proName && ` · ${booking.proName}`}
           </span>
         </div>

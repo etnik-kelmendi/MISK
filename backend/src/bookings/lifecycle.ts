@@ -3,7 +3,7 @@ import { nextPayoutDate, type PayoutInterval } from '../payments/payouts.js';
 import { marketToday } from '../pros/checks.js';
 import { withTransaction } from '../db.js';
 import { conflict, notFound } from '../errors.js';
-import { formatSlot, messages } from '../notifications/messages.js';
+import { bookingWhen, messages } from '../notifications/messages.js';
 import { enqueue } from '../notifications/outbox.js';
 import { offerNext } from './dispatch.js';
 import { setStatus, type BookingDeps } from './events.js';
@@ -23,10 +23,17 @@ export const FREE_CANCEL_HOURS = 24;
 /** The card hold for a booking or for approved extra work is in place (webhook or instant). */
 export async function confirmHold(deps: BookingDeps, intentId: string): Promise<void> {
   const booking = await withTransaction(deps.pool, async (client) => {
-    const held = await client.query<{ id: string; customer_id: string; service_name: string; starts_at: Date }>(
+    const held = await client.query<{
+      id: string;
+      customer_id: string;
+      service_name: string;
+      starts_at: Date;
+      flexible_window: string | null;
+      time_confirmed_at: Date | null;
+    }>(
       `UPDATE bookings SET payment_status = 'held', updated_at = now()
        WHERE payment_intent_id = $1 AND status = 'awaiting_payment' AND payment_status IN ('pending', 'failed')
-       RETURNING id, customer_id, service_name, starts_at`,
+       RETURNING id, customer_id, service_name, starts_at, flexible_window, time_confirmed_at`,
       [intentId],
     );
     const row = held.rows[0];
@@ -36,7 +43,7 @@ export async function confirmHold(deps: BookingDeps, intentId: string): Promise<
         client,
         row.customer_id,
         'booking_confirmed',
-        messages.bookingConfirmed(row.service_name, formatSlot(row.starts_at, deps.config.timezone)),
+        messages.bookingConfirmed(row.service_name, bookingWhen(row, deps.config.timezone)),
       );
       return row;
     }
@@ -108,6 +115,7 @@ export async function cancelBooking(
       hours_left: number;
     }>(
       `SELECT status, customer_id, pro_id, payment_intent_id, payment_status, service_name, starts_at,
+         flexible_window, time_confirmed_at,
          extract(epoch FROM starts_at - now()) / 3600 AS hours_left
        FROM bookings WHERE id = $1 FOR UPDATE`,
       [bookingId],
@@ -147,7 +155,7 @@ export async function cancelBooking(
       [bookingId],
     );
 
-    const when = formatSlot(booking.starts_at, deps.config.timezone);
+    const when = bookingWhen(booking, deps.config.timezone);
     if (by !== 'customer') {
       const text = options.customerNote
         ? messages.bookingCancelledWithNote(booking.service_name, when, options.customerNote)

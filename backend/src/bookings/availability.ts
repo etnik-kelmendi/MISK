@@ -31,7 +31,16 @@ export interface Slot {
  * and with no job or pending offer at an overlapping time. The caller supplies the alias `p`
  * for `pro_profiles` and the four expressions.
  */
-export function eligibleProFilter(cat: string, pc: string, s: string, e: string, tz: string, customer = 'NULL::uuid'): string {
+export function eligibleProFilter(
+  cat: string,
+  pc: string,
+  s: string,
+  e: string,
+  tz: string,
+  customer = 'NULL::uuid',
+  /** A booking whose own pending offer does not count as busy, e.g. a flexible job the pro picks a time for. */
+  ownBooking = 'NULL::uuid',
+): string {
   return `p.status = 'approved' AND p.payouts_enabled AND p.jobs_paused_at IS NULL
     AND p.user_id IS DISTINCT FROM ${customer}
     AND EXISTS (SELECT 1 FROM users u WHERE u.id = p.user_id AND u.disabled_at IS NULL)
@@ -54,7 +63,7 @@ export function eligibleProFilter(cat: string, pc: string, s: string, e: string,
     )
     AND NOT EXISTS (
       SELECT 1 FROM booking_offers held JOIN bookings hb ON hb.id = held.booking_id
-      WHERE held.pro_id = p.user_id AND held.status = 'pending'
+      WHERE held.pro_id = p.user_id AND held.status = 'pending' AND hb.id IS DISTINCT FROM ${ownBooking}
         AND tstzrange(hb.starts_at, hb.ends_at) && tstzrange(${s}, ${e})
     )`;
 }
@@ -107,4 +116,40 @@ export async function findSlots(db: Queryable, query: SlotQuery, onlyStart?: Dat
     freePros: Math.max(0, freePros - demand),
     available: freePros > demand,
   }));
+}
+
+/** Flexible bookings (D70): the customer gives a window on a day, and the pro picks a start in it. */
+export type FlexibleWindow = 'morning' | 'afternoon' | 'any';
+export const FLEXIBLE_WINDOWS: FlexibleWindow[] = ['morning', 'afternoon', 'any'];
+/** Local start hours each window allows. */
+export const WINDOW_HOURS: Record<FlexibleWindow, number[]> = {
+  morning: [8, 10],
+  afternoon: [12, 14, 16],
+  any: SLOT_HOURS,
+};
+/** A pro must pick the time of a flexible job by this local hour the evening before. */
+export const FLEXIBLE_CONFIRM_HOUR = 18;
+/** Time between two slot starts, which is also the step between a flexible job's possible starts. */
+export const SLOT_STEP_MINUTES = 120;
+
+/** The local day (YYYY-MM-DD) and hour of a moment. */
+export function localDayHour(date: Date, timezone: string): { day: string; hour: number } {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date);
+  const part = (type: string) => parts.find((p) => p.type === type)?.value ?? '';
+  return { day: `${part('year')}-${part('month')}-${part('day')}`, hour: Number(part('hour')) };
+}
+
+/** The slots of one local day whose start lies in a flexible window. */
+export function windowSlots(slots: Slot[], day: string, window: FlexibleWindow, timezone: string): Slot[] {
+  return slots.filter((slot) => {
+    const local = localDayHour(slot.startsAt, timezone);
+    return local.day === day && WINDOW_HOURS[window].includes(local.hour);
+  });
 }

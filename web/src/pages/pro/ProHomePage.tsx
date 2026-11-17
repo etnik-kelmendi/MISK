@@ -11,7 +11,7 @@ import { Icon } from '../../components/Icon';
 import { PhotoGrid } from '../../components/Photos';
 import { ResourceState } from '../../components/ResourceState';
 import { Stars, StatusBadge } from '../../components/StatusBadge';
-import { dateTime, euro, time } from '../../lib/format';
+import { dateTime, dayName, euro, time } from '../../lib/format';
 import { loadSchedule } from '../../lib/proSchedule';
 import { useAction } from '../../lib/useAction';
 import { usePolling } from '../../lib/usePolling';
@@ -36,9 +36,14 @@ function OfferCard({ offer, onGone }: { offer: Offer; onGone: () => void }) {
   const { run, busy, error } = useAction();
   const minutes = Math.floor(seconds / 60);
   const rest = String(seconds % 60).padStart(2, '0');
+  const flexible = Boolean(offer.flexibleWindow);
+  const options = offer.startOptions ?? [];
+  const [start, setStart] = useState<string | null>(options.length === 1 ? (options[0] ?? null) : null);
 
   async function accept() {
-    const result = await run(() => api.post<{ job: ProJob }>(`/pro/offers/${offer.id}/accept`));
+    const result = await run(() =>
+      api.post<{ job: ProJob }>(`/pro/offers/${offer.id}/accept`, flexible && start ? { startsAt: start } : undefined),
+    );
     if (result) {
       navigate(`/pro/jobs/${result.job.id}`);
     } else {
@@ -79,7 +84,11 @@ function OfferCard({ offer, onGone }: { offer: Offer; onGone: () => void }) {
           <dt>
             <Icon name="calendar" label={t('offer.when')} />
           </dt>
-          <dd>{dateTime(offer.startsAt, timezone)}</dd>
+          <dd>
+            {flexible && offer.flexibleWindow
+              ? t('offer.flexibleWhen', { day: dayName(offer.startsAt, timezone), window: t(`time.window.${offer.flexibleWindow}`).toLowerCase() })
+              : dateTime(offer.startsAt, timezone)}
+          </dd>
           <dt>
             <Icon name="pin" label={t('offer.where')} />
           </dt>
@@ -100,6 +109,23 @@ function OfferCard({ offer, onGone }: { offer: Offer; onGone: () => void }) {
             </>
           )}
         </dl>
+        {flexible && (
+          <fieldset>
+            <legend className="h-sm">{t('offer.pickStart')}</legend>
+            {options.length === 0 ? (
+              <p className="small muted">{t('offer.noStart')}</p>
+            ) : (
+              <div className="chips">
+                {options.map((option) => (
+                  <label key={option} className={`chip ${start === option ? 'on' : ''}`}>
+                    <input type="radio" name={`start-${offer.id}`} className="visually-hidden" checked={start === option} onChange={() => setStart(option)} />
+                    {time(option, timezone)}
+                  </label>
+                ))}
+              </div>
+            )}
+          </fieldset>
+        )}
         <PhotoGrid ids={offer.photoIds} label={t('offer.photos')} />
         <p className="info">
           <Icon name="shield" /> {t('offer.paymentSecured')}
@@ -109,8 +135,13 @@ function OfferCard({ offer, onGone }: { offer: Offer; onGone: () => void }) {
           <button type="button" className="btn2 no" disabled={busy || seconds === 0} onClick={() => void decline()}>
             {t('offer.decline')}
           </button>
-          <button type="button" className="btn2 yes" disabled={busy || seconds === 0} onClick={() => void accept()}>
-            {t('offer.accept')}
+          <button
+            type="button"
+            className="btn2 yes"
+            disabled={busy || seconds === 0 || (flexible && !start)}
+            onClick={() => void accept()}
+          >
+            {flexible && start ? t('offer.acceptAt', { time: time(start, timezone) }) : t('offer.accept')}
           </button>
         </div>
       </div>

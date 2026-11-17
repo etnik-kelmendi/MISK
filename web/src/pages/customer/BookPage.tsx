@@ -1,120 +1,19 @@
-import { useCallback, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router';
 import { useApi } from '../../api/ApiContext';
 import { useMarket } from '../../api/MarketContext';
-import type { CustomerBooking, PaymentStep, Service, Slot } from '../../api/types';
-import { useResource } from '../../api/useResource';
+import type { CustomerBooking, PaymentStep, Service } from '../../api/types';
 import { ErrorText } from '../../components/ErrorText';
 import { Icon } from '../../components/Icon';
-import { ResourceState } from '../../components/ResourceState';
-import { dateTime, dayKey, dayParts, euro, packagePrice, sizePrice, time } from '../../lib/format';
+import { dateTime, dayParts, euro, packagePrice, sizePrice } from '../../lib/format';
 import { useAction } from '../../lib/useAction';
 import { CardPayment } from '../../payments/CardPayment';
 import { AppHeader } from '../../shells/Shells';
 import { EMPTY_DETAILS, JobDetailsStep, type Details } from './JobDetailsStep';
+import { ChooseTimeStep, type When } from './ChooseTimeStep';
 
-function TimeStep({
-  services,
-  postcode,
-  slot,
-  onSlot,
-  onNext,
-}: {
-  services: Service[];
-  postcode: string;
-  slot: Slot | null;
-  onSlot: (slot: Slot) => void;
-  onNext: () => void;
-}) {
-  const { t } = useTranslation();
-  const api = useApi();
-  const { timezone } = useMarket();
-  const ids = services.map((service) => service.id).join(',');
-  const load = useCallback(
-    () => api.get<{ slots: Slot[] }>(`/availability?serviceIds=${encodeURIComponent(ids)}&postcode=${encodeURIComponent(postcode)}`),
-    [api, ids, postcode],
-  );
-  const { state, reload } = useResource(load);
-  const [day, setDay] = useState<string | null>(null);
-
-  return (
-    <>
-      <div className="body">
-        <ResourceState state={state} reload={reload}>
-          {({ slots }) => {
-            const days = [...new Set(slots.map((s) => dayKey(s.startsAt, timezone)))];
-            const shownDay = day ?? days.find((d) => slots.some((s) => s.available && dayKey(s.startsAt, timezone) === d)) ?? days[0];
-            const daySlots = slots.filter((s) => dayKey(s.startsAt, timezone) === shownDay);
-            const freeCount = daySlots.filter((s) => s.available).length;
-            if (!slots.some((s) => s.available)) {
-              return <p className="card">{t('book.noSlots')}</p>;
-            }
-            return (
-              <>
-                <fieldset>
-                  <legend className="h-sm">{t('book.day')}</legend>
-                  <div className="days">
-                    {days.map((d) => {
-                      const first = slots.find((s) => dayKey(s.startsAt, timezone) === d);
-                      const parts = first ? dayParts(first.startsAt, timezone) : null;
-                      return (
-                        <button
-                          key={d}
-                          type="button"
-                          className={`day ${d === shownDay ? 'on' : ''}`}
-                          aria-pressed={d === shownDay}
-                          onClick={() => setDay(d)}
-                        >
-                          <span className="dn">{parts?.weekday}</span>
-                          <span className="dd">{parts?.day}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </fieldset>
-                <fieldset>
-                  <legend className="h-sm">{t('book.times')}</legend>
-                  <div className="slots">
-                    {daySlots.map((s) => (
-                      <button
-                        key={s.startsAt}
-                        type="button"
-                        className={`slot ${s.available ? '' : 'off'} ${slot?.startsAt === s.startsAt ? 'on' : ''}`}
-                        disabled={!s.available}
-                        aria-pressed={slot?.startsAt === s.startsAt}
-                        onClick={() => onSlot(s)}
-                      >
-                        {time(s.startsAt, timezone)}
-                        <small>{s.available ? t('book.prosFree', { count: s.freePros }) : t('book.full')}</small>
-                      </button>
-                    ))}
-                  </div>
-                </fieldset>
-                <div className="info">
-                  <Icon name="users" />
-                  <p>
-                    {t('book.slotsFree', {
-                      free: freeCount,
-                      total: daySlots.length,
-                    })}
-                  </p>
-                </div>
-              </>
-            );
-          }}
-        </ResourceState>
-      </div>
-      <div className="cta-bar">
-        <button className="cta" type="button" disabled={!slot} onClick={onNext}>
-          {slot ? t('book.continueAt', { when: dateTime(slot.startsAt, timezone) }) : t('book.pickTime')}
-        </button>
-      </div>
-    </>
-  );
-}
-
-function ReviewStep({ services, details, slot }: { services: Service[]; details: Details; slot: Slot }) {
+function ReviewStep({ services, details, when }: { services: Service[]; details: Details; when: When }) {
   const { t } = useTranslation();
   const api = useApi();
   const navigate = useNavigate();
@@ -136,7 +35,7 @@ function ReviewStep({ services, details, slot }: { services: Service[]; details:
         address: details.address,
         postcode: details.postcode,
         notes: details.notes,
-        startsAt: slot.startsAt,
+        ...(when.kind === 'slot' ? { startsAt: when.slot.startsAt } : { flexibleWindow: when.window, day: when.day }),
       }),
     );
     if (!result) {
@@ -165,7 +64,13 @@ function ReviewStep({ services, details, slot }: { services: Service[]; details:
           <p className="small muted">{t(`book.size.${details.size}`)}</p>
           <hr />
           <p className="row small">
-            <Icon name="calendar" /> {dateTime(slot.startsAt, timezone)}
+            <Icon name="calendar" />{' '}
+            {when.kind === 'slot'
+              ? dateTime(when.slot.startsAt, timezone)
+              : t('time.flexibleSummary', {
+                  day: `${dayParts(when.anyIso, timezone).weekday} ${dayParts(when.anyIso, timezone).day} ${dayParts(when.anyIso, timezone).month}`,
+                  window: t(`time.window.${when.window}`).toLowerCase(),
+                })}
           </p>
           <p className="row small">
             <Icon name="pin" /> {details.address}, {details.postcode}
@@ -233,7 +138,7 @@ export function BookPage() {
   const market = useMarket();
   const [step, setStep] = useState<'details' | 'time' | 'review'>('details');
   const [details, setDetails] = useState<Details>(EMPTY_DETAILS);
-  const [slot, setSlot] = useState<Slot | null>(null);
+  const [when, setWhen] = useState<When | null>(null);
 
   // One or more services of one trade (D68): /book?services=a,b, or /book/a from older links.
   const ids = serviceId ? [serviceId] : (params.get('services') ?? '').split(',').filter(Boolean);
@@ -283,7 +188,7 @@ export function BookPage() {
           }
           onChange={(next) => {
             if (next.postcode !== details.postcode) {
-              setSlot(null);
+              setWhen(null);
             }
             setDetails(next);
           }}
@@ -291,9 +196,18 @@ export function BookPage() {
         />
       )}
       {step === 'time' && (
-        <TimeStep services={services} postcode={details.postcode} slot={slot} onSlot={setSlot} onNext={() => setStep('review')} />
+        <ChooseTimeStep
+          services={services}
+          postcode={details.postcode}
+          address={details.address}
+          initial={when}
+          onDone={(next) => {
+            setWhen(next);
+            setStep('review');
+          }}
+        />
       )}
-      {step === 'review' && slot && <ReviewStep services={services} details={details} slot={slot} />}
+      {step === 'review' && when && <ReviewStep services={services} details={details} when={when} />}
     </>
   );
 }

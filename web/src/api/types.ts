@@ -141,6 +141,10 @@ export interface CustomerBooking extends BookingBase, Money {
   canTip: boolean;
   /** Chat messages from the pro the customer has not opened yet (D67). */
   unreadMessages?: number;
+  /** A flexible booking (D70): its window, whether the pro has picked the time, and by when they must. */
+  flexibleWindow?: 'morning' | 'afternoon' | 'any' | null;
+  timeConfirmed?: boolean;
+  confirmBy?: string | null;
 }
 
 export interface ProJob extends BookingBase {
@@ -247,6 +251,8 @@ export interface BookingListItem {
   /** Where the job is: Job details starts from the last one (D69). */
   address?: string;
   postcode?: string;
+  /** Set while a flexible booking waits for its pro to pick the time (D70). */
+  flexibleWindow?: 'morning' | 'afternoon' | 'any' | null;
   completedAt?: string | null;
   paymentStatus?: PaymentStatus;
   hasReceipt?: boolean;
@@ -309,6 +315,9 @@ export interface Offer {
   distanceKm: number | null;
   photoIds: string[];
   earningsCents: number;
+  /** A flexible job (D70): its window, and the starts this pro is free for, one of which they pick. */
+  flexibleWindow?: 'morning' | 'afternoon' | 'any' | null;
+  startOptions?: string[] | null;
 }
 
 export interface JobListItem {

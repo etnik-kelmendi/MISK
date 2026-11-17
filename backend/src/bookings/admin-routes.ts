@@ -5,7 +5,7 @@ import type { AppContext } from '../context.js';
 import { onlyRow, withTransaction } from '../db.js';
 import { ApiError, badRequest, conflict, notFound } from '../errors.js';
 import { isExclusionViolation, uuidParams } from '../http.js';
-import { formatSlot, messages } from '../notifications/messages.js';
+import { bookingWhen, formatSlot, messages } from '../notifications/messages.js';
 import { enqueue } from '../notifications/outbox.js';
 import { offerNext } from './dispatch.js';
 import { setStatus, type BookingDeps } from './events.js';
@@ -146,7 +146,13 @@ export async function adminBookingRoutes(app: FastifyInstance, ctx: AppContext) 
           customer_id: string;
           service_name: string;
           starts_at: Date;
-        }>('SELECT status, pro_id, category_id, customer_id, service_name, starts_at FROM bookings WHERE id = $1 FOR UPDATE', [bookingId]);
+          flexible_window: string | null;
+          time_confirmed_at: Date | null;
+        }>(
+          `SELECT status, pro_id, category_id, customer_id, service_name, starts_at, flexible_window, time_confirmed_at
+           FROM bookings WHERE id = $1 FOR UPDATE`,
+          [bookingId],
+        );
         const booking = found.rows[0];
         if (!booking) {
           throw notFound();
@@ -157,7 +163,11 @@ export async function adminBookingRoutes(app: FastifyInstance, ctx: AppContext) 
         if (targetPro && targetPro === booking.customer_id) {
           throw conflict('pro_is_customer');
         }
-        const when = formatSlot(booking.starts_at, ctx.config.timezone);
+        // A flexible job has no time until one is set: the team sets it with "Change time" first (D70).
+        if (targetPro && booking.flexible_window && !booking.time_confirmed_at) {
+          throw conflict('flexible_needs_time');
+        }
+        const when = bookingWhen(booking, ctx.config.timezone);
         await client.query(
           "UPDATE booking_offers SET status = 'withdrawn', responded_at = now() WHERE booking_id = $1 AND status = 'pending'",
           [bookingId],
@@ -365,7 +375,15 @@ export async function adminBookingRoutes(app: FastifyInstance, ctx: AppContext) 
         await client.query('SAVEPOINT move');
         try {
           await client.query(
-            'UPDATE bookings SET ends_at = $2::timestamptz + (ends_at - starts_at), starts_at = $2, updated_at = now() WHERE id = $1',
+            // A flexible job still covering its whole window gets the length of its visit, and its time is now set.
+            `UPDATE bookings SET
+               ends_at = $2::timestamptz + CASE WHEN flexible_window IS NOT NULL AND time_confirmed_at IS NULL
+                 THEN make_interval(mins => (SELECT sum(duration_minutes)::int FROM booking_services WHERE booking_id = $1))
+                 ELSE ends_at - starts_at END,
+               starts_at = $2,
+               time_confirmed_at = CASE WHEN flexible_window IS NOT NULL THEN COALESCE(time_confirmed_at, now()) END,
+               updated_at = now()
+             WHERE id = $1`,
             [bookingId, startsAt],
           );
         } catch (error) {

@@ -151,3 +151,9 @@ export function packagePrice(services: (PricedService & { durationMinutes: numbe
     durationMinutes: services.reduce((total, service) => total + service.durationMinutes, 0),
   };
 }
+
+/** A day without a time, e.g. "Fri 6 Nov", for flexible jobs whose time is not set yet (D70). */
+export function dayName(iso: string, timeZone: string): string {
+  const parts = dayParts(iso, timeZone);
+  return `${parts.weekday} ${parts.day} ${parts.month}`;
+}
