@@ -50,10 +50,25 @@ export function createStripeGateway(config: StripeConfig): PaymentGateway {
           automatic_payment_methods: { enabled: true, allow_redirects: 'never' },
           description: input.description,
           metadata: input.metadata,
+          // A saved card is held at once; the bank may still ask the customer to confirm (D73).
+          ...(input.paymentMethodId ? { payment_method: input.paymentMethodId, confirm: true } : {}),
         },
         { idempotencyKey: input.idempotencyKey },
       );
       return toHoldResult(intent);
+    },
+
+    async listCards(customerRef) {
+      const methods = await stripe.customers.listPaymentMethods(customerRef, { type: 'card', limit: 10 });
+      return methods.data
+        .filter((method) => method.card && !method.card.wallet)
+        .map((method) => ({
+          id: method.id,
+          brand: method.card?.brand ?? 'card',
+          last4: method.card?.last4 ?? '',
+          expMonth: method.card?.exp_month ?? 0,
+          expYear: method.card?.exp_year ?? 0,
+        }));
     },
 
     async holdOnSavedCard(input) {

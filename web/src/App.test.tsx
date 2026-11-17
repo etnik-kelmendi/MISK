@@ -771,7 +771,7 @@ describe('booking a job', () => {
     await user().click(screen.getByRole('button', { name: /Continue · Fri 6 Nov, 10:00/ }));
     expect(screen.getByText('1 photo attached')).toBeInTheDocument();
     expect(screen.getByText('17 Maple Lane, 10117')).toBeInTheDocument();
-    await user().click(screen.getByRole('button', { name: 'Book and pay €48.40' }));
+    await user().click(screen.getByRole('button', { name: 'Book & pay €48.40' }));
     expect(await screen.findByText(/Finding your pro/)).toBeInTheDocument();
     expect(api.calls.filter((c) => c === 'POST /bookings/b1/photos')).toHaveLength(1);
     expect(api.bodies['POST /bookings']).toMatchObject({ address: '17 Maple Lane', postcode: '10117' });
@@ -821,7 +821,7 @@ describe('booking a job', () => {
     await user().click(screen.getByRole('button', { name: /Continue · Fri 6 Nov, 10:00/ }));
 
     expect(screen.getByText('€48.40')).toBeInTheDocument();
-    await user().click(screen.getByRole('button', { name: 'Book and pay €48.40' }));
+    await user().click(screen.getByRole('button', { name: 'Book & pay €48.40' }));
     expect(await screen.findByText(/Finding your pro/)).toBeInTheDocument();
     expect(api.bodies['POST /bookings']).toMatchObject({
       serviceIds: ['svc-mow'],
@@ -877,7 +877,7 @@ describe('booking a job', () => {
     await user().click(screen.getByRole('button', { name: /Continue/ }));
     await user().click(await screen.findByRole('button', { name: /10:00/ }));
     await user().click(screen.getByRole('button', { name: /Continue · / }));
-    await user().click(screen.getByRole('button', { name: /Book and pay/ }));
+    await user().click(screen.getByRole('button', { name: /Book & pay/ }));
     expect(await screen.findByRole('alert')).toHaveTextContent('That time was just taken');
   });
 });
@@ -1469,7 +1469,7 @@ describe('Choose time (D70)', () => {
     expect(screen.getByText('Flexible booking.')).toBeInTheDocument();
     await user().click(screen.getByRole('button', { name: /Continue · .+, afternoon/ }));
     expect(screen.getByText(/afternoon · your pro picks the time by 18:00 the evening before/)).toBeInTheDocument();
-    await user().click(screen.getByRole('button', { name: /Book and pay/ }));
+    await user().click(screen.getByRole('button', { name: /Book & pay/ }));
     expect(await screen.findByText(/your pro picks the time by/)).toBeInTheDocument();
     const sent = api.bodies['POST /bookings'] as Record<string, unknown>;
     expect(sent).toMatchObject({ flexibleWindow: 'afternoon', day: berlinDay(day) });
@@ -1484,6 +1484,106 @@ describe('Choose time (D70)', () => {
     expect(screen.getByRole('button', { name: 'Select a time' })).toBeDisabled();
   });
 
+});
+
+describe('Review & pay (D73)', () => {
+  const garden = catalogue.categories[0];
+  const mowing = garden?.services[0];
+  if (!garden || !mowing) throw new Error('test catalogue changed');
+  const hedge = { ...mowing, id: 'svc-hedge', name: 'Hedge trimming', priceCents: 4500, durationMinutes: 90 };
+  const visa = { id: 'pm_visa', brand: 'visa', last4: '4242', expMonth: 8, expYear: 2030 };
+  const master = { id: 'pm_mc', brand: 'mastercard', last4: '5555', expMonth: 1, expYear: 2029 };
+
+  function setUp(methods: object, withHedge = false) {
+    const api = fakeApi(users.customer);
+    if (withHedge) api.on('GET /catalogue', { body: { ...catalogue, categories: [{ ...garden, services: [mowing, hedge] }] } });
+    api.on('GET /postcodes', { body: { postcodes: [{ code: '10115', name: 'Mitte' }] } });
+    api.on('GET /bookings', { body: { bookings: [] } });
+    api.on('GET /availability', {
+      body: { slots: [{ startsAt: '2026-11-06T09:00:00.000Z', endsAt: '2026-11-06T10:00:00.000Z', freePros: 2, available: true }], waitlist: [] },
+    });
+    api.on('GET /payment-methods', { body: { cards: [], cardsAvailable: true, last: null, publishableKey: null, ...methods } });
+    api.on('POST /bookings', { status: 201, body: { booking: booking({ status: 'searching', pro: null }), payment: null } });
+    api.on('GET /bookings/b1', { body: { booking: booking({ status: 'searching', pro: null }) } });
+    return api;
+  }
+
+  async function toReview(services = 'svc-mow') {
+    renderAt(`/book?services=${services}`);
+    await user().type(await screen.findByLabelText('Street and house number'), '12 Linden Street');
+    await user().selectOptions(await screen.findByLabelText('Postcode'), '10115');
+    await user().click(screen.getByRole('button', { name: /Continue · / }));
+    await user().click(await screen.findByRole('button', { name: /10:00/ }));
+    await user().click(screen.getByRole('button', { name: /Continue · Fri 6 Nov, 10:00/ }));
+    await screen.findByRole('heading', { name: 'Review & pay' });
+  }
+
+  it('repeats the choices with the price, fee and total on their own lines', async () => {
+    setUp({});
+    await toReview();
+    const summary = screen.getByRole('region', { name: 'Your booking' });
+    expect(summary).toHaveTextContent('Lawn mowing');
+    expect(summary).toHaveTextContent('Medium · about 1 h');
+    expect(summary).toHaveTextContent('Fri 6 Nov, 10:00');
+    expect(summary).toHaveTextContent('12 Linden Street, 10115');
+    expect(summary).toHaveTextContent('No photos added');
+    const price = screen.getByRole('region', { name: 'Price' });
+    expect(within(price).getByText('€45.50')).toBeInTheDocument();
+    // The service fee is the one set in the control panel (€2.90 in the test catalogue).
+    expect(within(price).getByText('Service fee').nextSibling).toHaveTextContent('€2.90');
+    expect(within(price).getByText('Total').nextSibling).toHaveTextContent('€48.40');
+    expect(screen.queryByText(/package discount/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Your card is charged 24 hours after the job is done/)).toBeInTheDocument();
+    expect(screen.getByText('Free cancellation up to 24 hours before the visit. After that you pay the full price.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Book & pay €48.40' })).toBeInTheDocument();
+  });
+
+  it('says a package includes the 10% discount', async () => {
+    setUp({}, true);
+    await toReview('svc-mow,svc-hedge');
+    expect(screen.getByText('Includes the 10% package discount')).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Your booking' })).toHaveTextContent('Medium · about 2 h 30 min');
+  });
+
+  it('lists the saved cards, Apple Pay and Google Pay, with the choice from last time selected', async () => {
+    setUp({ cards: [visa, master], last: { choice: 'card', cardId: 'pm_mc' } });
+    await toReview();
+    const methods = screen.getByRole('group', { name: 'Payment' });
+    expect(within(methods).getByRole('radio', { name: /Mastercard •••• 5555/ })).toBeChecked();
+    expect(within(methods).getByRole('radio', { name: /Visa •••• 4242/ })).not.toBeChecked();
+    expect(within(methods).getByRole('radio', { name: /Apple Pay/ })).toBeInTheDocument();
+    expect(within(methods).getByRole('radio', { name: /Google Pay/ })).toBeInTheDocument();
+  });
+
+  it('selects Google Pay when it was used last time, and the newest card for a returning customer otherwise', async () => {
+    setUp({ cards: [visa], last: { choice: 'google_pay', cardId: null } });
+    await toReview();
+    expect(screen.getByRole('radio', { name: /Google Pay/ })).toBeChecked();
+  });
+
+  it('falls back to the newest saved card when the card used last time is gone', async () => {
+    setUp({ cards: [visa], last: { choice: 'card', cardId: 'pm_removed' } });
+    await toReview();
+    expect(screen.getByRole('radio', { name: /Visa •••• 4242/ })).toBeChecked();
+  });
+
+  it('reserves the money on the chosen saved card and opens the booking', async () => {
+    const api = setUp({ cards: [visa, master], last: null });
+    await toReview();
+    await user().click(screen.getByRole('radio', { name: /Mastercard •••• 5555/ }));
+    await user().click(screen.getByRole('button', { name: 'Book & pay €48.40' }));
+    expect(await screen.findByText(/Finding your pro/)).toBeInTheDocument();
+    expect(api.bodies['POST /bookings']).toMatchObject({ serviceIds: ['svc-mow'], paymentMethod: { type: 'card', cardId: 'pm_mc' } });
+  });
+
+  it('sends Apple Pay as the way to pay', async () => {
+    const api = setUp({ cards: [visa] });
+    await toReview();
+    await user().click(screen.getByRole('radio', { name: /Apple Pay/ }));
+    await user().click(screen.getByRole('button', { name: 'Book & pay €48.40' }));
+    expect(await screen.findByText(/Finding your pro/)).toBeInTheDocument();
+    expect(api.bodies['POST /bookings']).toMatchObject({ paymentMethod: { type: 'apple_pay' } });
+  });
 });
 
 describe('monthly plans in the apps', () => {

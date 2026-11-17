@@ -33,6 +33,8 @@ export interface PaymentGateway {
   ensureCustomer(input: { userId: string; existing: string | null }): Promise<string>;
   /** Authorises the amount without taking it, and saves the card for approved extra work. */
   createHold(input: HoldInput): Promise<HoldResult>;
+  /** The cards a customer saved, newest first; wallet cards (Apple Pay, Google Pay) are left out. */
+  listCards(customerRef: string): Promise<SavedCard[]>;
   /** Authorises another amount on the card used for `fromIntentId`, e.g. approved extra work. */
   holdOnSavedCard(input: HoldInput & { fromIntentId: string }): Promise<HoldResult>;
   /** The browser secret of an unfinished payment, so the customer can finish it after a reload. */
@@ -91,6 +93,17 @@ export interface HoldInput {
   description: string;
   idempotencyKey: string;
   metadata: Record<string, string>;
+  /** A card the customer saved before: the hold is placed on it at once (D73). */
+  paymentMethodId?: string;
+}
+
+/** A card saved with the payment provider, as Review & pay lists it (D73). */
+export interface SavedCard {
+  id: string;
+  brand: string;
+  last4: string;
+  expMonth: number;
+  expYear: number;
 }
 
 export interface PayoutDetails {

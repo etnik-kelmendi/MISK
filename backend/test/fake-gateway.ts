@@ -1,11 +1,13 @@
 import { randomUUID } from 'node:crypto';
-import type { GatewayEvent, HoldInput, PaymentGateway } from '../src/payments/gateway.js';
+import type { GatewayEvent, HoldInput, PaymentGateway, SavedCard } from '../src/payments/gateway.js';
 
 export interface FakeIntent {
   id: string;
   amountCents: number;
   status: 'requires_payment_method' | 'held' | 'captured' | 'released' | 'refunded';
   metadata: Record<string, string>;
+  /** The saved card the hold was placed on, if any (D73). */
+  paymentMethodId?: string;
 }
 
 /**
@@ -21,10 +23,16 @@ export function createFakeGateway(options: { instantHolds?: boolean } = {}) {
   const manualPayouts: string[] = [];
   const subscriptions = new Map<string, { id: string; amountCents: number; status: 'incomplete' | 'active' | 'cancelled'; cancelAtPeriodEnd: boolean; paused: boolean; metadata: Record<string, string> }>();
   let instantHolds = options.instantHolds ?? true;
+  // Every customer has one saved test card, like a returning customer (D73).
+  const defaultCards = (): SavedCard[] => [{ id: 'pm_card_visa', brand: 'visa', last4: '4242', expMonth: 8, expYear: 2030 }];
+  let cards: SavedCard[] = defaultCards();
 
   function hold(input: HoldInput) {
     if (failures.has('hold')) {
       throw new Error('fake hold failure');
+    }
+    if (input.paymentMethodId && !cards.some((card) => card.id === input.paymentMethodId)) {
+      throw new Error(`fake: no saved card ${input.paymentMethodId}`);
     }
     const id = `pi_${randomUUID()}`;
     intents.set(id, {
@@ -32,6 +40,7 @@ export function createFakeGateway(options: { instantHolds?: boolean } = {}) {
       amountCents: input.amountCents,
       status: instantHolds ? 'held' : 'requires_payment_method',
       metadata: input.metadata,
+      ...(input.paymentMethodId ? { paymentMethodId: input.paymentMethodId } : {}),
     });
     return { intentId: id, clientSecret: instantHolds ? null : `${id}_secret`, held: instantHolds };
   }
@@ -40,6 +49,7 @@ export function createFakeGateway(options: { instantHolds?: boolean } = {}) {
     publishableKey: null,
     ensureCustomer: async ({ userId, existing }) => existing ?? `cus_${userId}`,
     createHold: async (input) => hold(input),
+    listCards: async () => cards,
     holdOnSavedCard: async (input) => hold(input),
     clientSecretFor: async (intentId) =>
       intents.get(intentId)?.status === 'requires_payment_method' ? `${intentId}_secret` : null,
@@ -162,6 +172,11 @@ export function createFakeGateway(options: { instantHolds?: boolean } = {}) {
       schedules.clear();
       manualPayouts.length = 0;
       instantHolds = options.instantHolds ?? true;
+      cards = defaultCards();
+    },
+    /** The saved cards every customer has, e.g. none for a first-time customer. */
+    setCards(next: SavedCard[]) {
+      cards = next;
     },
     setInstantHolds(value: boolean) {
       instantHolds = value;

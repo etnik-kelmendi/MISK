@@ -81,6 +81,8 @@ export function fakeApi(user: User | null): FakeApi {
   const calls: string[] = [];
   const bodies: Record<string, unknown> = {};
   routes.set('GET /catalogue', { body: catalogue });
+  // A first-time customer: no saved cards and no earlier choice (D73).
+  routes.set('GET /payment-methods', { body: { cards: [], cardsAvailable: true, last: null, publishableKey: null } });
   routes.set('GET /inbox', { body: { messages: [], unread: 0 } });
   routes.set('GET /auth/me', user ? { body: { user } } : { status: 401, body: { error: 'unauthenticated' } });
 

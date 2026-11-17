@@ -160,7 +160,8 @@
     "already_waiting": "You are already on the waiting list for this.",
     "day_not_bookable": "That day cannot be booked yet.",
     "time_not_on_day": "That time is not on the day you chose.",
-    "flexible_needs_time": "This flexible job has no time yet. Set the time with Change time first, then choose the pro."
+    "flexible_needs_time": "This flexible job has no time yet. Set the time with Change time first, then choose the pro.",
+    "card_not_found": "That card is no longer saved. Choose another way to pay."
   },
   "nav": {
     "customer": "Main menu",
@@ -285,7 +286,7 @@
     "slotsFree": "{{free}} of {{total}} times have a verified pro free near you.",
     "pickTime": "Choose a time",
     "continueAt": "Continue · {{when}}",
-    "reviewTitle": "Review and pay",
+    "reviewTitle": "Review & pay",
     "summary": "Your booking",
     "price": "Price",
     "fee": "Service fee",
@@ -2337,5 +2338,29 @@
     "select": "Select a time",
     "flexibleSummary": "{{day}}, {{window}} · your pro picks the time by 18:00 the evening before",
     "flexibleBooked": "{{day}}, {{window}} · your pro picks the time by {{by}}"
+  },
+  "review": {
+    "title": "Review & pay",
+    "minutes": "about {{minutes}} min",
+    "hours_one": "about {{count}} h",
+    "hours_other": "about {{count}} h",
+    "hoursMinutes": "about {{hours}} h {{minutes}} min",
+    "hourly": "Paid by the hour",
+    "noPhotos": "No photos added",
+    "packageIncluded": "Includes the {{pct}}% package discount",
+    "payment": "Payment",
+    "card": "{{brand}} •••• {{last4}}",
+    "expires": "Expires {{date}}",
+    "applePay": "Apple Pay",
+    "googlePay": "Google Pay",
+    "newCard": "Another card",
+    "newCardText": "Enter a card on the next step",
+    "walletUnavailable": "Not available on this device",
+    "cardsUnavailable": "Your saved cards could not be loaded just now. You can still pay with another card or a wallet.",
+    "protectedTitle": "Protected payment.",
+    "protectedText": "The money is reserved now, not taken. Your card is charged 24 hours after the job is done, so you have time to check the work and report a problem.",
+    "cancelTitle": "Free cancellation.",
+    "cancelText": "Free cancellation up to 24 hours before the visit. After that you pay the full price.",
+    "bookAndPay": "Book & pay {{amount}}"
   }
 }

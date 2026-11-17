@@ -52,10 +52,15 @@ interface BookingBody {
   /** A fixed start, or for a flexible booking `flexibleWindow` on `day` (D70). */
   startsAt?: string;
   flexibleWindow?: FlexibleWindow;
+  /** How the customer pays (D73); without it, a new card in the browser. */
+  paymentMethod?: { type: PaymentChoice; cardId?: string };
   day?: string;
 }
 
 const paymentUnavailable = () => new ApiError(502, 'payment_unavailable');
+/** The ways to pay on Review & pay (D73). */
+export const PAYMENT_CHOICES = ['card', 'new_card', 'apple_pay', 'google_pay'] as const;
+export type PaymentChoice = (typeof PAYMENT_CHOICES)[number];
 /** Comma-separated service ids in a query string (D68). */
 const UUID_LIST = '^[0-9a-fA-F-]{36}(,[0-9a-fA-F-]{36})*$';
 
@@ -183,6 +188,15 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
             startsAt: { type: 'string', format: 'date-time' },
             flexibleWindow: { type: 'string', enum: FLEXIBLE_WINDOWS },
             day: { type: 'string', format: 'date' },
+            paymentMethod: {
+              type: 'object',
+              required: ['type'],
+              additionalProperties: false,
+              properties: {
+                type: { type: 'string', enum: PAYMENT_CHOICES },
+                cardId: { type: 'string', minLength: 1, maxLength: 255 },
+              },
+            },
           },
         },
       },
@@ -197,6 +211,22 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
       const flexible = body.flexibleWindow && body.day ? { window: body.flexibleWindow, day: body.day } : null;
       if (!flexible && !body.startsAt) {
         throw badRequest('time_missing');
+      }
+      // A saved card must be one of this customer's cards; checked before anything is booked (D73).
+      const choice: PaymentChoice = body.paymentMethod?.type ?? 'new_card';
+      const cardId = choice === 'card' ? (body.paymentMethod?.cardId ?? null) : null;
+      if (choice === 'card') {
+        if (!cardId) throw badRequest('card_not_found');
+        const owner = await pool.query<{ ref: string | null }>('SELECT stripe_customer_id AS ref FROM users WHERE id = $1', [customer.id]);
+        const ref = owner.rows[0]?.ref ?? null;
+        let cards: { id: string }[] = [];
+        try {
+          cards = ref ? await gateway.listCards(ref) : [];
+        } catch (error) {
+          request.log.error({ event: 'card_list_failed', err: error });
+          throw paymentUnavailable();
+        }
+        if (!cards.some((card) => card.id === cardId)) throw badRequest('card_not_found');
       }
       const price = packagePrice(services, body.size);
       const priceCents = price.jobCents;
@@ -246,8 +276,9 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
         const { fee, share } = onlyRow(settings);
         const inserted = await client.query<{ id: string }>(
           `INSERT INTO bookings (customer_id, service_id, category_id, service_name, size, address, postcode, notes,
-             starts_at, ends_at, price_cents, fee_cents, pro_share_pct, package_discount_cents, flexible_window, confirm_by)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING id`,
+             starts_at, ends_at, price_cents, fee_cents, pro_share_pct, package_discount_cents, flexible_window, confirm_by,
+             payment_choice, payment_card_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING id`,
           [
             customer.id,
             service.id,
@@ -265,6 +296,8 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
             price.discountCents,
             flexible?.window ?? null,
             confirmBy,
+            choice,
+            cardId,
           ],
         );
         const id = onlyRow(inserted).id;
@@ -300,6 +333,7 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
           description: `MISK ${serviceName}`.slice(0, 200),
           idempotencyKey: `booking-${created.id}`,
           metadata: { bookingId: created.id },
+          ...(cardId ? { paymentMethodId: cardId } : {}),
         });
         await pool.query('UPDATE bookings SET payment_intent_id = $2 WHERE id = $1', [created.id, hold.intentId]);
         clientSecret = hold.clientSecret;
@@ -319,6 +353,31 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
       });
     },
   );
+
+  // Review & pay (D73): the customer's saved cards and how they paid last time, which starts selected.
+  app.get('/payment-methods', { preHandler: guards.customer }, async (request) => {
+    const customerId = currentUser(request).id;
+    const owner = await pool.query<{ ref: string | null }>('SELECT stripe_customer_id AS ref FROM users WHERE id = $1', [customerId]);
+    const ref = owner.rows[0]?.ref ?? null;
+    let cards: Awaited<ReturnType<typeof gateway.listCards>> = [];
+    let cardsAvailable = true;
+    if (ref) {
+      try {
+        cards = await gateway.listCards(ref);
+      } catch (error) {
+        // The page still offers a new card and wallets; the saved cards are just not listed this time.
+        request.log.error({ event: 'card_list_failed', err: error });
+        cardsAvailable = false;
+      }
+    }
+    const last = await pool.query<{ choice: PaymentChoice; cardId: string | null }>(
+      `SELECT payment_choice AS choice, payment_card_id AS "cardId" FROM bookings
+       WHERE customer_id = $1 AND payment_choice IS NOT NULL AND payment_status IN ('held', 'captured', 'released', 'refunded')
+       ORDER BY created_at DESC LIMIT 1`,
+      [customerId],
+    );
+    return { cards, cardsAvailable, last: last.rows[0] ?? null, publishableKey: gateway.publishableKey };
+  });
 
   // The Bookings page (D67): upcoming and past bookings with what each row offers (receipt, report, chat),
   // and the next visits of the customer's plans.
