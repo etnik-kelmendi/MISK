@@ -3,7 +3,7 @@ import { nextPayoutDate, type PayoutInterval } from '../payments/payouts.js';
 import { marketToday } from '../pros/checks.js';
 import { withTransaction } from '../db.js';
 import { conflict, notFound } from '../errors.js';
-import { bookingWhen, messages } from '../notifications/messages.js';
+import { bookingWhen, formatSlot, messages } from '../notifications/messages.js';
 import { enqueue } from '../notifications/outbox.js';
 import { offerNext } from './dispatch.js';
 import { setStatus, type BookingDeps } from './events.js';
@@ -31,7 +31,7 @@ export async function confirmHold(deps: BookingDeps, intentId: string): Promise<
       flexible_window: string | null;
       time_confirmed_at: Date | null;
     }>(
-      `UPDATE bookings SET payment_status = 'held', updated_at = now()
+      `UPDATE bookings SET payment_status = 'held', hold_placed_at = now(), updated_at = now()
        WHERE payment_intent_id = $1 AND status = 'awaiting_payment' AND payment_status IN ('pending', 'failed')
        RETURNING id, customer_id, service_name, starts_at, flexible_window, time_confirmed_at`,
       [intentId],
@@ -413,4 +413,71 @@ export async function settleTick(deps: BookingDeps): Promise<number> {
     }
   }
   return due.rows.length + lateCancels.rows.length;
+}
+
+/** A card reservation is renewed once it is this old: they last about seven days (D74). */
+export const HOLD_RENEW_AFTER_HOURS = 6 * 24;
+
+/**
+ * Renews the card reservation of bookings whose reservation would run out before the money is taken (24 h
+ * after the job): the same amount is reserved again on the same card and the old reservation released. A
+ * renewal the bank refuses is tried again after a day, and the customer is told. Returns how many were renewed.
+ */
+export async function renewHoldsTick(deps: BookingDeps): Promise<number> {
+  const due = await deps.pool.query<{
+    id: string;
+    payment_intent_id: string;
+    amount: number;
+    customer_id: string;
+    customer_ref: string | null;
+    service_name: string;
+    starts_at: Date;
+  }>(
+    `SELECT b.id, b.payment_intent_id, b.price_cents + CASE WHEN b.late_cancel THEN 0 ELSE b.fee_cents END AS amount,
+       b.customer_id, u.stripe_customer_id AS customer_ref, b.service_name, b.starts_at
+     FROM bookings b JOIN users u ON u.id = b.customer_id
+     WHERE b.payment_status = 'held' AND b.payment_intent_id IS NOT NULL
+       AND b.status IN ('searching', 'unassigned', 'accepted', 'on_the_way', 'working', 'completed')
+       AND b.hold_placed_at < now() - make_interval(hours => $1)
+       AND (b.hold_renew_failed_at IS NULL OR b.hold_renew_failed_at < now() - interval '1 day')
+     ORDER BY b.hold_placed_at LIMIT 50`,
+    [HOLD_RENEW_AFTER_HOURS],
+  );
+  let renewed = 0;
+  for (const booking of due.rows) {
+    if (!booking.customer_ref) continue;
+    try {
+      const hold = await deps.gateway.renewHold({
+        fromIntentId: booking.payment_intent_id,
+        customerRef: booking.customer_ref,
+        amountCents: booking.amount,
+        description: `MISK ${booking.service_name}`.slice(0, 200),
+        idempotencyKey: `renew-${booking.payment_intent_id}`,
+        metadata: { bookingId: booking.id },
+      });
+      // Only switch when the booking still uses the old reservation, then release that one.
+      const switched = await deps.pool.query(
+        `UPDATE bookings SET payment_intent_id = $2, hold_placed_at = now(), hold_renew_failed_at = NULL, updated_at = now()
+         WHERE id = $1 AND payment_intent_id = $3 AND payment_status = 'held'`,
+        [booking.id, hold.intentId, booking.payment_intent_id],
+      );
+      if (switched.rowCount) {
+        await deps.gateway.release(booking.payment_intent_id);
+        renewed += 1;
+        deps.log.info({ event: 'hold_renewed', bookingId: booking.id });
+      } else {
+        await deps.gateway.release(hold.intentId);
+      }
+    } catch (error) {
+      deps.log.warn({ event: 'hold_renew_failed', bookingId: booking.id, err: error });
+      await deps.pool.query('UPDATE bookings SET hold_renew_failed_at = now() WHERE id = $1', [booking.id]);
+      await enqueue(
+        deps.pool,
+        booking.customer_id,
+        'payment_action_needed',
+        messages.holdRenewFailed(booking.service_name, formatSlot(booking.starts_at, deps.config.timezone)),
+      );
+    }
+  }
+  return renewed;
 }

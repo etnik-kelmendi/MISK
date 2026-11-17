@@ -37,6 +37,11 @@ export interface PaymentGateway {
   listCards(customerRef: string): Promise<SavedCard[]>;
   /** Authorises another amount on the card used for `fromIntentId`, e.g. approved extra work. */
   holdOnSavedCard(input: HoldInput & { fromIntentId: string }): Promise<HoldResult>;
+  /**
+   * Reserves the same amount again on the card of `fromIntentId` while the customer is away, before the
+   * first reservation runs out (D74). Throws when the bank refuses or wants the customer to confirm.
+   */
+  renewHold(input: HoldInput & { fromIntentId: string }): Promise<HoldResult>;
   /** The browser secret of an unfinished payment, so the customer can finish it after a reload. */
   clientSecretFor(intentId: string): Promise<string | null>;
   /** Takes held money. Returns the charge id that a transfer to the pro can be paid from. */

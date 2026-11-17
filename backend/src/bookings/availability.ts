@@ -4,8 +4,13 @@ import type { Queryable } from '../db.js';
 export const SLOT_HOURS = [8, 10, 12, 14, 16, 18];
 /** A job must end by this local hour (QUESTIONS Q9). */
 export const WORK_END_HOUR = 20;
-/** Today plus five days: card holds last seven days, so every job ends while its hold is valid (D6). */
-export const BOOKING_DAYS = 6;
+/**
+ * Today and the next six days (D74). A card reservation lasts about seven days and the money is taken 24 h
+ * after the job, so reservations for later jobs are renewed before they run out (see renewHolds).
+ */
+export const BOOKING_DAYS = 7;
+/** A time that frees up is held this long for the customer who waited for it (D74). */
+export const SLOT_HOLD_MINUTES = 15;
 /** Customers cannot book a slot that starts sooner than this, so a pro can be found and travel. */
 export const MIN_LEAD_MINUTES = 120;
 
@@ -91,7 +96,10 @@ export async function findSlots(db: Queryable, query: SlotQuery, onlyStart?: Dat
        (SELECT count(*)::int FROM bookings b
         WHERE b.category_id = $1 AND b.status IN ('awaiting_payment', 'searching')
           AND tstzrange(b.starts_at, b.ends_at) && tstzrange(s.starts_at, s.ends_at)
-          AND NOT EXISTS (SELECT 1 FROM booking_offers o WHERE o.booking_id = b.id AND o.status = 'pending')) AS demand
+          AND NOT EXISTS (SELECT 1 FROM booking_offers o WHERE o.booking_id = b.id AND o.status = 'pending'))
+       + (SELECT count(*)::int FROM slot_holds h
+          WHERE h.category_id = $1 AND h.expires_at > now() AND h.customer_id IS DISTINCT FROM $10::uuid
+            AND tstzrange(h.starts_at, h.ends_at) && tstzrange(s.starts_at, s.ends_at)) AS demand
      FROM slots s
      WHERE s.fits
        AND s.starts_at >= now() + make_interval(mins => $8)
@@ -122,34 +130,37 @@ export async function findSlots(db: Queryable, query: SlotQuery, onlyStart?: Dat
 export type FlexibleWindow = 'morning' | 'afternoon' | 'any';
 export const FLEXIBLE_WINDOWS: FlexibleWindow[] = ['morning', 'afternoon', 'any'];
 /** Local start hours each window allows. */
-export const WINDOW_HOURS: Record<FlexibleWindow, number[]> = {
-  morning: [8, 10],
-  afternoon: [12, 14, 16],
-  any: SLOT_HOURS,
+export const WINDOWS: Record<FlexibleWindow, { from: number; to: number }> = {
+  morning: { from: 8, to: 12 },
+  afternoon: { from: 12, to: 18 },
+  any: { from: 8, to: WORK_END_HOUR },
 };
 /** A pro must pick the time of a flexible job by this local hour the evening before. */
 export const FLEXIBLE_CONFIRM_HOUR = 18;
 /** Time between two slot starts, which is also the step between a flexible job's possible starts. */
 export const SLOT_STEP_MINUTES = 120;
 
-/** The local day (YYYY-MM-DD) and hour of a moment. */
-export function localDayHour(date: Date, timezone: string): { day: string; hour: number } {
+/** The local day (YYYY-MM-DD), hour and minute of a moment. */
+export function localDayHour(date: Date, timezone: string): { day: string; hour: number; minute: number } {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: timezone,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
+    minute: '2-digit',
     hourCycle: 'h23',
   }).formatToParts(date);
   const part = (type: string) => parts.find((p) => p.type === type)?.value ?? '';
-  return { day: `${part('year')}-${part('month')}-${part('day')}`, hour: Number(part('hour')) };
+  return { day: `${part('year')}-${part('month')}-${part('day')}`, hour: Number(part('hour')), minute: Number(part('minute')) };
 }
 
-/** The slots of one local day whose start lies in a flexible window. */
+/** The slots of one local day that start and end inside a flexible window, e.g. 12:00 to 18:00. */
 export function windowSlots(slots: Slot[], day: string, window: FlexibleWindow, timezone: string): Slot[] {
   return slots.filter((slot) => {
     const local = localDayHour(slot.startsAt, timezone);
-    return local.day === day && WINDOW_HOURS[window].includes(local.hour);
+    const end = localDayHour(slot.endsAt, timezone);
+    const { from, to } = WINDOWS[window];
+    return local.day === day && local.hour >= from && end.day === day && end.hour * 60 + end.minute <= to * 60;
   });
 }

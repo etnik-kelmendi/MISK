@@ -18,7 +18,7 @@ import {
 import { setStatus, type BookingDeps } from './events.js';
 import { cancelBooking, CHARGE_DELAY_HOURS, confirmHold, settleBooking } from './lifecycle.js';
 import { loadBooking } from './views.js';
-import { waitlistFor } from './time-waitlist.js';
+import { heldFor, waitlistFor } from './time-waitlist.js';
 
 export const MAX_CUSTOMER_PHOTOS = 3;
 /** Photos a customer can add to a problem report. */
@@ -159,7 +159,9 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
       });
       // The times (or days) this customer waits for in this trade (D70).
       const waitlist = await waitlistFor(pool, currentUser(request).id, services[0].categoryId, postcode);
-      return { timezone: ctx.config.timezone, slots, waitlist };
+      // Times held for this customer because they waited for them (D74).
+      const held = await heldFor(pool, currentUser(request).id, services[0].categoryId, postcode);
+      return { timezone: ctx.config.timezone, slots, waitlist, held };
     },
   );
 
@@ -301,6 +303,8 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
           ],
         );
         const id = onlyRow(inserted).id;
+        // Booking in a trade ends the customer's holds there, so others can have those times again (D74).
+        await client.query('DELETE FROM slot_holds WHERE customer_id = $1 AND category_id = $2', [customer.id, service.categoryId]);
         await client.query(
           `INSERT INTO booking_services (booking_id, position, service_id, name, price_cents, duration_minutes)
            SELECT $1, ord - 1, x.service_id, x.name, x.price_cents, x.duration_minutes

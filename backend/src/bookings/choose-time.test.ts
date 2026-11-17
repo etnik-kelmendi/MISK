@@ -3,6 +3,7 @@ import { localDayHour } from './availability.js';
 import { dispatchTick } from './dispatch.js';
 import { reminderTick } from './reminders.js';
 import { timeWaitlistTick } from './time-waitlist.js';
+import { renewHoldsTick } from './lifecycle.js';
 
 let t: TestContext;
 let market: Market;
@@ -150,7 +151,12 @@ describe('waiting list for full times (D70)', () => {
     expect(await timeWaitlistTick(t.deps)).toBe(0);
     const told = await t.pool.query<{ body: string }>("SELECT body FROM inbox WHERE kind = 'time_free' ORDER BY body");
     expect(told.rows).toHaveLength(2);
-    expect(told.rows[0]?.body).toMatch(/^MISK: a pro is now free for Lawn mowing on /);
+    const heldMessage = /^MISK: Lawn mowing on .+ is free\. We hold it for you until \d\d:\d\d\. Book it in the app\.$/;
+    expect(told.rows.map((r) => r.body)).toEqual([expect.stringMatching(heldMessage), expect.stringMatching(heldMessage)]);
+    // Two different times are held: one for the time, one for the day.
+    const holds = await t.pool.query<{ starts_at: Date }>('SELECT starts_at FROM slot_holds ORDER BY starts_at');
+    expect(holds.rowCount).toBe(2);
+    expect(holds.rows[0]?.starts_at.getTime()).not.toBe(holds.rows[1]?.starts_at.getTime());
   });
 
   it('can be left again, only by its customer, and refuses a time on another day', async () => {
@@ -166,5 +172,113 @@ describe('waiting list for full times (D70)', () => {
     expect((await post('/time-waitlist', { serviceIds: [market.mowing, market.leak], postcode: '10115', day: dayAhead(2) })).json()).toEqual({
       error: 'invalid_services',
     });
+  });
+});
+
+describe('Choose time, second version (D74)', () => {
+  async function slotsFor(cookie = customer) {
+    return (await call(t, 'GET', `/availability?serviceIds=${market.mowing}&postcode=10115`, { cookie })).json() as {
+      slots: { startsAt: string; endsAt: string; available: boolean }[];
+      held: { startsAt: string; expiresAt: string }[];
+    };
+  }
+
+  it('offers today and the next six days', async () => {
+    await approvedPro(t, '+4915100000101', { trades: [market.gardening] });
+    const days = new Set((await slotsFor()).slots.map((s) => localDayHour(new Date(s.startsAt), tz()).day));
+    expect(days.has(dayAhead(6))).toBe(true);
+    expect(days.has(dayAhead(7))).toBe(false);
+  });
+
+  it('holds a freed time for 15 minutes for the customer who waited, and nobody else can book it', async () => {
+    const first = (await slotsFor()).slots.find((s) => localDayHour(new Date(s.startsAt), tz()).day === dayAhead(2));
+    if (!first) throw new Error('No slot two days ahead');
+    await post('/time-waitlist', { serviceIds: [market.mowing], postcode: '10115', day: dayAhead(2), startsAt: first.startsAt });
+    await approvedPro(t, '+4915100000101', { trades: [market.gardening] });
+    expect(await timeWaitlistTick(t.deps)).toBe(1);
+
+    const mine = await slotsFor();
+    expect(mine.held).toEqual([{ startsAt: first.startsAt, expiresAt: expect.any(String) }]);
+    const minutes = (new Date(mine.held[0]?.expiresAt ?? 0).getTime() - Date.now()) / 60_000;
+    expect(minutes).toBeGreaterThan(14);
+    expect(minutes).toBeLessThanOrEqual(15);
+    expect(mine.slots.find((s) => s.startsAt === first.startsAt)?.available).toBe(true);
+
+    // With the one pro held for Sara, another customer finds that time full.
+    const other = await signIn(t, '+4915100000002', 'customer');
+    expect((await slotsFor(other)).slots.find((s) => s.startsAt === first.startsAt)?.available).toBe(false);
+    const taken = await call(t, 'POST', '/bookings', {
+      cookie: other,
+      body: { serviceIds: [market.mowing], size: 'M', address: '1 Other Road', postcode: '10115', startsAt: first.startsAt },
+    });
+    expect(taken.json()).toEqual({ error: 'slot_unavailable' });
+
+    // Sara books it; the hold is gone.
+    const booked = await post('/bookings', { serviceIds: [market.mowing], size: 'M', address: '12 Linden Street', postcode: '10115', startsAt: first.startsAt });
+    expect(booked.statusCode).toBe(201);
+    expect((await t.pool.query('SELECT 1 FROM slot_holds')).rowCount).toBe(0);
+  });
+
+  it('frees the time for others once the 15 minutes are over', async () => {
+    const first = (await slotsFor()).slots.find((s) => localDayHour(new Date(s.startsAt), tz()).day === dayAhead(2));
+    if (!first) throw new Error('No slot two days ahead');
+    await post('/time-waitlist', { serviceIds: [market.mowing], postcode: '10115', day: dayAhead(2), startsAt: first.startsAt });
+    await approvedPro(t, '+4915100000101', { trades: [market.gardening] });
+    await timeWaitlistTick(t.deps);
+    await t.pool.query("UPDATE slot_holds SET expires_at = now() - interval '1 second'");
+    const other = await signIn(t, '+4915100000002', 'customer');
+    expect((await slotsFor(other)).slots.find((s) => s.startsAt === first.startsAt)?.available).toBe(true);
+    expect((await slotsFor()).held).toEqual([]);
+  });
+
+  it('keeps a flexible afternoon between 12:00 and 18:00', async () => {
+    await approvedPro(t, '+4915100000101', { trades: [market.gardening] });
+    // Hedge trimming takes 90 minutes: the last start that ends by 18:00 is 16:00.
+    const created = await post('/bookings', { ...flexibleBooking('afternoon', dayAhead(2)), serviceIds: [market.hedge] });
+    expect(created.statusCode).toBe(201);
+    const b = created.json().booking;
+    expect([localTime(b.startsAt), localTime(b.endsAt)]).toEqual(['12:00', '17:30']);
+    const morning = await post('/bookings', { ...flexibleBooking('morning', dayAhead(3)), serviceIds: [market.hedge] });
+    expect([localTime(morning.json().booking.startsAt), localTime(morning.json().booking.endsAt)]).toEqual(['08:00', '11:30']);
+  });
+});
+
+describe('renewing card reservations (D74)', () => {
+  async function heldBooking() {
+    await approvedPro(t, '+4915100000101', { trades: [market.gardening] });
+    const slots = (await get(`/availability?serviceIds=${market.mowing}&postcode=10115`)).json().slots as { startsAt: string; available: boolean }[];
+    const free = slots.find((s) => s.available);
+    if (!free) throw new Error('No free slot');
+    const created = await post('/bookings', { serviceIds: [market.mowing], size: 'M', address: '12 Linden Street', postcode: '10115', startsAt: free.startsAt });
+    const id = created.json().booking.id as string;
+    await t.pool.query("UPDATE bookings SET hold_placed_at = now() - interval '6 days 1 hour' WHERE id = $1", [id]);
+    const row = await t.pool.query<{ payment_intent_id: string }>('SELECT payment_intent_id FROM bookings WHERE id = $1', [id]);
+    return { id, oldIntent: row.rows[0]?.payment_intent_id ?? '' };
+  }
+
+  it('reserves the money again before the old reservation runs out, and releases the old one', async () => {
+    const { id, oldIntent } = await heldBooking();
+    expect(await renewHoldsTick(t.deps)).toBe(1);
+    const row = await t.pool.query<{ payment_intent_id: string; payment_status: string; fresh: boolean }>(
+      "SELECT payment_intent_id, payment_status, hold_placed_at > now() - interval '1 minute' AS fresh FROM bookings WHERE id = $1",
+      [id],
+    );
+    expect(row.rows[0]?.payment_intent_id).not.toBe(oldIntent);
+    expect(row.rows[0]).toMatchObject({ payment_status: 'held', fresh: true });
+    expect(t.fake.intents.get(oldIntent)?.status).toBe('released');
+    expect(t.fake.intents.get(row.rows[0]?.payment_intent_id ?? '')?.status).toBe('held');
+    // A fresh reservation is not renewed again.
+    expect(await renewHoldsTick(t.deps)).toBe(0);
+  });
+
+  it('tells the customer when the bank refuses, and tries again only after a day', async () => {
+    const { id, oldIntent } = await heldBooking();
+    t.fake.failures.add('renew');
+    expect(await renewHoldsTick(t.deps)).toBe(0);
+    const told = await t.pool.query<{ body: string }>("SELECT body FROM inbox WHERE kind = 'payment_action_needed'");
+    expect(told.rows[0]?.body).toMatch(/did not renew the payment reservation for Lawn mowing/);
+    expect((await t.pool.query<{ payment_intent_id: string }>('SELECT payment_intent_id FROM bookings WHERE id = $1', [id])).rows[0]?.payment_intent_id).toBe(oldIntent);
+    expect(await renewHoldsTick(t.deps)).toBe(0);
+    expect((await t.pool.query("SELECT 1 FROM inbox WHERE kind = 'payment_action_needed'")).rowCount).toBe(1);
   });
 });

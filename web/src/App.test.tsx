@@ -816,7 +816,7 @@ describe('booking a job', () => {
     await user().click(screen.getByRole('radio', { name: /Medium/ }));
     await user().click(screen.getByRole('button', { name: 'Continue · €45.50' }));
 
-    expect(await screen.findByRole('button', { name: /08:00\s*Full · waitlist/ })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /08:00\s*Full · waiting list/ })).toBeInTheDocument();
     await user().click(screen.getByRole('button', { name: /10:00/ }));
     await user().click(screen.getByRole('button', { name: /Continue · Fri 6 Nov, 10:00/ }));
 
@@ -1414,11 +1414,11 @@ describe('Choose time (D70)', () => {
   });
   const berlinDay = (iso: string) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin' }).format(new Date(iso));
 
-  function setUp(slots: ReturnType<typeof slot>[], waitlist: object[] = []) {
+  function setUp(slots: ReturnType<typeof slot>[], waitlist: object[] = [], held: object[] = []) {
     const api = fakeApi(users.customer);
     api.on('GET /postcodes', { body: { postcodes: [{ code: '10115', name: 'Mitte' }] } });
     api.on('GET /bookings', { body: { bookings: [] } });
-    api.on('GET /availability', { body: { slots, waitlist } });
+    api.on('GET /availability', { body: { slots, waitlist, held } });
     return api;
   }
 
@@ -1441,16 +1441,16 @@ describe('Choose time (D70)', () => {
     api.on('DELETE /time-waitlist/w1', { status: 204 });
     await toTimeStep();
 
-    await user().click(await screen.findByRole('button', { name: /08:00\s*Full · waitlist/ }));
+    await user().click(await screen.findByRole('button', { name: /08:00\s*Full · waiting list/ }));
     expect(api.bodies['POST /time-waitlist']).toEqual({ serviceIds: ['svc-mow'], postcode: '10115', day: berlinDay(full), startsAt: full });
-    expect(await screen.findByRole('button', { name: /08:00\s*✓ On waitlist/ })).toHaveAttribute('aria-pressed', 'true');
-    await user().click(screen.getByRole('button', { name: /08:00\s*✓ On waitlist/ }));
-    expect(await screen.findByRole('button', { name: /08:00\s*Full · waitlist/ })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /08:00\s*On waiting list/ })).toHaveAttribute('aria-pressed', 'true');
+    await user().click(screen.getByRole('button', { name: /08:00\s*On waiting list/ }));
+    expect(await screen.findByRole('button', { name: /08:00\s*Full · waiting list/ })).toBeInTheDocument();
     expect(api.calls).toContain('DELETE /time-waitlist/w1');
 
-    await user().click(screen.getByRole('button', { name: /No time that suits you\?/ }));
+    await user().click(screen.getByRole('button', { name: /Join the waiting list for this day/ }));
     expect(api.bodies['POST /time-waitlist']).toEqual({ serviceIds: ['svc-mow'], postcode: '10115', day: berlinDay(full) });
-    expect(await screen.findByText("You're on the waitlist")).toBeInTheDocument();
+    expect(await screen.findByText('On the waiting list for this day')).toBeInTheDocument();
     expect(screen.getByText('Joined')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Select a time' })).toBeDisabled();
   });
@@ -1465,7 +1465,7 @@ describe('Choose time (D70)', () => {
     // Morning has no free pro on this day.
     expect(screen.getByText(/No pro is free in this window/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Select a time' })).toBeDisabled();
-    await user().click(screen.getByRole('button', { name: 'Afternoon' }));
+    await user().click(screen.getByRole('button', { name: /^Afternoon/ }));
     expect(screen.getByText('Flexible booking.')).toBeInTheDocument();
     await user().click(screen.getByRole('button', { name: /Continue · .+, afternoon/ }));
     expect(screen.getByText(/afternoon · your pro picks the time by 18:00 the evening before/)).toBeInTheDocument();
@@ -1476,11 +1476,28 @@ describe('Choose time (D70)', () => {
     expect(sent.startsAt).toBeUndefined();
   });
 
+  it('shows the windows with their hours and when the exact time is confirmed (D74)', async () => {
+    setUp([slot(at(3, 8), true), slot(at(3, 14), true)]);
+    await toTimeStep();
+    await user().click(await screen.findByRole('button', { name: "I'm flexible" }));
+    expect(screen.getByRole('button', { name: /^Morning\s*08:00 to 12:00$/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Afternoon\s*12:00 to 18:00$/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Any time' })).toBeInTheDocument();
+    expect(screen.getByText(/The exact time is confirmed by 18:00 the day before/)).toBeInTheDocument();
+  });
+
+  it('shows a time held for the customer for 15 minutes (D74)', async () => {
+    const freed = at(3, 10);
+    setUp([slot(at(3, 8), false), slot(freed, true)], [], [{ startsAt: freed, expiresAt: new Date(Date.now() + 15 * 60_000).toISOString() }]);
+    await toTimeStep();
+    expect(await screen.findByRole('button', { name: /10:00\s*Held for you until \d\d:\d\d/ })).toBeInTheDocument();
+  });
+
   it('does not offer a flexible time for today', async () => {
     setUp([slot(at(0, 23), true)]);
     await toTimeStep();
     await user().click(await screen.findByRole('button', { name: "I'm flexible" }));
-    expect(screen.getByText(/needs a pro to confirm it by 18:00 the evening before/)).toBeInTheDocument();
+    expect(screen.getByText(/confirmed by 18:00 the day before, so it is not possible for this day/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Select a time' })).toBeDisabled();
   });
 

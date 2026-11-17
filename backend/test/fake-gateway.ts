@@ -18,7 +18,7 @@ export interface FakeIntent {
 export function createFakeGateway(options: { instantHolds?: boolean } = {}) {
   const intents = new Map<string, FakeIntent>();
   const transfers: { id: string; accountId: string; amountCents: number; reversed: boolean }[] = [];
-  const failures = new Set<'hold' | 'capture' | 'transfer' | 'subscription' | 'payoutDetails' | 'payoutSchedule'>();
+  const failures = new Set<'hold' | 'capture' | 'transfer' | 'subscription' | 'payoutDetails' | 'payoutSchedule' | 'renew'>();
   const schedules = new Map<string, 'weekly' | 'monthly' | 'manual'>();
   const manualPayouts: string[] = [];
   const subscriptions = new Map<string, { id: string; amountCents: number; status: 'incomplete' | 'active' | 'cancelled'; cancelAtPeriodEnd: boolean; paused: boolean; metadata: Record<string, string> }>();
@@ -50,6 +50,12 @@ export function createFakeGateway(options: { instantHolds?: boolean } = {}) {
     ensureCustomer: async ({ userId, existing }) => existing ?? `cus_${userId}`,
     createHold: async (input) => hold(input),
     listCards: async () => cards,
+    async renewHold(input) {
+      if (failures.has('renew')) throw new Error('fake renewal refused');
+      const id = `pi_${randomUUID()}`;
+      intents.set(id, { id, amountCents: input.amountCents, status: 'held', metadata: input.metadata });
+      return { intentId: id, clientSecret: null, held: true };
+    },
     holdOnSavedCard: async (input) => hold(input),
     clientSecretFor: async (intentId) =>
       intents.get(intentId)?.status === 'requires_payment_method' ? `${intentId}_secret` : null,

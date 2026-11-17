@@ -45,8 +45,9 @@ export function createStripeGateway(config: StripeConfig): PaymentGateway {
           currency: CURRENCY,
           customer: input.customerRef,
           capture_method: 'manual',
-          // Saved so approved extra work can be held on the same card without asking again.
-          setup_future_usage: 'on_session',
+          // Saved so approved extra work can be held on the same card without asking again, and the
+          // reservation renewed for a job more than a week ahead while the customer is away (D74).
+          setup_future_usage: 'off_session',
           automatic_payment_methods: { enabled: true, allow_redirects: 'never' },
           description: input.description,
           metadata: input.metadata,
@@ -69,6 +70,34 @@ export function createStripeGateway(config: StripeConfig): PaymentGateway {
           expMonth: method.card?.exp_month ?? 0,
           expYear: method.card?.exp_year ?? 0,
         }));
+    },
+
+    async renewHold(input) {
+      const original = await stripe.paymentIntents.retrieve(input.fromIntentId);
+      const paymentMethod =
+        typeof original.payment_method === 'string' ? original.payment_method : original.payment_method?.id;
+      if (!paymentMethod) {
+        throw new Error(`PaymentIntent ${input.fromIntentId} has no saved payment method`);
+      }
+      const intent = await stripe.paymentIntents.create(
+        {
+          amount: input.amountCents,
+          currency: CURRENCY,
+          customer: input.customerRef,
+          payment_method: paymentMethod,
+          capture_method: 'manual',
+          confirm: true,
+          off_session: true,
+          description: input.description,
+          metadata: input.metadata,
+        },
+        { idempotencyKey: input.idempotencyKey },
+      );
+      const result = toHoldResult(intent);
+      if (!result.held) {
+        throw new Error(`Renewed hold ${intent.id} is not held: ${intent.status}`);
+      }
+      return result;
     },
 
     async holdOnSavedCard(input) {

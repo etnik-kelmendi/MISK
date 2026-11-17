@@ -4,9 +4,10 @@ import { normalizePostcode } from '../catalogue/routes.js';
 import type { AppContext } from '../context.js';
 import { isUniqueViolation, uuidParams } from '../http.js';
 import { badRequest, conflict, notFound } from '../errors.js';
-import { formatDay, formatSlot, messages } from '../notifications/messages.js';
+import { withTransaction } from '../db.js';
+import { formatSlot, formatTime, messages } from '../notifications/messages.js';
 import { enqueue } from '../notifications/outbox.js';
-import { BOOKING_DAYS, findSlots, localDayHour } from './availability.js';
+import { BOOKING_DAYS, findSlots, localDayHour, SLOT_HOLD_MINUTES } from './availability.js';
 import type { BookingDeps } from './events.js';
 
 /** How many waiting entries one pass checks, so a pass stays short. */
@@ -17,6 +18,22 @@ export interface WaitlistEntry {
   day: string;
   startsAt: string | null;
   notifiedAt: string | null;
+}
+
+/** A time held for this customer because they waited for it (D74). */
+export interface HeldTime {
+  startsAt: string;
+  expiresAt: string;
+}
+
+/** The times currently held for a customer in one trade and postcode. */
+export async function heldFor(db: AppContext['pool'], customerId: string, categoryId: string, postcode: string): Promise<HeldTime[]> {
+  const rows = await db.query<HeldTime>(
+    `SELECT starts_at AS "startsAt", expires_at AS "expiresAt" FROM slot_holds
+     WHERE customer_id = $1 AND category_id = $2 AND postcode = $3 AND expires_at > now() ORDER BY starts_at`,
+    [customerId, categoryId, postcode],
+  );
+  return rows.rows;
 }
 
 /** The customer's waiting entries for one trade and postcode, for the Choose time page. */
@@ -30,9 +47,9 @@ export async function waitlistFor(db: AppContext['pool'], customerId: string, ca
 }
 
 /**
- * The waiting list for full times (D70): a customer waits for one time, or any time on a day, in one trade.
- * When a pro becomes free there, they are told by push and in the app. Nothing is held for them: the first
- * to book gets it.
+ * The waiting list for full times (D70, D74): a customer waits for one time, or any time on a day, in one
+ * trade. When a pro becomes free there, the time is held for them for 15 minutes and they are told by push
+ * and in the app; customers waiting longest come first.
  */
 export async function timeWaitlistRoutes(app: FastifyInstance, ctx: AppContext) {
   const { pool, guards, config } = ctx;
@@ -108,12 +125,14 @@ export async function timeWaitlistRoutes(app: FastifyInstance, ctx: AppContext) 
 }
 
 /**
- * One pass over the waiting list: tells each customer whose time (or day) now has a free pro, once, and
- * drops entries for days that have passed. Returns how many were told.
+ * One pass over the waiting list: for each customer whose time (or day) now has a free pro, holds that time
+ * for them for 15 minutes and tells them, once; drops entries for days that have passed and holds that ran
+ * out. Returns how many were told.
  */
 export async function timeWaitlistTick(deps: BookingDeps): Promise<number> {
   const tz = deps.config.timezone;
   await deps.pool.query('DELETE FROM time_waitlist WHERE day < (now() AT TIME ZONE $1)::date', [tz]);
+  await deps.pool.query("DELETE FROM slot_holds WHERE expires_at < now() - interval '1 day'");
   const waiting = await deps.pool.query<{
     id: string;
     customer_id: string;
@@ -150,17 +169,33 @@ export async function timeWaitlistTick(deps: BookingDeps): Promise<number> {
       timezone: tz,
       customerId: entry.customer_id,
     });
+    // A time already held for this customer is not held a second time.
+    const already = await deps.pool.query<{ starts_at: Date }>(
+      'SELECT starts_at FROM slot_holds WHERE customer_id = $1 AND category_id = $2 AND expires_at > now()',
+      [entry.customer_id, entry.category_id],
+    );
+    const heldTimes = new Set(already.rows.map((row) => row.starts_at.getTime()));
     const free = slots.find(
       (slot) =>
         slot.available &&
+        !heldTimes.has(slot.startsAt.getTime()) &&
         (entry.starts_at ? slot.startsAt.getTime() === entry.starts_at.getTime() : localDayHour(slot.startsAt, tz).day === entry.day),
     );
     if (!free) continue;
-    // Claimed first, so two servers never tell the same customer twice.
-    const claimed = await deps.pool.query('UPDATE time_waitlist SET notified_at = now() WHERE id = $1 AND notified_at IS NULL', [entry.id]);
-    if (!claimed.rowCount) continue;
-    const when = entry.starts_at ? formatSlot(free.startsAt, tz) : formatDay(free.startsAt, tz);
-    await enqueue(deps.pool, entry.customer_id, 'time_free', messages.timeFree(entry.names, when));
+    // Claimed and held in one step, so two servers never tell the same customer twice or hold twice.
+    const held = await withTransaction(deps.pool, async (client) => {
+      const claimed = await client.query('UPDATE time_waitlist SET notified_at = now() WHERE id = $1 AND notified_at IS NULL', [entry.id]);
+      if (!claimed.rowCount) return null;
+      const inserted = await client.query<{ expires_at: Date }>(
+        `INSERT INTO slot_holds (customer_id, category_id, postcode, starts_at, ends_at, expires_at, waitlist_id)
+         VALUES ($1, $2, $3, $4, $5, now() + make_interval(mins => $6), $7) RETURNING expires_at`,
+        [entry.customer_id, entry.category_id, entry.postcode, free.startsAt, free.endsAt, SLOT_HOLD_MINUTES, entry.id],
+      );
+      const until = inserted.rows[0]?.expires_at ?? new Date(Date.now() + SLOT_HOLD_MINUTES * 60_000);
+      await enqueue(client, entry.customer_id, 'time_free', messages.timeHeld(entry.names, formatSlot(free.startsAt, tz), formatTime(until, tz)));
+      return until;
+    });
+    if (!held) continue;
     deps.log.info({ event: 'time_waitlist_told', entryId: entry.id });
     told += 1;
   }

@@ -12,6 +12,11 @@ export function formatSlot(date: Date, timezone: string): string {
   }).format(date);
 }
 
+/** A local time of day, e.g. "10:35". */
+export function formatTime(date: Date, timezone: string): string {
+  return new Intl.DateTimeFormat('en-GB', { timeZone: timezone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(date);
+}
+
 /** A local day, e.g. "Fri 6 Nov", for flexible jobs whose time is not fixed yet (D70). */
 export function formatDay(date: Date, timezone: string): string {
   return new Intl.DateTimeFormat('en-GB', { timeZone: timezone, weekday: 'short', day: 'numeric', month: 'short' }).format(date);
@@ -37,8 +42,10 @@ export const messages = {
   // Choose time (D70).
   flexibleJobOffer: (service: string, day: string, window: string, earnCents: number) =>
     `MISK: new flexible job, ${service} on ${day} (${WINDOW_TEXT[window] ?? window}), you pick the time. You earn ${formatEuro(earnCents)}. Open the app within 15 minutes to accept.`,
-  timeFree: (service: string, when: string) =>
-    `MISK: a pro is now free for ${service} on ${when}. Book it in the app soon: the first to book gets it.`,
+  holdRenewFailed: (service: string, when: string) =>
+    `MISK: your bank did not renew the payment reservation for ${service} on ${when}. Our team will contact you.`,
+  timeHeld: (service: string, when: string, until: string) =>
+    `MISK: ${service} on ${when} is free. We hold it for you until ${until}. Book it in the app.`,
   flexibleWhen: (day: string, window: string) => `${day} (${WINDOW_TEXT[window] ?? window})`,
   signInCode: (code: string) => `${code} is your MISK code. It works for 10 minutes. Never share it.`,
   jobOffer: (service: string, when: string, earnCents: number) =>

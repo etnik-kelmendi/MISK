@@ -12,17 +12,28 @@ import { useAction } from '../../lib/useAction';
 
 export type FlexibleWindow = 'morning' | 'afternoon' | 'any';
 export const FLEXIBLE_WINDOWS: FlexibleWindow[] = ['morning', 'afternoon', 'any'];
-/** Local start hours each window allows, as the API has them (D70). */
-export const WINDOW_HOURS: Record<FlexibleWindow, number[]> = {
-  morning: [8, 10],
-  afternoon: [12, 14, 16],
-  any: [8, 10, 12, 14, 16, 18],
+/** The hours each window covers, as the API has them: the whole visit fits inside (D74). */
+export const WINDOWS: Record<FlexibleWindow, { from: number; to: number }> = {
+  morning: { from: 8, to: 12 },
+  afternoon: { from: 12, to: 18 },
+  any: { from: 8, to: 20 },
 };
+
+/** The minutes since midnight of a moment in the market's time zone. */
+function localMinutes(iso: string, timeZone: string): number {
+  const [hours = '0', minutes = '0'] = time(iso, timeZone).split(':');
+  return Number(hours) * 60 + Number(minutes);
+}
 /** A pro picks the time of a flexible job by this local hour the evening before. */
 export const FLEXIBLE_CONFIRM_HOUR = 18;
 
 /** When the job happens: a time from the list, or a window on a day for a flexible booking. */
 export type When = { kind: 'slot'; slot: Slot } | { kind: 'flexible'; day: string; window: FlexibleWindow; anyIso: string };
+
+interface HeldTime {
+  startsAt: string;
+  expiresAt: string;
+}
 
 interface WaitEntry {
   id: string;
@@ -74,7 +85,7 @@ export function ChooseTimeStep({
   const ids = services.map((service) => service.id).join(',');
   const load = useCallback(
     () =>
-      api.get<{ slots: Slot[]; waitlist?: WaitEntry[] }>(
+      api.get<{ slots: Slot[]; waitlist?: WaitEntry[]; held?: HeldTime[] }>(
         `/availability?serviceIds=${encodeURIComponent(ids)}&postcode=${encodeURIComponent(postcode)}`,
       ),
     [api, ids, postcode],
@@ -115,7 +126,7 @@ export function ChooseTimeStep({
     <>
       <div className="body">
         <ResourceState state={state} reload={reload}>
-          {({ slots, waitlist = [] }) => {
+          {({ slots, waitlist = [], held = [] }) => {
             const days = [...new Set(slots.map((s) => dayKey(s.startsAt, timezone)))];
             if (days.length === 0) return <p className="card">{t('book.noSlots')}</p>;
             const shownDay = day && days.includes(day) ? day : (days.find((d) => slots.some((s) => s.available && dayKey(s.startsAt, timezone) === d)) ?? days[0] ?? '');
@@ -126,7 +137,14 @@ export function ChooseTimeStep({
             const dayWaiting = onWait(null);
             const dayName = `${dayParts(firstOfDay, timezone).weekday} ${dayParts(firstOfDay, timezone).day} ${dayParts(firstOfDay, timezone).month}`;
             const canFlex = flexibleOpen(shownDay, timezone);
-            const windowFree = daySlots.some((s) => s.available && WINDOW_HOURS[window].includes(localHour(s.startsAt, timezone)));
+            const range = WINDOWS[window];
+            const windowFree = daySlots.some(
+              (s) =>
+                s.available &&
+                localHour(s.startsAt, timezone) >= range.from &&
+                dayKey(s.endsAt, timezone) === shownDay &&
+                localMinutes(s.endsAt, timezone) <= range.to * 60,
+            );
             const month = new Intl.DateTimeFormat('en-GB', { timeZone: timezone, month: 'long', year: 'numeric' }).format(new Date(firstOfDay));
 
             function chooseDay(next: string) {
@@ -145,7 +163,7 @@ export function ChooseTimeStep({
             return (
               <>
                 <h2 className="h-sm">{month}</h2>
-                <div className="days" role="group" aria-label={t('book.day')}>
+                <div className="days days-fit" role="group" aria-label={t('book.day')}>
                   {days.map((d) => {
                     const first = slots.find((s) => dayKey(s.startsAt, timezone) === d);
                     const parts = first ? dayParts(first.startsAt, timezone) : null;
@@ -182,8 +200,13 @@ export function ChooseTimeStep({
                     <h2 className="h-sm">{t('time.whenSuits', { day: dayName })}</h2>
                     <div className="seg seg-full" role="group" aria-label={t('time.windowLabel')}>
                       {FLEXIBLE_WINDOWS.map((w) => (
-                        <button key={w} type="button" className={window === w ? 'on' : ''} aria-pressed={window === w} onClick={() => setWindow(w)}>
-                          {t(`time.window.${w}`)}
+                        <button key={w} type="button" className={`window-btn ${window === w ? 'on' : ''}`} aria-pressed={window === w} onClick={() => setWindow(w)}>
+                          <span className="block">{t(`time.window.${w}`)}</span>
+                          {w !== 'any' && (
+                            <span className="tiny block window-range">
+                              {t('time.range', { from: `${String(WINDOWS[w].from).padStart(2, '0')}:00`, to: `${WINDOWS[w].to}:00` })}
+                            </span>
+                          )}
                         </button>
                       ))}
                     </div>
@@ -212,6 +235,8 @@ export function ChooseTimeStep({
                     <div className="slots">
                       {daySlots.map((s) => {
                         const chosen = slot?.startsAt === s.startsAt;
+                        // A time that freed up and is held for this customer for 15 minutes (D74).
+                        const heldUntil = held.find((h) => h.startsAt === s.startsAt && new Date(h.expiresAt).getTime() > Date.now())?.expiresAt;
                         if (!s.available) {
                           const waiting = onWait(s.startsAt);
                           return (
@@ -232,12 +257,14 @@ export function ChooseTimeStep({
                           <button
                             key={s.startsAt}
                             type="button"
-                            className={`slot ${chosen ? 'on' : ''}`}
+                            className={`slot ${chosen ? 'on' : ''} ${heldUntil ? 'held' : ''}`}
                             aria-pressed={chosen}
                             onClick={() => setSlot(s)}
                           >
                             {time(s.startsAt, timezone)}
-                            <small>{t('time.prosFree', { count: s.freePros })}</small>
+                            <small>
+                              {heldUntil ? t('time.heldUntil', { time: time(heldUntil, timezone) }) : t('time.prosFree', { count: s.freePros })}
+                            </small>
                           </button>
                         );
                       })}
@@ -253,8 +280,8 @@ export function ChooseTimeStep({
                         <Icon name="bell" />
                       </span>
                       <span className="grow">
-                        <span className="b small block">{dayWaiting ? t('time.dayWaiting') : t('time.noTimeSuits')}</span>
-                        <span className="tiny muted">{dayWaiting ? t('time.dayWaitingText', { day: dayName }) : t('time.joinDay')}</span>
+                        <span className="b small block">{dayWaiting ? t('time.dayWaiting') : t('time.joinDay')}</span>
+                        <span className="tiny muted">{dayWaiting ? t('time.dayWaitingText', { day: dayName }) : t('time.joinDayText')}</span>
                       </span>
                       {dayWaiting ? (
                         <span className="badge g">
