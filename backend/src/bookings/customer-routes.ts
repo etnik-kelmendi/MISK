@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { currentUser } from '../auth/guard.js';
-import { jobPriceCents, proShareCents, type JobSize } from '../catalogue/pricing.js';
+import { MAX_PACKAGE_SERVICES, packagePrice, proShareCents, type JobSize } from '../catalogue/pricing.js';
 import { normalizePostcode } from '../catalogue/routes.js';
 import type { AppContext } from '../context.js';
 import { onlyRow, withTransaction } from '../db.js';
@@ -34,7 +34,9 @@ interface ServiceRow {
 }
 
 interface BookingBody {
-  serviceId: string;
+  /** One service (older apps) or several of one trade in `serviceIds` (D68). */
+  serviceId?: string;
+  serviceIds?: string[];
   size: JobSize;
   address: string;
   postcode: string;
@@ -43,6 +45,8 @@ interface BookingBody {
 }
 
 const paymentUnavailable = () => new ApiError(502, 'payment_unavailable');
+/** Comma-separated service ids in a query string (D68). */
+const UUID_LIST = '^[0-9a-fA-F-]{36}(,[0-9a-fA-F-]{36})*$';
 
 export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContext) {
   const { pool, guards, gateway } = ctx;
@@ -61,6 +65,33 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
       throw notFound('service_not_found');
     }
     return found.rows[0];
+  }
+
+  /**
+   * The services of one visit, in the order chosen: all active, all of one trade (D68). An empty or
+   * mixed list is refused.
+   */
+  async function activeServices(ids: string[]): Promise<[ServiceRow, ...ServiceRow[]]> {
+    const unique = [...new Set(ids)];
+    if (unique.length === 0 || unique.length > MAX_PACKAGE_SERVICES) {
+      throw badRequest('invalid_services');
+    }
+    const services = await Promise.all(unique.map((id) => activeService(id)));
+    const [first, ...rest] = services;
+    if (!first) throw badRequest('invalid_services');
+    if (rest.some((service) => service.categoryId !== first.categoryId)) {
+      throw badRequest('services_mixed_trades');
+    }
+    return [first, ...rest];
+  }
+
+  /** The services a request names, from `serviceIds` or the older single `serviceId`. */
+  function requestedServices(input: { serviceId?: string; serviceIds?: string[] | string }): string[] {
+    if (input.serviceIds !== undefined) {
+      return Array.isArray(input.serviceIds) ? input.serviceIds : input.serviceIds.split(',');
+    }
+    if (input.serviceId) return [input.serviceId];
+    throw badRequest('invalid_services');
   }
 
   async function servedPostcode(input: string): Promise<string> {
@@ -82,29 +113,31 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
     return booking;
   }
 
-  app.get<{ Querystring: { serviceId: string; postcode: string } }>(
+  app.get<{ Querystring: { serviceId?: string; serviceIds?: string; postcode: string } }>(
     '/availability',
     {
       preHandler: guards.customer,
       schema: {
         querystring: {
           type: 'object',
-          required: ['serviceId', 'postcode'],
+          required: ['postcode'],
           additionalProperties: false,
           properties: {
             serviceId: { type: 'string', format: 'uuid' },
+            // Several services of one visit, comma-separated (D68).
+            serviceIds: { type: 'string', pattern: UUID_LIST, maxLength: 400 },
             postcode: { type: 'string', minLength: 2, maxLength: 10 },
           },
         },
       },
     },
     async (request) => {
-      const service = await activeService(request.query.serviceId);
+      const services = await activeServices(requestedServices(request.query));
       const postcode = await servedPostcode(request.query.postcode);
       const slots = await findSlots(pool, {
-        categoryId: service.categoryId,
+        categoryId: services[0].categoryId,
         postcode,
-        durationMinutes: service.durationMinutes,
+        durationMinutes: packagePrice(services, 'M').durationMinutes,
         timezone: ctx.config.timezone,
         customerId: currentUser(request).id,
       });
@@ -119,10 +152,17 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
       schema: {
         body: {
           type: 'object',
-          required: ['serviceId', 'size', 'address', 'postcode', 'startsAt'],
+          required: ['size', 'address', 'postcode', 'startsAt'],
           additionalProperties: false,
           properties: {
             serviceId: { type: 'string', format: 'uuid' },
+            serviceIds: {
+              type: 'array',
+              minItems: 1,
+              maxItems: MAX_PACKAGE_SERVICES,
+              uniqueItems: true,
+              items: { type: 'string', format: 'uuid' },
+            },
             size: { type: 'string', enum: ['S', 'M', 'L'] },
             address: { type: 'string', minLength: 3, maxLength: 200, pattern: '\\S' },
             postcode: { type: 'string', minLength: 2, maxLength: 10 },
@@ -135,10 +175,13 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
     async (request, reply) => {
       const customer = currentUser(request);
       const body = request.body;
-      const service = await activeService(body.serviceId);
+      const services = await activeServices(requestedServices(body));
+      const service = services[0];
       const postcode = await servedPostcode(body.postcode);
       const startsAt = new Date(body.startsAt);
-      const priceCents = jobPriceCents(service, body.size);
+      const price = packagePrice(services, body.size);
+      const priceCents = price.jobCents;
+      const serviceName = services.map((s) => s.name).join(' + ');
 
       const created = await withTransaction(pool, async (client) => {
         // One booking per trade at a time, so two customers cannot both take the last free pro.
@@ -148,7 +191,7 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
           {
             categoryId: service.categoryId,
             postcode,
-            durationMinutes: service.durationMinutes,
+            durationMinutes: price.durationMinutes,
             timezone: ctx.config.timezone,
             customerId: customer.id,
           },
@@ -163,13 +206,13 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
         const { fee, share } = onlyRow(settings);
         const inserted = await client.query<{ id: string }>(
           `INSERT INTO bookings (customer_id, service_id, category_id, service_name, size, address, postcode, notes,
-             starts_at, ends_at, price_cents, fee_cents, pro_share_pct)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING id`,
+             starts_at, ends_at, price_cents, fee_cents, pro_share_pct, package_discount_cents)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id`,
           [
             customer.id,
             service.id,
             service.categoryId,
-            service.name,
+            serviceName,
             body.size,
             body.address.trim(),
             postcode,
@@ -179,9 +222,17 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
             priceCents,
             fee,
             share,
+            price.discountCents,
           ],
         );
         const id = onlyRow(inserted).id;
+        await client.query(
+          `INSERT INTO booking_services (booking_id, position, service_id, name, price_cents, duration_minutes)
+           SELECT $1, ord - 1, x.service_id, x.name, x.price_cents, x.duration_minutes
+           FROM unnest($2::uuid[], $3::text[], $4::int[], $5::int[]) WITH ORDINALITY
+             AS x(service_id, name, price_cents, duration_minutes, ord)`,
+          [id, services.map((s) => s.id), services.map((s) => s.name), price.lines, services.map((s) => s.durationMinutes)],
+        );
         await client.query('INSERT INTO booking_events (booking_id, status) VALUES ($1, $2)', [id, 'awaiting_payment']);
         return { id, totalCents: priceCents + fee };
       });
@@ -204,7 +255,7 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
         const hold = await gateway.createHold({
           customerRef,
           amountCents: created.totalCents,
-          description: `MISK ${service.name}`,
+          description: `MISK ${serviceName}`.slice(0, 200),
           idempotencyKey: `booking-${created.id}`,
           metadata: { bookingId: created.id },
         });

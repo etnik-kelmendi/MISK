@@ -135,3 +135,19 @@ export function longDate(value: string, timeZone: string): string {
     year: 'numeric',
   }).format(new Date(calendarDay ? `${value}T12:00:00Z` : value));
 }
+
+/** Two or more services in one visit cost this much less, as the API charges it (D68). */
+export const PACKAGE_DISCOUNT_PCT = 10;
+
+/** The price of one visit with one or more services: each service's price, the package discount and the job price. */
+export function packagePrice(services: (PricedService & { durationMinutes: number })[], size: 'S' | 'M' | 'L') {
+  const lines = services.map((service) => sizePrice(service, size));
+  const sum = lines.reduce((total, cents) => total + cents, 0);
+  const discountCents = services.length > 1 ? Math.round((sum * PACKAGE_DISCOUNT_PCT) / 100) : 0;
+  return {
+    lines,
+    discountCents,
+    jobCents: sum - discountCents,
+    durationMinutes: services.reduce((total, service) => total + service.durationMinutes, 0),
+  };
+}

@@ -10,6 +10,7 @@ import { Icon } from '../../components/Icon';
 import { StatusBadge } from '../../components/StatusBadge';
 import { dateTime } from '../../lib/format';
 import { CATEGORY_COLORS } from './categoryColors';
+import { HomeSearch } from './HomeSearch';
 
 const ACTIVE = new Set(['awaiting_payment', 'searching', 'unassigned', 'accepted', 'on_the_way', 'working']);
 
@@ -28,6 +29,8 @@ export function HomePage() {
         <p className="muted small">{t('home.hello')}</p>
         <h1>{t('home.name', { name: user.firstName ?? '' })}</h1>
       </div>
+
+      {market.categories.length > 0 && <HomeSearch categories={market.categories} />}
 
       {active.length > 0 && (
         <section aria-labelledby="active-heading">

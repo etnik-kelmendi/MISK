@@ -535,6 +535,126 @@ describe('my bookings', () => {
   });
 });
 
+describe('the Services page (D68)', () => {
+  const garden = catalogue.categories[0];
+  const mowing = garden?.services[0];
+  if (!garden || !mowing) throw new Error('test catalogue changed');
+  const hedge = { ...mowing, id: 'svc-hedge', name: 'Hedge trimming', description: 'Shape hedges', priceCents: 4500, durationMinutes: 90 };
+  const withHedge = { ...catalogue, categories: [{ ...garden, services: [mowing, hedge] }] };
+  const plan = {
+    id: 'plan-lawn',
+    name: 'Lawn care',
+    categoryId: 'cat-garden',
+    categoryName: 'Gardening',
+    categoryIcon: 'leaf',
+    priceCents: 4900,
+    frequency: 'weekly',
+    visitMinutes: 60,
+    tasks: ['Mow', 'Edge'],
+    addonName: null,
+    addonPriceCents: null,
+    seasonal: true,
+    seasonFrom: 3,
+    seasonTo: 10,
+    skipsPerMonth: 2,
+    minTermMonths: 3,
+    proSharePct: 70,
+    status: 'published',
+    publishedAt: '',
+    updatedAt: '',
+  };
+
+  it('lists every service with tick boxes, prices a package, and continues to the job details', async () => {
+    const api = fakeApi(users.customer);
+    api.on('GET /catalogue', { body: withHedge });
+    api.on('GET /postcodes', { body: { postcodes: [{ code: '10115', name: 'Mitte' }] } });
+    renderAt('/category/gardening');
+    expect(await screen.findByRole('heading', { name: 'Gardening' })).toBeInTheDocument();
+    const lawn = screen.getByRole('checkbox', { name: /Lawn mowing/ });
+    expect(lawn.closest('label')).toHaveTextContent('Mow, edge and clear');
+    expect(lawn.closest('label')).toHaveTextContent('about 60 min');
+    expect(lawn.closest('label')).toHaveTextContent('from €35');
+    expect(screen.getByRole('button', { name: 'Choose a service' })).toBeDisabled();
+    expect(screen.getByText(/Pick 2 or more for a 10% package price/)).toBeInTheDocument();
+
+    await user().click(lawn);
+    expect(screen.getByRole('button', { name: 'Continue · from €35' })).toBeEnabled();
+    await user().click(screen.getByRole('checkbox', { name: /Hedge trimming/ }));
+    expect(screen.getByText('Package price: 10% off.')).toBeInTheDocument();
+    await user().click(screen.getByRole('button', { name: 'Continue · 2 services, from €72' }));
+    expect(await screen.findByRole('heading', { name: 'Lawn mowing + Hedge trimming' })).toBeInTheDocument();
+    // Medium: (€45.50 + €58.50) - 10%.
+    expect(screen.getByRole('button', { name: 'Continue · €93.60' })).toBeInTheDocument();
+  });
+
+  it('opens from a Home search result with the found service already ticked', async () => {
+    const api = fakeApi(users.customer);
+    api.on('GET /catalogue', { body: withHedge });
+    api.on('GET /bookings', { body: { bookings: [] } });
+    renderAt('/');
+    const search = await screen.findByRole('searchbox', { name: 'What do you need help with?' });
+    await user().type(search, 'hedge');
+    const results = screen.getByRole('list', { name: 'Search results' });
+    expect(within(results).queryByText('Lawn mowing')).not.toBeInTheDocument();
+    await user().click(within(results).getByRole('link', { name: /Hedge trimming/ }));
+    expect(await screen.findByRole('checkbox', { name: /Hedge trimming/ })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: /Lawn mowing/ })).not.toBeChecked();
+    expect(screen.getByRole('button', { name: 'Continue · from €45' })).toBeEnabled();
+  });
+
+  it('says when a search finds nothing', async () => {
+    const api = fakeApi(users.customer);
+    api.on('GET /bookings', { body: { bookings: [] } });
+    renderAt('/');
+    await user().type(await screen.findByRole('searchbox'), 'piano');
+    expect(screen.getByText(/Nothing found for .piano./)).toBeInTheDocument();
+  });
+
+  it('can untick a service again', async () => {
+    const api = fakeApi(users.customer);
+    api.on('GET /catalogue', { body: withHedge });
+    renderAt('/category/gardening');
+    const lawn = await screen.findByRole('checkbox', { name: /Lawn mowing/ });
+    await user().click(lawn);
+    await user().click(lawn);
+    expect(lawn).not.toBeChecked();
+    expect(screen.getByRole('button', { name: 'Choose a service' })).toBeDisabled();
+  });
+
+  it('switches to the monthly plans of the trade and opens the plan builder', async () => {
+    const api = fakeApi(users.customer);
+    api.on('GET /plans', { body: { plans: [plan, { ...plan, id: 'plan-other', name: 'Deep clean', categoryId: 'cat-clean' }] } });
+    renderAt('/category/gardening');
+    await user().click(await screen.findByRole('button', { name: /Monthly plan/ }));
+    const card = await screen.findByRole('radio', { name: 'Lawn care' });
+    expect(screen.queryByRole('radio', { name: 'Deep clean' })).not.toBeInTheDocument();
+    const label = card.closest('label');
+    expect(label).toHaveTextContent('from €41.65/month');
+    expect(label).toHaveTextContent('1× a week (you can change it)');
+    expect(label).toHaveTextContent('Mow, Edge');
+    expect(label).toHaveTextContent('March to October');
+    expect(label).toHaveTextContent('Min. 3 months, then cancel monthly');
+    expect(screen.getByRole('button', { name: 'Choose a plan' })).toBeDisabled();
+    await user().click(card);
+    expect(screen.getByRole('link', { name: /Customise Lawn care/ })).toHaveAttribute('href', '/plans/plan-lawn');
+  });
+
+  it('says when the trade has no plan yet and links to all plans', async () => {
+    const api = fakeApi(users.customer);
+    api.on('GET /plans', { body: { plans: [] } });
+    renderAt('/category/gardening?mode=plan');
+    expect(await screen.findByText('No monthly plan for Gardening yet')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'See all plans' })).toHaveAttribute('href', '/plans');
+  });
+
+  it('sends unknown or mixed services back to the trade', async () => {
+    const api = fakeApi(users.customer);
+    api.on('GET /catalogue', { body: withHedge });
+    renderAt('/book?services=svc-mow,svc-gone');
+    expect(await screen.findByRole('heading', { name: 'Gardening' })).toBeInTheDocument();
+  });
+});
+
 describe('booking a job', () => {
   it('walks details, time and payment, then opens the booking', async () => {
     const api = fakeApi(users.customer);
@@ -566,7 +686,7 @@ describe('booking a job', () => {
     await user().click(screen.getByRole('button', { name: 'Book and pay €48.40' }));
     expect(await screen.findByText(/Finding your pro/)).toBeInTheDocument();
     expect(api.bodies['POST /bookings']).toMatchObject({
-      serviceId: 'svc-mow',
+      serviceIds: ['svc-mow'],
       size: 'M',
       postcode: '10115',
       startsAt: '2026-11-06T09:00:00.000Z',
@@ -582,7 +702,7 @@ describe('booking a job', () => {
     api.on('GET /catalogue', { body: { ...catalogue, categories: [{ ...garden, services: [mowing, hourly] }] } });
     api.on('GET /postcodes', { body: { postcodes: [{ code: '10115', name: 'Mitte' }] } });
     renderAt('/category/gardening');
-    const option = await screen.findByRole('radio', { name: /Gardener by the hour/ });
+    const option = await screen.findByRole('checkbox', { name: /Gardener by the hour/ });
     expect(option.closest('label')).toHaveTextContent('New');
     expect(option.closest('label')).toHaveTextContent('€38/h');
     await user().click(option);

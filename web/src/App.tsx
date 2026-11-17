@@ -81,6 +81,7 @@ function CustomerAndProRoutes() {
       >
         <Route index element={<HomePage />} />
         <Route path="category/:slug" element={<CategoryPage />} />
+        <Route path="book" element={<BookPage />} />
         <Route path="book/:serviceId" element={<BookPage />} />
         <Route path="bookings" element={<BookingsPage />} />
         <Route path="bookings/:id" element={<BookingPage />} />

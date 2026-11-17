@@ -285,7 +285,7 @@ export interface Receipt {
   serviceName: string;
   proName: string | null;
   address: string;
-  lines: { label: string; cents: number; kind: 'job' | 'extra' | 'fee' | 'tip' }[];
+  lines: { label: string; cents: number; kind: 'job' | 'discount' | 'extra' | 'fee' | 'tip' }[];
   totalCents: number;
   state: ReceiptState;
   chargeAt: string | null;

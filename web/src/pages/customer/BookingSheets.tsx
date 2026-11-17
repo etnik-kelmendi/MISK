@@ -241,7 +241,10 @@ export function ReceiptSheet({ bookingId, onClose }: { bookingId: string; onClos
       }
     >
       <ResourceState state={state} reload={reload}>
-        {({ receipt }) => (
+        {({ receipt }) => {
+          // A package lists each service (D68).
+          const jobLines = receipt.lines.filter((line) => line.kind === 'job').length;
+          return (
           <div className="stack">
             <section className="card" aria-label={t('receipt.title')}>
               <div className="row between">
@@ -258,7 +261,13 @@ export function ReceiptSheet({ bookingId, onClose }: { bookingId: string; onClos
               {receipt.lines.map((line, index) => (
                 <p key={index} className="line">
                   <span className={line.kind === 'fee' || line.kind === 'tip' ? 'muted' : undefined}>
-                    {line.kind === 'job' ? receipt.serviceName : line.kind === 'extra' ? line.label : t(`receipt.kind.${line.kind}`)}
+                    {line.kind === 'job'
+                      ? jobLines > 1
+                        ? line.label
+                        : receipt.serviceName
+                      : line.kind === 'extra'
+                        ? line.label
+                        : t(`receipt.kind.${line.kind}`)}
                   </span>
                   <span>{euro(line.cents)}</span>
                 </p>
@@ -289,7 +298,8 @@ export function ReceiptSheet({ bookingId, onClose }: { bookingId: string; onClos
             )}
             <ErrorText error={email.error} />
           </div>
-        )}
+          );
+        }}
       </ResourceState>
     </Sheet>
   );

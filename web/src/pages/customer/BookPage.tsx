@@ -1,6 +1,6 @@
 import { useCallback, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Navigate, useNavigate, useParams } from 'react-router';
+import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router';
 import { useApi } from '../../api/ApiContext';
 import { useMarket } from '../../api/MarketContext';
 import type { CustomerBooking, JobSize, PaymentStep, Postcode, Service, Slot } from '../../api/types';
@@ -9,7 +9,7 @@ import { ErrorText } from '../../components/ErrorText';
 import { Icon } from '../../components/Icon';
 import { Waitlist } from '../../components/Waitlist';
 import { ResourceState } from '../../components/ResourceState';
-import { dateTime, dayKey, dayParts, euro, sizePrice, time } from '../../lib/format';
+import { dateTime, dayKey, dayParts, euro, packagePrice, sizePrice, time } from '../../lib/format';
 import { useAction } from '../../lib/useAction';
 import { useValidation } from '../../lib/useValidation';
 import { FieldError } from '../../components/FieldError';
@@ -26,13 +26,13 @@ interface Details {
 }
 
 function DetailsStep({
-  service,
+  services,
   isGarden,
   details,
   onChange,
   onNext,
 }: {
-  service: Service;
+  services: Service[];
   isGarden: boolean;
   details: Details;
   onChange: (details: Details) => void;
@@ -43,6 +43,10 @@ function DetailsStep({
   const loadPostcodes = useCallback(() => api.get<{ postcodes: Postcode[] }>('/postcodes'), [api]);
   const postcodes = useResource(loadPostcodes);
   const sizeGroup = isGarden ? 'garden' : 'job';
+  const price = packagePrice(services, details.size);
+  // The size changes the price of fixed-price services only; hourly ones cost their rate times their length.
+  const sized = services.some((service) => service.pricing !== 'hourly');
+  const [single] = services;
   const form = useValidation(
     {
       address: !details.address.trim() ? t('validation.addressMissing') : details.address.trim().length < 3 && t('validation.addressShort'),
@@ -99,12 +103,12 @@ function DetailsStep({
           )}
         </ResourceState>
         <Waitlist />
-        {service.pricing === 'hourly' ? (
+        {!sized && single && services.length === 1 ? (
           <p className="info">
             <Icon name="clock" />
             {t('book.hourly', {
-              rate: euro(service.priceCents),
-              hours: service.durationMinutes / 60,
+              rate: euro(single.priceCents),
+              hours: single.durationMinutes / 60,
             })}
           </p>
         ) : (
@@ -121,7 +125,7 @@ function DetailsStep({
                 />
                 <span className="n">{t(`book.size.${size}`)}</span>
                 <span className="d">{t(`book.sizeHint.${sizeGroup}.${size}`)}</span>
-                <span className="b small brand-text">{euro(sizePrice(service, size))}</span>
+                <span className="b small brand-text">{euro(packagePrice(services, size).jobCents)}</span>
               </label>
             ))}
           </fieldset>
@@ -141,7 +145,7 @@ function DetailsStep({
           <Icon name="tag" />
           <p>
             {t('book.fixedPrice', {
-              price: euro(sizePrice(service, details.size)),
+              price: euro(price.jobCents),
             })}
           </p>
         </div>
@@ -149,7 +153,7 @@ function DetailsStep({
       <div className="cta-bar">
         <button className="cta" type="submit">
           {t('book.continuePrice', {
-            price: euro(sizePrice(service, details.size)),
+            price: euro(price.jobCents),
           })}
         </button>
       </div>
@@ -158,13 +162,13 @@ function DetailsStep({
 }
 
 function TimeStep({
-  service,
+  services,
   postcode,
   slot,
   onSlot,
   onNext,
 }: {
-  service: Service;
+  services: Service[];
   postcode: string;
   slot: Slot | null;
   onSlot: (slot: Slot) => void;
@@ -173,9 +177,10 @@ function TimeStep({
   const { t } = useTranslation();
   const api = useApi();
   const { timezone } = useMarket();
+  const ids = services.map((service) => service.id).join(',');
   const load = useCallback(
-    () => api.get<{ slots: Slot[] }>(`/availability?serviceId=${encodeURIComponent(service.id)}&postcode=${encodeURIComponent(postcode)}`),
-    [api, service.id, postcode],
+    () => api.get<{ slots: Slot[] }>(`/availability?serviceIds=${encodeURIComponent(ids)}&postcode=${encodeURIComponent(postcode)}`),
+    [api, ids, postcode],
   );
   const { state, reload } = useResource(load);
   const [day, setDay] = useState<string | null>(null);
@@ -256,7 +261,7 @@ function TimeStep({
   );
 }
 
-function ReviewStep({ service, details, slot }: { service: Service; details: Details; slot: Slot }) {
+function ReviewStep({ services, details, slot }: { services: Service[]; details: Details; slot: Slot }) {
   const { t } = useTranslation();
   const api = useApi();
   const navigate = useNavigate();
@@ -266,13 +271,14 @@ function ReviewStep({ service, details, slot }: { service: Service; details: Det
     booking: CustomerBooking;
     payment: PaymentStep;
   } | null>(null);
-  const price = sizePrice(service, details.size);
-  const total = price + feeCents;
+  const price = packagePrice(services, details.size);
+  const total = price.jobCents + feeCents;
+  const name = services.map((service) => service.name).join(' + ');
 
   async function book() {
     const result = await run(() =>
       api.post<{ booking: CustomerBooking; payment: PaymentStep | null }>('/bookings', {
-        serviceId: service.id,
+        serviceIds: services.map((service) => service.id),
         size: details.size,
         address: details.address,
         postcode: details.postcode,
@@ -294,7 +300,7 @@ function ReviewStep({ service, details, slot }: { service: Service; details: Det
     <>
       <div className="body">
         <section className="card" aria-label={t('book.summary')}>
-          <p className="b">{service.name}</p>
+          <p className="b">{name}</p>
           <p className="small muted">{t(`book.size.${details.size}`)}</p>
           <hr />
           <p className="row small">
@@ -305,10 +311,18 @@ function ReviewStep({ service, details, slot }: { service: Service; details: Det
           </p>
         </section>
         <section className="card" aria-label={t('book.price')}>
-          <p className="line">
-            <span>{service.name}</span>
-            <span>{euro(price)}</span>
-          </p>
+          {services.map((service, index) => (
+            <p key={service.id} className="line">
+              <span>{service.name}</span>
+              <span>{euro(price.lines[index] ?? sizePrice(service, details.size))}</span>
+            </p>
+          ))}
+          {price.discountCents > 0 && (
+            <p className="line">
+              <span className="muted">{t('book.packageDiscount')}</span>
+              <span>-{euro(price.discountCents)}</span>
+            </p>
+          )}
           <p className="line">
             <span className="muted">{t('book.fee')}</span>
             <span>{euro(feeCents)}</span>
@@ -349,6 +363,7 @@ function ReviewStep({ service, details, slot }: { service: Service; details: Det
 export function BookPage() {
   const { t } = useTranslation();
   const { serviceId } = useParams();
+  const [params] = useSearchParams();
   const market = useMarket();
   const [step, setStep] = useState<'details' | 'time' | 'review'>('details');
   const [details, setDetails] = useState<Details>({
@@ -359,14 +374,16 @@ export function BookPage() {
   });
   const [slot, setSlot] = useState<Slot | null>(null);
 
-  const category = market.categories.find((c) => c.services.some((s) => s.id === serviceId));
-  const service = category?.services.find((s) => s.id === serviceId);
+  // One or more services of one trade (D68): /book?services=a,b, or /book/a from older links.
+  const ids = serviceId ? [serviceId] : (params.get('services') ?? '').split(',').filter(Boolean);
+  const category = market.categories.find((c) => c.services.some((s) => s.id === ids[0]));
+  const services = ids.map((id) => category?.services.find((s) => s.id === id)).filter((s): s is Service => s !== undefined);
 
-  if (!category || !service) {
-    return <Navigate to="/" replace />;
+  if (!category || services.length === 0 || services.length !== new Set(ids).size) {
+    return <Navigate to={category ? `/category/${category.slug}` : '/'} replace />;
   }
   const titles = {
-    details: service.name,
+    details: services.map((s) => s.name).join(' + '),
     time: t('book.chooseTime'),
     review: t('book.reviewTitle'),
   };
@@ -397,7 +414,7 @@ export function BookPage() {
       </ol>
       {step === 'details' && (
         <DetailsStep
-          service={service}
+          services={services}
           isGarden={category.icon === 'leaf' || category.icon === 'sun'}
           details={details}
           onChange={(next) => {
@@ -410,9 +427,9 @@ export function BookPage() {
         />
       )}
       {step === 'time' && (
-        <TimeStep service={service} postcode={details.postcode} slot={slot} onSlot={setSlot} onNext={() => setStep('review')} />
+        <TimeStep services={services} postcode={details.postcode} slot={slot} onSlot={setSlot} onNext={() => setStep('review')} />
       )}
-      {step === 'review' && slot && <ReviewStep service={service} details={details} slot={slot} />}
+      {step === 'review' && slot && <ReviewStep services={services} details={details} slot={slot} />}
     </>
   );
 }

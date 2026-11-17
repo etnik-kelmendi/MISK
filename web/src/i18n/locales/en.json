@@ -150,7 +150,9 @@
     "plan_in_use": "This plan is in use: it has active subscribers or a visit is happening now. Unpublish it to stop new sign-ups.",
     "no_receipt": "There is no receipt for this booking yet.",
     "no_email": "Add an email address to your account to get receipts by email.",
-    "chat_closed": "This chat is closed."
+    "chat_closed": "This chat is closed.",
+    "services_mixed_trades": "Services of different trades cannot be booked in one visit.",
+    "invalid_services": "Choose at least one service."
   },
   "nav": {
     "customer": "Main menu",
@@ -208,15 +210,18 @@
     "hello": "Good to see you,",
     "name": "{{name}}",
     "upcoming": "Your bookings",
-    "categories": "What do you need help with?",
+    "categories": "Categories",
     "noCategories": "No services are offered yet. Please check back soon.",
-    "trust": "Every pro is checked by the MISK team: ID, qualifications and insurance."
+    "trust": "Every pro is checked by the MISK team: ID, qualifications and insurance.",
+    "search": "What do you need help with?",
+    "searchResults": "Search results",
+    "searchNone": "Nothing found for “{{query}}”. Try another word, or pick a trade below."
   },
   "category": {
     "pros_one": "{{count}} verified pro",
     "pros_other": "{{count}} verified pros",
     "checked": "Checked ID, qualifications and insurance",
-    "choose": "Choose a service",
+    "choose": "Choose one or more services",
     "noServices": "No services in this category yet.",
     "duration": "about {{minutes}} min",
     "from": "from {{price}}",
@@ -280,7 +285,8 @@
     "holdExplained": "Protected payment: the amount is held on your card and only taken once the job is done. Free cancellation until a pro is assigned, then until 24 hours before.",
     "bookAndPay": "Book and pay {{amount}}",
     "booking": "Booking…",
-    "hourly": "Paid by the hour: {{rate}}/h for about {{hours}} h, a fixed price for you."
+    "hourly": "Paid by the hour: {{rate}}/h for about {{hours}} h, a fixed price for you.",
+    "packageDiscount": "Package discount (10%)"
   },
   "pay": {
     "title": "Payment",
@@ -2162,7 +2168,8 @@
     "number": "Receipt #{{number}}",
     "kind": {
       "fee": "Service fee",
-      "tip": "Tip"
+      "tip": "Tip",
+      "discount": "Package discount (10%)"
     },
     "vat": "Prices include VAT.",
     "state": {
@@ -2223,5 +2230,35 @@
       "arrived": "I'm here",
       "done": "All done, have a look!"
     }
+  },
+  "services": {
+    "kind": "One-off job or monthly plan",
+    "oneOff": "One-off job",
+    "monthly": "Monthly plan",
+    "packageTitle": "Package price: {{pct}}% off.",
+    "packageText_one": "{{count}} service done by one pro in a single visit.",
+    "packageText_other": "{{count}} services done by one pro in a single visit.",
+    "packageHint": "Pick 2 or more for a {{pct}}% package price, done by one pro in one visit.",
+    "continuePackage_one": "Continue · {{count}} service, from {{price}}",
+    "continuePackage_other": "Continue · {{count}} services, from {{price}}",
+    "choosePlan": "Choose a plan",
+    "planFrom": "from {{price}}/month",
+    "howOften": "How often",
+    "howOftenValue": "{{frequency}} (you can change it)",
+    "eachVisit": "Each visit",
+    "seasonLabel": "Season",
+    "season": "{{from}} to {{to}}",
+    "allYear": "All year",
+    "yourPro": "Your pro",
+    "samePro": "The same pro every visit",
+    "contract": "Contract",
+    "contractValue_one": "Min. {{count}} month, then cancel monthly",
+    "contractValue_other": "Min. {{count}} months, then cancel monthly",
+    "planNext": "You set how often, size, extras, days and start date on the next screen.",
+    "customise": "Customise {{name}}",
+    "pickPlan": "Choose a plan",
+    "noPlans": "No monthly plan for {{trade}} yet",
+    "noPlansText": "Book a one-off job, or see the plans we offer for other trades.",
+    "seeAllPlans": "See all plans"
   }
 }

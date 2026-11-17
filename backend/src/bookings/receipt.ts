@@ -12,7 +12,7 @@ export interface Receipt {
   serviceName: string;
   proName: string | null;
   address: string;
-  lines: { label: string; cents: number; kind: 'job' | 'extra' | 'fee' | 'tip' }[];
+  lines: { label: string; cents: number; kind: 'job' | 'discount' | 'extra' | 'fee' | 'tip' }[];
   totalCents: number;
   state: ReceiptState;
   chargeAt: string | null;
@@ -21,7 +21,7 @@ export interface Receipt {
 const SIZES: Record<string, string> = { S: 'small', M: 'medium', L: 'large' };
 
 function euro(cents: number): string {
-  return `€${(cents / 100).toFixed(2)}`;
+  return `${cents < 0 ? '-' : ''}€${(Math.abs(cents) / 100).toFixed(2)}`;
 }
 
 function day(iso: string, timezone: string): string {
@@ -49,11 +49,12 @@ export async function loadReceipt(db: Queryable, bookingId: string, customerId: 
     charge_at: Date | null;
     when: Date;
     pro_name: string | null;
+    package_discount_cents: number;
   }>(
     `SELECT b.number, b.service_name, b.size, b.address, b.postcode, b.price_cents, b.fee_cents, b.status, b.late_cancel,
        b.payment_status, (b.problem_reported_at IS NOT NULL AND b.problem_resolved_at IS NULL) AS problem_open,
        CASE WHEN b.status = 'completed' THEN b.completed_at + make_interval(hours => $3) END AS charge_at,
-       COALESCE(b.completed_at, b.starts_at) AS "when", pu.first_name AS pro_name
+       COALESCE(b.completed_at, b.starts_at) AS "when", pu.first_name AS pro_name, b.package_discount_cents
      FROM bookings b LEFT JOIN users pu ON pu.id = b.pro_id
      WHERE b.id = $1 AND b.customer_id = $2`,
     [bookingId, customerId, CHARGE_DELAY_HOURS],
@@ -62,7 +63,11 @@ export async function loadReceipt(db: Queryable, bookingId: string, customerId: 
   if (!b || !(b.status === 'completed' || (b.status === 'cancelled' && b.late_cancel))) {
     return null;
   }
-  const [extras, tip] = await Promise.all([
+  const [services, extras, tip] = await Promise.all([
+    db.query<{ name: string; price_cents: number }>(
+      'SELECT name, price_cents FROM booking_services WHERE booking_id = $1 ORDER BY position',
+      [bookingId],
+    ),
     db.query<{ description: string; amount_cents: number }>(
       `SELECT description, price_cents AS amount_cents FROM extra_requests
        WHERE booking_id = $1 AND status = 'approved' AND payment_status IN ('held', 'captured', 'refunded') ORDER BY created_at`,
@@ -70,8 +75,16 @@ export async function loadReceipt(db: Queryable, bookingId: string, customerId: 
     ),
     db.query<{ amount_cents: number }>("SELECT amount_cents FROM tips WHERE booking_id = $1 AND status = 'captured'", [bookingId]),
   ]);
+  // A package lists each service and the discount (D68); a single service is one line.
+  const jobLines: Receipt['lines'] =
+    services.rows.length > 1
+      ? [
+          ...services.rows.map((x) => ({ label: `${x.name}, ${SIZES[b.size] ?? b.size} job`, cents: x.price_cents, kind: 'job' as const })),
+          { label: 'Package discount (10%)', cents: -b.package_discount_cents, kind: 'discount' as const },
+        ]
+      : [{ label: `${b.service_name}, ${SIZES[b.size] ?? b.size} job`, cents: b.price_cents, kind: 'job' as const }];
   const lines: Receipt['lines'] = [
-    { label: `${b.service_name}, ${SIZES[b.size] ?? b.size} job`, cents: b.price_cents, kind: 'job' },
+    ...jobLines,
     ...extras.rows.map((x) => ({ label: `${x.description} (approved in the app)`, cents: x.amount_cents, kind: 'extra' as const })),
   ];
   // A late cancellation is charged the job price only.

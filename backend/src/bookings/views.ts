@@ -23,6 +23,7 @@ interface BookingRow {
   startsAt: Date;
   endsAt: Date;
   priceCents: number;
+  packageDiscountCents: number;
   feeCents: number;
   proSharePct: number;
   paymentStatus: string;
@@ -42,7 +43,7 @@ interface BookingRow {
 export const BOOKING_COLUMNS = `b.id, 'B-' || b.number AS number, cat.name AS "categoryName",
   b.problem_reported_at AS "problemReportedAt", b.problem_note AS "problemNote", b.problem_resolved_at AS "problemResolvedAt",
   b.completed_at + make_interval(hours => ${CHARGE_DELAY_HOURS}) AS "chargeAt", b.status, b.service_name AS "serviceName", b.category_id AS "categoryId", b.size,
-  b.address, b.postcode, b.notes, b.starts_at AS "startsAt", b.ends_at AS "endsAt", b.price_cents AS "priceCents",
+  b.address, b.postcode, b.notes, b.starts_at AS "startsAt", b.ends_at AS "endsAt", b.price_cents AS "priceCents", b.package_discount_cents AS "packageDiscountCents",
   b.fee_cents AS "feeCents", b.pro_share_pct AS "proSharePct", b.payment_status AS "paymentStatus",
   b.cancelled_by AS "cancelledBy", b.created_at AS "createdAt", b.completed_at AS "completedAt",
   extract(epoch FROM b.starts_at - now()) / 3600 AS "hoursLeft", b.late_cancel AS "lateCancel",
@@ -59,7 +60,7 @@ export async function loadBooking(db: Queryable, bookingId: string, viewer: View
   if (!b) {
     return null;
   }
-  const [events, photos, extras, rating, proRating, tip, unread] = await Promise.all([
+  const [events, photos, extras, rating, proRating, tip, unread, services] = await Promise.all([
     db.query('SELECT status, created_at AS at FROM booking_events WHERE booking_id = $1 ORDER BY id', [bookingId]),
     db.query('SELECT upload_id AS id, kind FROM booking_photos WHERE booking_id = $1 ORDER BY created_at', [bookingId]),
     db.query<{ id: string; description: string; priceCents: number; status: string; createdAt: Date }>(
@@ -83,6 +84,12 @@ export async function loadBooking(db: Queryable, bookingId: string, viewer: View
       "SELECT count(*)::int AS n FROM booking_messages WHERE booking_id = $1 AND sender_role <> $2 AND read_at IS NULL",
       [bookingId, viewer === 'pro' ? 'pro' : 'customer'],
     ),
+    // The services of the visit, more than one for a package (D68).
+    db.query<{ id: string; name: string; priceCents: number; durationMinutes: number }>(
+      `SELECT service_id AS id, name, price_cents AS "priceCents", duration_minutes AS "durationMinutes"
+       FROM booking_services WHERE booking_id = $1 ORDER BY position`,
+      [bookingId],
+    ),
   ]);
 
   const approvedExtras = extras.rows.filter((e) => e.status === 'approved').reduce((sum, e) => sum + e.priceCents, 0);
@@ -97,6 +104,7 @@ export async function loadBooking(db: Queryable, bookingId: string, viewer: View
     chargeAt: b.chargeAt,
     status: b.status,
     serviceName: b.serviceName,
+    services: services.rows,
     categoryId: b.categoryId,
     size: b.size,
     address: b.address,
@@ -132,6 +140,7 @@ export async function loadBooking(db: Queryable, bookingId: string, viewer: View
     : null;
   const money = {
     priceCents: b.priceCents,
+    packageDiscountCents: b.packageDiscountCents,
     feeCents: b.feeCents,
     extrasCents: approvedExtras,
     totalCents: b.priceCents + b.feeCents + approvedExtras,
