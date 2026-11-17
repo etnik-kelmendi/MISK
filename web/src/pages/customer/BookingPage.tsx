@@ -1,26 +1,34 @@
-import { useCallback, useState, type ChangeEvent, type FormEvent } from 'react';
+import { useCallback, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useParams } from 'react-router';
+import { Link, useParams } from 'react-router';
 import { useApi } from '../../api/ApiContext';
 import { useMarket } from '../../api/MarketContext';
 import type { BookingStatus, CustomerBooking, Extra, PaymentStep } from '../../api/types';
 import { useResource } from '../../api/useResource';
 import { ErrorText } from '../../components/ErrorText';
+import { FieldError } from '../../components/FieldError';
 import { Icon } from '../../components/Icon';
-import { FileButton, IMAGE_TYPES, MAX_FILE_BYTES, PhotoGrid } from '../../components/Photos';
+import { FileButton, IMAGE_TYPES, PhotoGrid } from '../../components/Photos';
 import { ResourceState } from '../../components/ResourceState';
 import { Stars, StatusBadge } from '../../components/StatusBadge';
 import { dateTime, euro, parseEuroToCents, proShare, time } from '../../lib/format';
 import { useAction } from '../../lib/useAction';
-import { useValidation } from '../../lib/useValidation';
-import { FieldError } from '../../components/FieldError';
+import { useNow } from '../../lib/useNow';
 import { usePolling } from '../../lib/usePolling';
+import { useValidation } from '../../lib/useValidation';
 import { CardPayment, confirmSavedCard } from '../../payments/CardPayment';
 import { AppHeader } from '../../shells/Shells';
+import { MAX_PROBLEM_PHOTOS, ReceiptSheet, ReportSheet } from './BookingSheets';
 
 const TIMELINE = ['searching', 'accepted', 'on_the_way', 'working', 'completed'] as const;
-const LIVE = new Set<BookingStatus>(['awaiting_payment', 'searching', 'accepted', 'on_the_way', 'working']);
-export const RATING_TAGS = ['on_time', 'tidy', 'friendly', 'great_value', 'extra_mile'] as const;
+export const LIVE = new Set<BookingStatus>(['awaiting_payment', 'searching', 'accepted', 'on_the_way', 'working']);
+/** A pro who has not set off this long after the start time counts as running late. */
+const LATE_AFTER_MS = 10 * 60_000;
+
+/** The pro's first name, or "your pro" before one is assigned. */
+export function proName(booking: CustomerBooking, fallback: string): string {
+  return booking.pro?.firstName ?? fallback;
+}
 
 function Timeline({ booking }: { booking: CustomerBooking }) {
   const { t } = useTranslation();
@@ -32,12 +40,17 @@ function Timeline({ booking }: { booking: CustomerBooking }) {
       {TIMELINE.map((status, index) => {
         const at = reached.get(status);
         const done = at !== undefined && index < currentIndex;
-        const now = index === currentIndex;
+        const now = index === currentIndex && booking.status !== 'completed';
+        // Until the pro sets off, the arrival time is the booked start.
+        const hint =
+          status === 'on_the_way' && !at
+            ? t('timeline.arrivingAround', { time: time(booking.startsAt, timezone) })
+            : t(`timeline.${status}Hint`);
         return (
           <li key={status} className={`tl-item ${done || booking.status === 'completed' ? 'done' : ''} ${now ? 'now' : ''}`}>
             <span className="tdot" aria-hidden="true" />
             <span className="tt">{t(`timeline.${status}`)}</span>
-            <span className="small muted">{at ? time(at, timezone) : t(`timeline.${status}Hint`)}</span>
+            <span className="small muted">{at ? time(at, timezone) : hint}</span>
           </li>
         );
       })}
@@ -45,7 +58,59 @@ function Timeline({ booking }: { booking: CustomerBooking }) {
   );
 }
 
-function ExtraCard({ booking, extra, onChanged }: { booking: CustomerBooking; extra: Extra; onChanged: (b: CustomerBooking) => void }) {
+/** Where the job is along the way from the pro to the customer: a drawing, not a live location. */
+const MARKER: Record<string, [number, number] | null> = {
+  accepted: [40, 150],
+  on_the_way: [150, 95],
+  working: [250, 70],
+  completed: [250, 70],
+};
+
+function RouteMap({ booking }: { booking: CustomerBooking }) {
+  const { t } = useTranslation();
+  const marker = booking.pro ? MARKER[booking.status] ?? null : null;
+  const moving = booking.status === 'on_the_way' || booking.status === 'working' || booking.status === 'completed';
+  return (
+    <figure className="map route-map">
+      <svg viewBox="0 0 340 200" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+        <rect width="340" height="200" fill="#E3ECE6" />
+        <path d="M0 120 H340 M0 40 H340 M90 0 V200 M200 0 V200 M290 0 V200" stroke="#fff" strokeWidth="14" />
+        <path d="M0 120 H340 M90 0 V200 M200 0 V200" stroke="#F5F8F6" strokeWidth="2" strokeDasharray="6 6" />
+        <rect x="105" y="52" width="80" height="55" rx="6" fill="#CFE3D6" />
+        <rect x="215" y="135" width="62" height="50" rx="6" fill="#CFE3D6" />
+        <rect x="10" y="135" width="66" height="50" rx="6" fill="#D8E6DC" />
+        <circle cx="150" cy="80" r="16" fill="#BADBC6" />
+        <path
+          d="M40 150 L90 150 L90 120 L200 120 L200 70 L250 70"
+          fill="none"
+          stroke="var(--brand)"
+          strokeWidth="4"
+          strokeLinecap="round"
+          strokeDasharray={moving ? '0' : '2 8'}
+          opacity={booking.pro ? 1 : 0.35}
+        />
+        <g transform="translate(250 70)">
+          <circle r="18" fill="rgba(11,122,85,.15)" />
+          <circle r="9" fill="var(--brand)" stroke="#fff" strokeWidth="3" />
+        </g>
+        {marker && booking.pro && (
+          <g className="route-marker" transform={`translate(${marker[0]} ${marker[1]})`}>
+            <circle r="14" fill="#fff" stroke="var(--pro)" strokeWidth="2" />
+            <text y="4" textAnchor="middle" fontSize="11" fontWeight="800" fill="var(--pro)" fontFamily="sans-serif">
+              {(booking.pro.firstName ?? '?').slice(0, 1).toUpperCase()}
+            </text>
+          </g>
+        )}
+      </svg>
+      <figcaption className="route-caption">
+        <Icon name="pin" /> {booking.address}, {booking.postcode}
+        <span className="visually-hidden">. {t(`timeline.${booking.status === 'unassigned' ? 'searching' : booking.status}`, { defaultValue: '' })}</span>
+      </figcaption>
+    </figure>
+  );
+}
+
+export function ExtraCard({ booking, extra, onChanged }: { booking: CustomerBooking; extra: Extra; onChanged: (b: CustomerBooking) => void }) {
   const { t } = useTranslation();
   const api = useApi();
   const { run, busy, error } = useAction();
@@ -82,7 +147,9 @@ function ExtraCard({ booking, extra, onChanged }: { booking: CustomerBooking; ex
               {t('extra.approve', { price: euro(extra.priceCents) })}
             </button>
           </div>
-          <p className="tiny muted">{t('extra.nothingUnlessApproved')}</p>
+          <p className="tiny muted row gap6">
+            <Icon name="shield" /> {t('extra.nothingUnlessApproved')}
+          </p>
         </>
       ) : (
         <span className={`badge ${extra.status === 'approved' ? 'g' : 'grey'}`}>{t(`extra.status.${extra.status}`)}</span>
@@ -92,206 +159,12 @@ function ExtraCard({ booking, extra, onChanged }: { booking: CustomerBooking; ex
   );
 }
 
-function RatingForm({ booking, onRated }: { booking: CustomerBooking; onRated: (b: CustomerBooking) => void }) {
-  const { t } = useTranslation();
-  const api = useApi();
-  const [stars, setStars] = useState(0);
-  const [tags, setTags] = useState<string[]>([]);
-  const { run, busy, error } = useAction();
-  const form = useValidation({ stars: stars === 0 && t('validation.starsMissing') }, { stars: 'rating-star-1' });
-
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    if (!form.check()) {
-      return;
-    }
-    const result = await run(() => api.post<{ booking: CustomerBooking }>(`/bookings/${booking.id}/rating`, { stars, tags }));
-    if (result) {
-      onRated(result.booking);
-    }
-  }
-
-  return (
-    <form className="card" onSubmit={submit} noValidate>
-      <h2 className="b">{t('rating.title', { name: booking.pro?.firstName ?? '' })}</h2>
-      <fieldset {...form.describe('stars')}>
-        <legend className="visually-hidden">{t('rating.stars')}</legend>
-        <div className="bigstars">
-          {[1, 2, 3, 4, 5].map((n) => (
-            <label key={n} className={stars >= n ? 'on' : ''}>
-              <input
-                id={`rating-star-${n}`}
-                type="radio"
-                name="stars"
-                className="visually-hidden"
-                checked={stars === n}
-                onChange={() => setStars(n)}
-              />
-              <Icon name="star" label={t('rating.starLabel', { count: n })} />
-            </label>
-          ))}
-        </div>
-        <FieldError id="rating-star-1" message={form.message('stars')} />
-      </fieldset>
-      <fieldset>
-        <legend className="h-sm">{t('rating.wentWell')}</legend>
-        <div className="chips">
-          {RATING_TAGS.map((tag) => (
-            <label key={tag} className={`chip ${tags.includes(tag) ? 'on' : ''}`}>
-              <input
-                type="checkbox"
-                className="visually-hidden"
-                checked={tags.includes(tag)}
-                onChange={() => setTags((current) => (current.includes(tag) ? current.filter((x) => x !== tag) : [...current, tag]))}
-              />
-              {t(`rating.tags.${tag}`)}
-            </label>
-          ))}
-        </div>
-      </fieldset>
-      <ErrorText error={error} />
-      <button className="cta" type="submit" disabled={busy}>
-        {t('rating.send')}
-      </button>
-    </form>
-  );
-}
-
-/** Photos a customer can add to a problem report, as the API allows. */
-export const MAX_PROBLEM_PHOTOS = 5;
-
-/** Within 24 hours of the job, the customer can stop the charge by telling MISK what went wrong, with photos. */
-function ProblemForm({ booking, onReported }: { booking: CustomerBooking; onReported: (b: CustomerBooking) => void }) {
-  const { t } = useTranslation();
-  const api = useApi();
-  const { timezone } = useMarket();
-  const [open, setOpen] = useState(false);
-  const [note, setNote] = useState('');
-  const [files, setFiles] = useState<File[]>([]);
-  const [tooBig, setTooBig] = useState(false);
-  const { run, busy, error } = useAction();
-  const form = useValidation(
-    { note: !note.trim() ? t('validation.problemMissing') : note.trim().length < 3 && t('validation.noteShort', { min: 3 }) },
-    { note: 'problem-note' },
-  );
-
-  function choose(event: ChangeEvent<HTMLInputElement>) {
-    const picked = Array.from(event.target.files ?? []);
-    event.target.value = '';
-    // Files over 8 MB are left out here, so nobody waits for an upload the API would refuse.
-    setTooBig(picked.some((file) => file.size > MAX_FILE_BYTES));
-    setFiles((current) => [...current, ...picked.filter((file) => file.size <= MAX_FILE_BYTES)].slice(0, MAX_PROBLEM_PHOTOS));
-  }
-
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    if (!form.check()) {
-      return;
-    }
-    const result = await run(async () => {
-      let latest = (await api.post<{ booking: CustomerBooking }>(`/bookings/${booking.id}/problem`, { note: note.trim() })).booking;
-      // The report is in; photos follow one by one. One that fails can be added again below the report.
-      for (const file of files) {
-        try {
-          latest = (await api.upload<{ booking: CustomerBooking }>(`/bookings/${booking.id}/problem/photos`, file)).booking;
-        } catch (caught) {
-          onReported(latest);
-          throw caught;
-        }
-      }
-      return latest;
-    });
-    if (result) {
-      onReported(result);
-    }
-  }
-
-  if (!open) {
-    return (
-      <section className="card stack">
-        <p className="small">{booking.chargeAt && t('problem.chargeAt', { date: dateTime(booking.chargeAt, timezone) })}</p>
-        <button type="button" className="btn btn-ghost" onClick={() => setOpen(true)}>
-          {t('problem.open')}
-        </button>
-      </section>
-    );
-  }
-  return (
-    <form className="card stack" onSubmit={submit}>
-      <h2 className="b">{t('problem.title')}</h2>
-      <div className="field">
-        <label htmlFor="problem-note">{t('problem.note')}</label>
-        <textarea
-          id="problem-note"
-          rows={4}
-          maxLength={1000}
-          value={note}
-          {...form.describe('note')}
-          onChange={(e) => setNote(e.target.value)}
-        />
-        <FieldError id="problem-note" message={form.message('note')} />
-      </div>
-      <div className="stack">
-        <span className="b small">{t('problem.photos', { max: MAX_PROBLEM_PHOTOS })}</span>
-        {files.length > 0 && (
-          <ul className="stack" aria-label={t('problem.chosen')}>
-            {files.map((file, index) => (
-              <li key={`${file.name}-${index}`} className="row between gap8 small">
-                <span className="grow">{file.name}</span>
-                <button
-                  type="button"
-                  className="link"
-                  aria-label={t('problem.removePhoto', { name: file.name })}
-                  onClick={() => setFiles((current) => current.filter((_, i) => i !== index))}
-                >
-                  {t('problem.remove')}
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-        {files.length < MAX_PROBLEM_PHOTOS && (
-          <span className="file-button">
-            <input
-              id="problem-photos"
-              type="file"
-              accept={IMAGE_TYPES}
-              multiple
-              className="visually-hidden"
-              onChange={choose}
-              disabled={busy}
-            />
-            <label htmlFor="problem-photos" className="mini-btn">
-              <Icon name="camera" /> {t('problem.addPhotos')}
-            </label>
-          </span>
-        )}
-        {tooBig && (
-          <span className="error-text" role="alert">
-            {t('errors.file_too_large')}
-          </span>
-        )}
-      </div>
-      <p className="tiny muted">{t('problem.hint')}</p>
-      <ErrorText error={error} />
-      <div className="row gap8">
-        <button type="button" className="btn btn-ghost" onClick={() => setOpen(false)}>
-          {t('common.cancel')}
-        </button>
-        <button className="cta" type="submit" disabled={busy}>
-          {t('problem.send')}
-        </button>
-      </div>
-    </form>
-  );
-}
-
 const TIP_CHOICES = [200, 500, 1000];
-const MIN_TIP_CENTS = 100;
-const MAX_TIP_CENTS = 20_000;
+export const MIN_TIP_CENTS = 100;
+export const MAX_TIP_CENTS = 20_000;
 
 /** A tip for the pro after the job, with how much of it reaches them at today's commission. */
-function TipForm({ booking, onTipped }: { booking: CustomerBooking; onTipped: (b: CustomerBooking) => void }) {
+export function TipForm({ booking, onTipped }: { booking: CustomerBooking; onTipped: (b: CustomerBooking) => void }) {
   const { t } = useTranslation();
   const api = useApi();
   const { proSharePct } = useMarket();
@@ -350,6 +223,44 @@ function TipForm({ booking, onTipped }: { booking: CustomerBooking; onTipped: (b
   );
 }
 
+/** "Problem reported": the payment is on hold until MISK support has looked at it. */
+export function ReportedBanner({ booking }: { booking: CustomerBooking }) {
+  const { t } = useTranslation();
+  if (!booking.problemReportedAt) return null;
+  return booking.problemResolvedAt ? (
+    <p className="info" role="status">
+      <Icon name="check" />
+      <span>{t('problem.resolved')}</span>
+    </p>
+  ) : (
+    <p className="info red" role="status">
+      <Icon name="bell" />
+      <span>
+        <b>{t('problem.reportedTitle')}</b> {t('problem.received')}
+      </span>
+    </p>
+  );
+}
+
+/** "Something not right?": the way into the report pop-up while the payment can still be stopped. */
+export function ReportCard({ onReport }: { onReport: () => void }) {
+  const { t } = useTranslation();
+  return (
+    <div className="card row report-card">
+      <span className="danger-text" aria-hidden="true">
+        <Icon name="alert" />
+      </span>
+      <div className="grow">
+        <p className="b small">{t('problem.notRight')}</p>
+        <p className="tiny muted">{t('problem.within24h')}</p>
+      </div>
+      <button type="button" className="mini-btn danger" onClick={onReport}>
+        {t('problem.report')}
+      </button>
+    </div>
+  );
+}
+
 function PaymentSection({ booking, onConfirmed }: { booking: CustomerBooking; onConfirmed: () => void }) {
   const { t } = useTranslation();
   const api = useApi();
@@ -389,180 +300,247 @@ function BookingView({
   const addPhoto = useAction();
   const addProblemPhoto = useAction();
   const [confirmCancel, setConfirmCancel] = useState(false);
+  const [sheet, setSheet] = useState<'receipt' | 'report' | null>(null);
   const customerPhotos = booking.photos.filter((p) => p.kind === 'customer').map((p) => p.id);
   const proPhotos = booking.photos.filter((p) => p.kind === 'completion').map((p) => p.id);
   const problemPhotos = booking.photos.filter((p) => p.kind === 'problem').map((p) => p.id);
   const open = booking.status !== 'completed' && booking.status !== 'cancelled';
+  const name = proName(booking, t('problem.yourPro'));
+  const unread = booking.unreadMessages ?? 0;
+  const hasReceipt = booking.status === 'completed' || booking.lateCancel;
+  const now = useNow();
+  const late = booking.status === 'accepted' && now > new Date(booking.startsAt).getTime() + LATE_AFTER_MS;
+  const tracking = booking.status !== 'cancelled' && booking.status !== 'awaiting_payment';
 
   return (
-    <div className="body">
-      <div className="card">
-        <div className="row between">
-          <h2 className="b">{booking.serviceName}</h2>
-          <StatusBadge status={booking.status} />
+    <>
+      <div className="body">
+        {tracking && <RouteMap booking={booking} />}
+        <div className="card">
+          <div className="row between">
+            <h2 className="b">{booking.serviceName}</h2>
+            <StatusBadge status={booking.status} />
+          </div>
+          <p className="row small">
+            <Icon name="calendar" /> {dateTime(booking.startsAt, timezone)}
+          </p>
+          {!tracking && (
+            <p className="row small">
+              <Icon name="pin" /> {booking.address}, {booking.postcode}
+            </p>
+          )}
         </div>
-        <p className="row small">
-          <Icon name="calendar" /> {dateTime(booking.startsAt, timezone)}
-        </p>
-        <p className="row small">
-          <Icon name="pin" /> {booking.address}, {booking.postcode}
-        </p>
-      </div>
 
-      {booking.status === 'awaiting_payment' && <PaymentSection booking={booking} onConfirmed={reload} />}
-      {booking.status === 'unassigned' && (
-        <p className="info amber" role="status">
-          {t('booking.unassigned')}
-        </p>
-      )}
-
-      {booking.status !== 'cancelled' && booking.status !== 'awaiting_payment' && (
-        <section className="card" aria-label={t('booking.yourPro')}>
-          {booking.pro ? (
-            <div className="row">
-              <span className="av">{(booking.pro.firstName ?? '?').slice(0, 1)}</span>
-              <div className="grow">
-                <p className="b">
-                  {booking.pro.firstName}{' '}
-                  <span className="verified">
-                    <Icon name="shield" /> {t('booking.verified')}
-                  </span>
-                </p>
-                <Stars average={booking.pro.ratingAverage} count={booking.pro.ratingCount} />
-              </div>
-            </div>
-          ) : (
-            <p className="muted">{t('booking.finding')}</p>
-          )}
-          <Timeline booking={booking} />
-        </section>
-      )}
-
-      {booking.extras.map((extra) => (
-        <ExtraCard key={extra.id} booking={booking} extra={extra} onChanged={onChanged} />
-      ))}
-
-      <PhotoGrid ids={proPhotos} label={t('booking.proPhotos')} />
-
-      {booking.canRate && <RatingForm booking={booking} onRated={onChanged} />}
-      {booking.canTip && <TipForm booking={booking} onTipped={onChanged} />}
-      {booking.tip?.status === 'captured' && (
-        <p className="card" role="status">
-          {t('tip.thanks', { amount: euro(booking.tip.amountCents), pro: euro(booking.tip.proCents), name: booking.pro?.firstName ?? '' })}
-        </p>
-      )}
-      {booking.lateCancel && <p className="card">{t('booking.lateCancelled', { price: euro(booking.totalCents) })}</p>}
-      {booking.canReportProblem && <ProblemForm booking={booking} onReported={onChanged} />}
-      {booking.problemReportedAt && (
-        <section className="card stack" aria-label={t('problem.yourReport')}>
-          <p role="status">{booking.problemResolvedAt ? t('problem.resolved') : t('problem.received')}</p>
-          <PhotoGrid ids={problemPhotos} label={t('problem.yourPhotos')} />
-          {!booking.problemResolvedAt && problemPhotos.length < MAX_PROBLEM_PHOTOS && (
-            <FileButton
-              label={t('problem.addPhoto')}
-              accept={IMAGE_TYPES}
-              icon="camera"
-              onFile={async (file) => {
-                const result = await addProblemPhoto.run(() =>
-                  api.upload<{ booking: CustomerBooking }>(`/bookings/${booking.id}/problem/photos`, file),
-                );
-                if (result) {
-                  onChanged(result.booking);
-                }
-              }}
-            />
-          )}
-          <ErrorText error={addProblemPhoto.error} />
-        </section>
-      )}
-      {booking.rating && <p className="card">{t('booking.youRated', { stars: booking.rating.stars })}</p>}
-
-      <section className="card" aria-label={t('book.price')}>
-        <p className="line">
-          <span>{booking.serviceName}</span>
-          <span>{euro(booking.priceCents)}</span>
-        </p>
-        <p className="line">
-          <span className="muted">{t('book.fee')}</span>
-          <span>{euro(booking.feeCents)}</span>
-        </p>
-        {booking.extrasCents > 0 && (
-          <p className="line">
-            <span className="muted">{t('booking.extras')}</span>
-            <span>{euro(booking.extrasCents)}</span>
+        {late && (
+          <p className="info red" role="status">
+            <Icon name="clock" />
+            <span>{t('booking.late', { name, time: time(booking.startsAt, timezone) })}</span>
           </p>
         )}
-        <p className="line total">
-          <span>{t('book.total')}</span>
-          <span>{euro(booking.totalCents)}</span>
-        </p>
-        <p className="tiny muted">{t(`payment.${booking.paymentStatus}`)}</p>
-      </section>
+        <ReportedBanner booking={booking} />
 
-      {open && (
-        <section aria-label={t('booking.yourPhotos')}>
-          <h2 className="h-sm">{t('booking.yourPhotos')}</h2>
-          <PhotoGrid ids={customerPhotos} label={t('booking.yourPhotos')} />
-          {customerPhotos.length < 3 && (
-            <FileButton
-              label={t('booking.addPhoto')}
-              accept={IMAGE_TYPES}
-              icon="camera"
-              onFile={async (file) => {
-                const result = await addPhoto.run(() => api.upload<{ booking: CustomerBooking }>(`/bookings/${booking.id}/photos`, file));
-                if (result) {
-                  onChanged(result.booking);
-                }
-              }}
-            />
-          )}
-          <ErrorText error={addPhoto.error} />
-        </section>
-      )}
+        {booking.status === 'awaiting_payment' && <PaymentSection booking={booking} onConfirmed={reload} />}
+        {booking.status === 'unassigned' && (
+          <p className="info amber" role="status">
+            {t('booking.unassigned')}
+          </p>
+        )}
 
-      {booking.canCancel && (
-        <section className="stack">
-          {confirmCancel ? (
-            <div className="card" role="alertdialog" aria-labelledby="cancel-question">
-              <p id="cancel-question">
-                {booking.lateCancelCents === null
-                  ? t('booking.cancelQuestion')
-                  : t('booking.lateCancelQuestion', { price: euro(booking.lateCancelCents) })}
-              </p>
-              <div className="row gap8">
-                <button type="button" className="btn btn-ghost" onClick={() => setConfirmCancel(false)}>
-                  {t('booking.keep')}
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-danger"
-                  disabled={cancel.busy}
-                  onClick={() =>
-                    void cancel
-                      .run(() =>
-                        api.post<{ booking: CustomerBooking }>(
-                          `/bookings/${booking.id}/cancel`,
-                          booking.lateCancelCents === null ? undefined : { acceptLateCharge: true },
-                        ),
-                      )
-                      .then((result) => result && onChanged(result.booking))
-                  }
-                >
-                  {booking.lateCancelCents === null
-                    ? t('booking.cancelConfirm')
-                    : t('booking.lateCancelConfirm', { price: euro(booking.lateCancelCents) })}
-                </button>
+        {tracking && (
+          <section className="card" aria-label={t('booking.yourPro')}>
+            {booking.pro ? (
+              <div className="row">
+                <span className="av" aria-hidden="true">
+                  {(booking.pro.firstName ?? '?').slice(0, 1)}
+                </span>
+                <div className="grow">
+                  <p className="b">
+                    {booking.pro.firstName}{' '}
+                    <span className="verified">
+                      <Icon name="shield" /> {t('booking.verified')}
+                    </span>
+                  </p>
+                  <Stars average={booking.pro.ratingAverage} count={booking.pro.ratingCount} />
+                </div>
+                <Link to={`/bookings/${booking.id}/chat`} className="iconbtn soft chat-btn" aria-label={t('booking.chatWith', { name })}>
+                  <Icon name="chat" />
+                  {unread > 0 && <span className="dot-badge" aria-hidden="true" />}
+                </Link>
               </div>
-            </div>
-          ) : (
-            <button type="button" className="link danger" onClick={() => setConfirmCancel(true)}>
-              {t('booking.cancel')}
+            ) : (
+              <div className="row">
+                <span className="av grey" aria-hidden="true">
+                  <Icon name="clock" />
+                </span>
+                <p className="muted grow">{t('booking.finding')}</p>
+              </div>
+            )}
+          </section>
+        )}
+        {tracking && (
+          <section className="card" aria-label={t('booking.timeline')}>
+            <Timeline booking={booking} />
+          </section>
+        )}
+
+        {booking.extras.map((extra) => (
+          <ExtraCard key={extra.id} booking={booking} extra={extra} onChanged={onChanged} />
+        ))}
+
+        <PhotoGrid ids={proPhotos} label={t('booking.proPhotos')} />
+
+        {booking.rating && <p className="card">{t('booking.youRated', { stars: booking.rating.stars })}</p>}
+        {booking.tip?.status === 'captured' && (
+          <p className="card" role="status">
+            {t('tip.thanks', { amount: euro(booking.tip.amountCents), pro: euro(booking.tip.proCents), name: booking.pro?.firstName ?? '' })}
+          </p>
+        )}
+        {booking.lateCancel && <p className="card">{t('booking.lateCancelled', { price: euro(booking.totalCents) })}</p>}
+        {booking.canReportProblem && (
+          <>
+            {booking.chargeAt && <p className="small muted">{t('problem.chargeAt', { date: dateTime(booking.chargeAt, timezone) })}</p>}
+            <ReportCard onReport={() => setSheet('report')} />
+          </>
+        )}
+        {booking.problemReportedAt && !booking.problemResolvedAt && (
+          <section className="card stack" aria-label={t('problem.yourReport')}>
+            {booking.problemNote && <p className="small">{booking.problemNote}</p>}
+            <PhotoGrid ids={problemPhotos} label={t('problem.yourPhotos')} />
+            {problemPhotos.length < MAX_PROBLEM_PHOTOS && (
+              <FileButton
+                label={t('problem.addPhoto')}
+                accept={IMAGE_TYPES}
+                icon="camera"
+                onFile={async (file) => {
+                  const result = await addProblemPhoto.run(() =>
+                    api.upload<{ booking: CustomerBooking }>(`/bookings/${booking.id}/problem/photos`, file),
+                  );
+                  if (result) onChanged(result.booking);
+                }}
+              />
+            )}
+            <ErrorText error={addProblemPhoto.error} />
+          </section>
+        )}
+
+        <section className="card" aria-label={t('book.price')}>
+          <p className="line">
+            <span>{booking.serviceName}</span>
+            <span>{euro(booking.priceCents)}</span>
+          </p>
+          <p className="line">
+            <span className="muted">{t('book.fee')}</span>
+            <span>{euro(booking.feeCents)}</span>
+          </p>
+          {booking.extrasCents > 0 && (
+            <p className="line">
+              <span className="muted">{t('booking.extras')}</span>
+              <span>{euro(booking.extrasCents)}</span>
+            </p>
+          )}
+          <p className="line total">
+            <span>{t('book.total')}</span>
+            <span>{euro(booking.totalCents)}</span>
+          </p>
+          <p className="tiny muted">{t(`payment.${booking.paymentStatus}`)}</p>
+          {hasReceipt && (
+            <button type="button" className="mini-btn green receipt-btn" onClick={() => setSheet('receipt')}>
+              <Icon name="file" /> {t('bookings.receipt')}
             </button>
           )}
-          <ErrorText error={cancel.error} />
         </section>
+
+        {open && (
+          <section aria-label={t('booking.yourPhotos')}>
+            <h2 className="h-sm">{t('booking.yourPhotos')}</h2>
+            <PhotoGrid ids={customerPhotos} label={t('booking.yourPhotos')} />
+            {customerPhotos.length < 3 && (
+              <FileButton
+                label={t('booking.addPhoto')}
+                accept={IMAGE_TYPES}
+                icon="camera"
+                onFile={async (file) => {
+                  const result = await addPhoto.run(() => api.upload<{ booking: CustomerBooking }>(`/bookings/${booking.id}/photos`, file));
+                  if (result) onChanged(result.booking);
+                }}
+              />
+            )}
+            <ErrorText error={addPhoto.error} />
+          </section>
+        )}
+
+        {booking.canCancel && (
+          <section className="stack">
+            {confirmCancel ? (
+              <div className="card" role="alertdialog" aria-labelledby="cancel-question">
+                <p id="cancel-question">
+                  {booking.lateCancelCents === null
+                    ? t('booking.cancelQuestion')
+                    : t('booking.lateCancelQuestion', { price: euro(booking.lateCancelCents) })}
+                </p>
+                <div className="row gap8">
+                  <button type="button" className="btn btn-ghost" onClick={() => setConfirmCancel(false)}>
+                    {t('booking.keep')}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-danger"
+                    disabled={cancel.busy}
+                    onClick={() =>
+                      void cancel
+                        .run(() =>
+                          api.post<{ booking: CustomerBooking }>(
+                            `/bookings/${booking.id}/cancel`,
+                            booking.lateCancelCents === null ? undefined : { acceptLateCharge: true },
+                          ),
+                        )
+                        .then((result) => result && onChanged(result.booking))
+                    }
+                  >
+                    {booking.lateCancelCents === null
+                      ? t('booking.cancelConfirm')
+                      : t('booking.lateCancelConfirm', { price: euro(booking.lateCancelCents) })}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button type="button" className="link danger" onClick={() => setConfirmCancel(true)}>
+                {t('booking.cancel')}
+              </button>
+            )}
+            <ErrorText error={cancel.error} />
+          </section>
+        )}
+      </div>
+
+      {booking.canRate || booking.canTip ? (
+        <div className="cta-bar">
+          <Link to={`/bookings/${booking.id}/rate`} className="cta">
+            <Icon name="star" /> {booking.canRate ? t('booking.rate', { name }) : t('booking.addTip', { name })}
+          </Link>
+        </div>
+      ) : (
+        unread > 0 && (
+          <div className="cta-bar">
+            <Link to={`/bookings/${booking.id}/chat`} className="cta">
+              <Icon name="chat" /> {t('booking.newMessage', { name, count: unread })}
+            </Link>
+          </div>
+        )
       )}
-    </div>
+
+      {sheet === 'receipt' && <ReceiptSheet bookingId={booking.id} onClose={() => setSheet(null)} />}
+      {sheet === 'report' && (
+        <ReportSheet
+          booking={{ id: booking.id, serviceName: booking.serviceName, startsAt: booking.startsAt, proName: booking.pro?.firstName ?? null }}
+          onClose={() => setSheet(null)}
+          onReported={(next) => {
+            setSheet(null);
+            onChanged(next);
+          }}
+        />
+      )}
+    </>
   );
 }
 
@@ -577,7 +555,10 @@ export function BookingPage() {
 
   return (
     <>
-      <AppHeader title={t('booking.title')} back="/bookings" />
+      <AppHeader
+        title={state.status === 'ready' && state.data.booking.status === 'completed' ? t('booking.doneTitle') : t('booking.title')}
+        back="/bookings"
+      />
       <ResourceState state={state} reload={reload}>
         {({ booking }) => <BookingView booking={booking} reload={reload} onChanged={(next) => update(() => ({ booking: next }))} />}
       </ResourceState>

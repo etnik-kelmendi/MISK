@@ -1,6 +1,6 @@
 import type { Queryable } from '../db.js';
 
-export type ActivityArea = 'fees' | 'zones' | 'notifications' | 'team' | 'catalogue';
+export type ActivityArea = 'fees' | 'zones' | 'notifications' | 'team' | 'catalogue' | 'plans';
 
 /** Writes one line in the team's activity log: who did what, and when. */
 export async function logActivity(

@@ -27,6 +27,9 @@ import { NotificationsPage } from './pages/admin/NotificationsPage';
 import { AreaGuard } from './auth/AreaGuard';
 import { TeamPage } from './pages/admin/TeamPage';
 import { BookingPage } from './pages/customer/BookingPage';
+import { ChatPage } from './pages/customer/ChatPage';
+import { RatePage } from './pages/customer/RatePage';
+import { ProChatPage } from './pages/pro/ProChatPage';
 import { BookingsPage } from './pages/customer/BookingsPage';
 import { BookPage } from './pages/customer/BookPage';
 import { CategoryPage } from './pages/customer/CategoryPage';
@@ -81,6 +84,8 @@ function CustomerAndProRoutes() {
         <Route path="book/:serviceId" element={<BookPage />} />
         <Route path="bookings" element={<BookingsPage />} />
         <Route path="bookings/:id" element={<BookingPage />} />
+        <Route path="bookings/:id/chat" element={<ChatPage />} />
+        <Route path="bookings/:id/rate" element={<RatePage />} />
         <Route path="plans" element={<CustomerPlansPage />} />
         <Route path="plans/:id" element={<SubscribePage />} />
         <Route path="my-plans/:id" element={<MyPlanPage />} />
@@ -97,6 +102,7 @@ function CustomerAndProRoutes() {
       >
         <Route index element={<ProHomePage />} />
         <Route path="jobs/:id" element={<ProJobPage />} />
+        <Route path="jobs/:id/chat" element={<ProChatPage />} />
         <Route path="visits/:id" element={<ProVisitPage />} />
         <Route path="week" element={<ProWeekPage />} />
         <Route path="profile" element={<ProProfilePage />} />

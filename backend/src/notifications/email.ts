@@ -4,6 +4,8 @@ export interface EmailMessage {
   to: string;
   subject: string;
   text: string;
+  /** Files sent with the email, e.g. a receipt PDF (D67). */
+  attachments?: { filename: string; content: Buffer; contentType: string }[];
 }
 
 /** Sends one email. Throws when the mail server refuses or cannot be reached. */

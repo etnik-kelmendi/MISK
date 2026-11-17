@@ -227,18 +227,42 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
     },
   );
 
+  // The Bookings page (D67): upcoming and past bookings with what each row offers (receipt, report, chat),
+  // and the next visits of the customer's plans.
   app.get('/bookings', { preHandler: guards.customer }, async (request) => {
-    const result = await pool.query(
-      `SELECT b.id, b.status, b.service_name AS "serviceName", b.category_id AS "categoryId", b.starts_at AS "startsAt",
-         b.price_cents + b.fee_cents AS "totalCents", pu.first_name AS "proName",
-         (b.status = 'completed' AND NOT EXISTS (SELECT 1 FROM ratings r WHERE r.booking_id = b.id)) AS "canRate"
-       FROM bookings b LEFT JOIN users pu ON pu.id = b.pro_id
-       WHERE b.customer_id = $1
-       ORDER BY (b.status IN ('completed', 'cancelled')), b.starts_at DESC
-       LIMIT 200`,
-      [currentUser(request).id],
-    );
-    return { bookings: result.rows };
+    const customerId = currentUser(request).id;
+    const [result, visits] = await Promise.all([
+      pool.query(
+        `SELECT b.id, b.status, b.service_name AS "serviceName", b.category_id AS "categoryId", b.starts_at AS "startsAt",
+           b.ends_at AS "endsAt", b.completed_at AS "completedAt", b.payment_status AS "paymentStatus",
+           b.price_cents + CASE WHEN b.late_cancel THEN 0 ELSE b.fee_cents END
+             + COALESCE((SELECT sum(x.price_cents) FROM extra_requests x WHERE x.booking_id = b.id AND x.status = 'approved'), 0)::int
+             AS "totalCents",
+           pu.first_name AS "proName", c.slug AS "categorySlug", c.icon AS "categoryIcon", c.active AS "categoryActive",
+           (b.status = 'completed' AND NOT EXISTS (SELECT 1 FROM ratings r WHERE r.booking_id = b.id)) AS "canRate",
+           (b.status = 'completed' OR (b.status = 'cancelled' AND b.late_cancel)) AS "hasReceipt",
+           (b.status = 'completed' AND b.payment_status = 'held' AND b.problem_reported_at IS NULL
+             AND b.completed_at + make_interval(hours => $2) > now()) AS "canReportProblem",
+           (b.problem_reported_at IS NOT NULL AND b.problem_resolved_at IS NULL) AS "problemOpen",
+           (SELECT count(*)::int FROM booking_messages m WHERE m.booking_id = b.id AND m.sender_role = 'pro' AND m.read_at IS NULL)
+             AS "unreadMessages"
+         FROM bookings b LEFT JOIN users pu ON pu.id = b.pro_id JOIN categories c ON c.id = b.category_id
+         WHERE b.customer_id = $1
+         ORDER BY (b.status IN ('completed', 'cancelled')), b.starts_at DESC
+         LIMIT 200`,
+        [customerId, CHARGE_DELAY_HOURS],
+      ),
+      pool.query(
+        `SELECT v.id, v.starts_at AS "startsAt", v.ends_at AS "endsAt", s.id AS "subscriptionId", s.plan_name AS "planName",
+           s.category_id AS "categoryId", c.icon AS "categoryIcon", pu.first_name AS "proName"
+         FROM subscription_visits v JOIN subscriptions s ON s.id = v.subscription_id JOIN categories c ON c.id = s.category_id
+         LEFT JOIN users pu ON pu.id = COALESCE(v.pro_id, s.pro_id)
+         WHERE s.customer_id = $1 AND v.status = 'planned' AND v.starts_at > now()
+         ORDER BY v.starts_at LIMIT 3`,
+        [customerId],
+      ),
+    ]);
+    return { bookings: result.rows, planVisits: visits.rows };
   });
 
   app.get<{ Params: { id: string } }>(
@@ -561,7 +585,7 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
     },
   );
 
-  app.post<{ Params: { id: string }; Body: { stars: number; tags?: string[] } }>(
+  app.post<{ Params: { id: string }; Body: { stars: number; tags?: string[]; review?: string } }>(
     '/bookings/:id/rating',
     {
       preHandler: guards.customer,
@@ -574,6 +598,7 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
           properties: {
             stars: { type: 'integer', minimum: 1, maximum: 5 },
             tags: { type: 'array', uniqueItems: true, maxItems: 5, items: { type: 'string', enum: RATING_TAGS } },
+            review: { type: 'string', maxLength: 1000 },
           },
         },
       },
@@ -582,10 +607,10 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
       const customerId = currentUser(request).id;
       try {
         const inserted = await pool.query(
-          `INSERT INTO ratings (booking_id, pro_id, customer_id, stars, tags)
-           SELECT id, pro_id, customer_id, $3, $4 FROM bookings
+          `INSERT INTO ratings (booking_id, pro_id, customer_id, stars, tags, review)
+           SELECT id, pro_id, customer_id, $3, $4, $5 FROM bookings
            WHERE id = $1 AND customer_id = $2 AND status = 'completed'`,
-          [request.params.id, customerId, request.body.stars, request.body.tags ?? []],
+          [request.params.id, customerId, request.body.stars, request.body.tags ?? [], request.body.review?.trim() || null],
         );
         if (!inserted.rowCount) {
           throw conflict('not_ratable');

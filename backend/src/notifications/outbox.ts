@@ -23,6 +23,7 @@ export type NotificationKind =
   | 'pro_account'
   | 'account'
   | 'team_message'
+  | 'chat_message'
   | 'plan_pro_changed'
   | 'payout_sent'
   | 'waitlist_open'
@@ -62,6 +63,7 @@ const SUBJECTS: Partial<Record<NotificationKind, string>> = {
   booking_rescheduled: 'Your MISK booking has a new time',
   document_expiring: 'A document of yours runs out soon',
   team_message: 'A message from the MISK team',
+  chat_message: 'A new message about your MISK job',
   account: 'About your MISK account',
 };
 

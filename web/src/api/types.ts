@@ -108,7 +108,7 @@ export interface BookingBase {
   /** Problem photos are only sent to the customer who took them and to the MISK team. */
   photos: { id: string; kind: 'customer' | 'completion' | 'problem' }[];
   extras: Extra[];
-  rating: { stars: number; tags: string[] } | null;
+  rating: { stars: number; tags: string[]; review?: string | null } | null;
 }
 
 export interface ProSummary {
@@ -139,6 +139,8 @@ export interface CustomerBooking extends BookingBase, Money {
   lateCancel: boolean;
   tip: { amountCents: number; proCents: number; status: 'pending' | 'captured' | 'failed' } | null;
   canTip: boolean;
+  /** Chat messages from the pro the customer has not opened yet (D67). */
+  unreadMessages?: number;
 }
 
 export interface ProJob extends BookingBase {
@@ -240,6 +242,53 @@ export interface BookingListItem {
   totalCents: number;
   proName: string | null;
   canRate: boolean;
+  // The Bookings page (D67).
+  endsAt?: string;
+  completedAt?: string | null;
+  paymentStatus?: PaymentStatus;
+  hasReceipt?: boolean;
+  canReportProblem?: boolean;
+  problemOpen?: boolean;
+  unreadMessages?: number;
+  categorySlug?: string;
+  categoryIcon?: IconName;
+  categoryActive?: boolean;
+}
+
+/** A coming visit of one of the customer's plans, on the Upcoming tab. */
+export interface PlanVisitItem {
+  id: string;
+  startsAt: string;
+  endsAt: string;
+  subscriptionId: string;
+  planName: string;
+  categoryId: string;
+  categoryIcon: IconName;
+  proName: string | null;
+}
+
+/** One message in the chat between customer and pro of a booking (D67). */
+export interface ChatMessage {
+  id: string;
+  from: 'customer' | 'pro';
+  body: string;
+  createdAt: string;
+  readAt: string | null;
+}
+
+export type ReceiptState = 'paid' | 'charging' | 'on_hold' | 'refunded' | 'released' | 'unpaid';
+
+export interface Receipt {
+  number: string;
+  bookingNumber: string;
+  date: string;
+  serviceName: string;
+  proName: string | null;
+  address: string;
+  lines: { label: string; cents: number; kind: 'job' | 'extra' | 'fee' | 'tip' }[];
+  totalCents: number;
+  state: ReceiptState;
+  chargeAt: string | null;
 }
 
 export interface Offer {
@@ -610,6 +659,8 @@ export interface Plan extends PlanInput {
   seasonFrom: number | null;
   seasonTo: number | null;
   subscribers?: number;
+  /** A visit of this plan is happening right now (D66). */
+  visitInProgress?: boolean;
   status: 'draft' | 'published';
   publishedAt: string | null;
   updatedAt: string;

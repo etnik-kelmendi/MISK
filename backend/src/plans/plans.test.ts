@@ -139,21 +139,80 @@ describe('deleting a plan', () => {
     expect((await remove(live)).statusCode).toBe(404);
   });
 
-  it('keeps a plan customers have subscribed to, even after they cancelled', async () => {
-    const id = await create();
-    const customer = await signIn(t, '+4915100000002', 'customer');
+  async function subscribe(planId: string, status: string, phone = '+4915100000002') {
+    const customer = await signIn(t, phone, 'customer');
     const customerId = (await call(t, 'GET', '/auth/me', { cookie: customer })).json().user.id;
-    await t.pool.query(
+    const inserted = await t.pool.query<{ id: string }>(
       `INSERT INTO subscriptions (customer_id, plan_id, category_id, plan_name, tasks, size, frequency, days, time_window,
          visit_minutes, address, postcode, with_addon, price_cents, pro_share_pct, seasonal, skips_per_month, min_term_months, status)
        VALUES ($1, $2, $3, 'Weekly lawn care', '{Mow}', 'M', 'weekly', '{2}', 'morning', 60, 'Invalidenstrasse 1', '10115',
-         false, 4900, 70, false, 2, 3, 'cancelled')`,
-      [customerId, id, market.gardening],
+         false, 4900, 70, false, 2, 3, $4) RETURNING id`,
+      [customerId, planId, market.gardening, status],
     );
+    return inserted.rows[0]?.id ?? '';
+  }
+  const activity = async () =>
+    ((await call(t, 'GET', '/admin/activity', { cookie: admin })).json().activity as { area: string; action: string; details: { name?: string } }[]).filter(
+      (a) => a.area === 'plans',
+    );
+
+  it('refuses to delete a plan with active subscribers, and says how many (D66)', async () => {
+    const id = await create();
+    await subscribe(id, 'active');
+    await subscribe(id, 'past_due', '+4915100000003');
+    const listed = (await call(t, 'GET', '/admin/plans', { cookie: admin })).json().plans[0];
+    expect(listed).toMatchObject({ subscribers: 2, visitInProgress: false });
     const refused = await remove(id);
     expect(refused.statusCode).toBe(409);
-    expect(refused.json()).toEqual({ error: 'plan_has_subscriptions' });
+    expect(refused.json()).toEqual({ error: 'plan_in_use' });
     expect((await call(t, 'GET', `/admin/plans/${id}`, { cookie: admin })).statusCode).toBe(200);
+  });
+
+  it('refuses to delete a plan while one of its visits is happening', async () => {
+    const id = await create();
+    const subscriptionId = await subscribe(id, 'cancelled');
+    const pro = await signIn(t, '+4915100000101', 'pro');
+    const proId = (await call(t, 'GET', '/auth/me', { cookie: pro })).json().user.id;
+    await t.pool.query(
+      `INSERT INTO subscription_visits (subscription_id, pro_id, starts_at, ends_at, status)
+       VALUES ($1, $2, now() - interval '10 minutes', now() + interval '50 minutes', 'planned')`,
+      [subscriptionId, proId],
+    );
+    expect((await call(t, 'GET', `/admin/plans/${id}`, { cookie: admin })).json().plan).toMatchObject({ subscribers: 0, visitInProgress: true });
+    expect((await remove(id)).json()).toEqual({ error: 'plan_in_use' });
+  });
+
+  it('hides a plan nobody uses any more, keeps it and its records with the name, and logs it', async () => {
+    const id = await create();
+    await call(t, 'POST', `/admin/plans/${id}/status`, { cookie: admin, body: { published: true } });
+    const subscriptionId = await subscribe(id, 'cancelled');
+    expect((await remove(id)).statusCode).toBe(204);
+    expect((await call(t, 'GET', '/admin/plans', { cookie: admin })).json().plans).toEqual([]);
+    expect((await t.app.inject({ method: 'GET', url: '/plans' })).json().plans).toEqual([]);
+    expect((await call(t, 'GET', `/admin/plans/${id}`, { cookie: admin })).statusCode).toBe(404);
+    // Not erased: the plan row stays, and the subscription still names it.
+    const kept = await t.pool.query<{ name: string; status: string; deleted: boolean }>(
+      'SELECT name, status, deleted_at IS NOT NULL AS deleted FROM plans WHERE id = $1',
+      [id],
+    );
+    expect(kept.rows[0]).toEqual({ name: 'Weekly lawn care', status: 'draft', deleted: true });
+    const record = await t.pool.query<{ plan_name: string }>('SELECT plan_name FROM subscriptions WHERE id = $1', [subscriptionId]);
+    expect(record.rows[0]?.plan_name).toBe('Weekly lawn care');
+    expect((await activity()).map((a) => [a.action, a.details.name])).toEqual([
+      ['plan_deleted', 'Weekly lawn care'],
+      ['plan_published', 'Weekly lawn care'],
+    ]);
+  });
+
+  it('unpublishes a plan in use: hidden from new customers, current subscribers keep it, and logged', async () => {
+    const id = await create();
+    await call(t, 'POST', `/admin/plans/${id}/status`, { cookie: admin, body: { published: true } });
+    const subscriptionId = await subscribe(id, 'active');
+    expect((await call(t, 'POST', `/admin/plans/${id}/status`, { cookie: admin, body: { published: false } })).statusCode).toBe(200);
+    expect((await t.app.inject({ method: 'GET', url: '/plans' })).json().plans).toEqual([]);
+    const still = await t.pool.query<{ status: string }>('SELECT status FROM subscriptions WHERE id = $1', [subscriptionId]);
+    expect(still.rows[0]?.status).toBe('active');
+    expect((await activity())[0]).toMatchObject({ action: 'plan_unpublished', details: { name: 'Weekly lawn care' } });
   });
 
   it('refuses an id that is not a plan id', async () => {

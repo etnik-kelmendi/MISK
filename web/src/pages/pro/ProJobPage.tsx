@@ -1,6 +1,6 @@
 import { useCallback, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useParams } from 'react-router';
+import { Link, useParams } from 'react-router';
 import { useApi } from '../../api/ApiContext';
 import { useMarket } from '../../api/MarketContext';
 import type { BookingStatus, ProJob } from '../../api/types';
@@ -132,7 +132,14 @@ function JobView({ job, onChanged }: { job: ProJob; onChanged: (j: ProJob) => vo
           <p className="small muted">
             {dateTime(job.startsAt, timezone)} · {job.address}, {job.postcode}
           </p>
-          <p className="small">{t('job.customer', { name: job.customer.firstName ?? '' })}</p>
+          <div className="row between">
+            <p className="small">{t('job.customer', { name: job.customer.firstName ?? '' })}</p>
+            {job.status !== 'cancelled' && (
+              <Link to={`/pro/jobs/${encodeURIComponent(job.id)}/chat`} className="mini-btn">
+                <Icon name="chat" /> {t('job.chat')}
+              </Link>
+            )}
+          </div>
           {job.notes && <p className="small">“{job.notes}”</p>}
           {stepIndex >= 0 && (
             <ol className="flow" aria-label={t('job.progress')}>

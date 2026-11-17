@@ -146,7 +146,11 @@
     "account_suspended": "Your account is suspended, so you cannot sign in for now. Please contact the MISK team.",
     "already_suspended": "This account is already suspended.",
     "not_suspended": "This account is not suspended.",
-    "account_deleted": "This account was closed, so nothing more can be done with it."
+    "account_deleted": "This account was closed, so nothing more can be done with it.",
+    "plan_in_use": "This plan is in use: it has active subscribers or a visit is happening now. Unpublish it to stop new sign-ups.",
+    "no_receipt": "There is no receipt for this booking yet.",
+    "no_email": "Add an email address to your account to get receipts by email.",
+    "chat_closed": "This chat is closed."
   },
   "nav": {
     "customer": "Main menu",
@@ -301,7 +305,27 @@
     "with": "with {{name}}",
     "rateNow": "Rate",
     "viewAll": "View all ({{count}})",
-    "showRecent": "Show the {{count}} most recent"
+    "showRecent": "Show the {{count}} most recent",
+    "tabs": "Upcoming or past bookings",
+    "tab": {
+      "upcoming": "Upcoming",
+      "past": "Past & receipts"
+    },
+    "noUpcoming": "No upcoming bookings.",
+    "noPast": "No past bookings yet.",
+    "thisYear_one": "This year · {{count}} booking",
+    "thisYear_other": "This year · {{count}} bookings",
+    "track": "Track",
+    "chat": "Chat",
+    "unread_one": "{{count}} new",
+    "unread_other": "{{count}} new",
+    "receipt": "Receipt",
+    "bookAgain": "Book again",
+    "report": "Report",
+    "onHold": "On hold",
+    "planVisits": "Plan visits",
+    "planVisit": "Plan",
+    "downloadAll": "Download all {{year}} receipts (PDF)"
   },
   "booking": {
     "title": "Your booking",
@@ -321,7 +345,14 @@
     "cancelConfirm": "Yes, cancel",
     "lateCancelQuestion": "Your pro is booked and the job starts in less than 24 hours, so cancelling now costs the full price of {{price}}. Cancel anyway?",
     "lateCancelConfirm": "Cancel and pay {{price}}",
-    "lateCancelled": "Cancelled less than 24 hours before: {{price}} was charged."
+    "lateCancelled": "Cancelled less than 24 hours before: {{price}} was charged.",
+    "doneTitle": "Job complete",
+    "chatWith": "Chat with {{name}}",
+    "late": "{{name}} has not set off yet and is running late for {{time}}. You can write to them in the chat.",
+    "rate": "Rate {{name}}",
+    "addTip": "Add a tip for {{name}}",
+    "newMessage_one": "{{name}} sent you a message",
+    "newMessage_other": "{{name}} sent you {{count}} messages"
   },
   "timeline": {
     "searching": "Booking confirmed",
@@ -333,7 +364,8 @@
     "working": "Working on it",
     "workingHint": "Your pro has started",
     "completed": "Job done",
-    "completedHint": "Photos added, payment taken"
+    "completedHint": "Photos added, payment taken",
+    "arrivingAround": "Arriving around {{time}}"
   },
   "extra": {
     "request": "Extra work request",
@@ -352,10 +384,10 @@
     "chargeAt": "We charge your card on {{date}}. Not happy with the job? Tell us before then.",
     "open": "Report a problem",
     "title": "What went wrong?",
-    "note": "Tell us what was not done right",
-    "hint": "We hold the charge until the MISK team has looked at it, and contact you.",
-    "send": "Send to MISK",
-    "received": "Thanks, we got your report. The charge is on hold and the MISK team will contact you.",
+    "note": "Tell us more",
+    "hint": "The payment is put on hold while we look into it. Support replies within 2 hours, and {{name}} gets the chance to put it right first.",
+    "send": "Send report",
+    "received": "The payment is on hold. MISK support will contact you within 2 hours.",
     "resolved": "The MISK team has dealt with the problem you reported.",
     "photos": "Photos (optional, up to {{max}})",
     "addPhotos": "Add photos",
@@ -364,7 +396,21 @@
     "removePhoto": "Remove {{name}}",
     "yourReport": "Your problem report",
     "yourPhotos": "Your photo of the problem",
-    "addPhoto": "Add a photo"
+    "addPhoto": "Add a photo",
+    "notePlaceholder": "What happened? The more detail, the faster we can help.",
+    "types": {
+      "not_finished": "Work not finished",
+      "poor_quality": "Poor quality",
+      "damage": "Something was damaged",
+      "no_show": "Pro didn't show up",
+      "wrong_price": "Charged the wrong price",
+      "other": "Other"
+    },
+    "yourPro": "your pro",
+    "notRight": "Something not right?",
+    "within24h": "Report it within 24 h and the payment is put on hold.",
+    "report": "Report",
+    "reportedTitle": "Problem reported."
   },
   "rating": {
     "title": "How was {{name}}?",
@@ -379,7 +425,29 @@
       "great_value": "Great value",
       "extra_mile": "Went the extra mile"
     },
-    "send": "Send rating"
+    "send": "Send review",
+    "pageTitle": "Rate your pro",
+    "thanksTitle": "Thank you!",
+    "review": "Write a review",
+    "optional": "(optional)",
+    "reviewPlaceholder": "What should other customers know about {{name}}?",
+    "tip": "Add a tip",
+    "tipShare": "({{pct}}% goes to {{name}})",
+    "noTip": "No tip",
+    "sent": "Review sent",
+    "sentStars": "{{name}} gets your {{stars}}-star rating.",
+    "sentWithTip": "{{name}} gets {{tip}} of your tip and your {{stars}}-star rating.",
+    "money": {
+      "charging": "charged in 24 h",
+      "onHold": "on hold",
+      "paid": "paid"
+    },
+    "regularTitle": "Make it regular",
+    "regular": "Get help like this every week",
+    "regularText": "A plan gives you a regular pro on a fixed day. Skip or pause whenever you like.",
+    "seePlans": "See the plans",
+    "notYet": "You can rate your pro once the job is done.",
+    "backToBooking": "Back to the booking"
   },
   "status": {
     "awaiting_payment": "Waiting for payment",
@@ -501,7 +569,8 @@
       "working": "I've arrived, start the job"
     },
     "complete": "Complete the job",
-    "photoFirst": "Add a photo to complete"
+    "photoFirst": "Add a photo to complete",
+    "chat": "Chat"
   },
   "week": {
     "title": "My week",
@@ -1377,7 +1446,8 @@
           "bookings": "Bookings",
           "providers": "Providers",
           "catalogue": "Catalogue",
-          "users": "Users"
+          "users": "Users",
+          "plans": "Plans"
         },
         "action": {
           "service_fee": "Changed the service fee from {{from}} to {{to}}",
@@ -1406,7 +1476,10 @@
           "user_messaged": "Sent a message",
           "user_suspended": "Suspended the account",
           "user_reinstated": "Reinstated the account",
-          "user_deleted": "Closed the account"
+          "user_deleted": "Closed the account",
+          "plan_deleted": "Deleted the plan \"{{name}}\"",
+          "plan_published": "Published the plan \"{{name}}\"",
+          "plan_unpublished": "Unpublished the plan \"{{name}}\""
         },
         "requests": "Account requests",
         "online": "Online now",
@@ -1559,14 +1632,12 @@
       "delete": {
         "button": "Delete plan",
         "title": "Delete \"{{name}}\"?",
-        "text": "The plan is removed for good. This cannot be undone.",
-        "liveText": "The plan is live: it disappears from the app at once and is removed for good. This cannot be undone.",
+        "text": "The plan disappears from the Plans list. Past bookings, receipts and payouts keep its name.",
+        "liveText": "The plan is live: it disappears from the app at once and from the Plans list. Past bookings, receipts and payouts keep its name.",
         "confirm": "Delete plan",
         "deleting": "Deleting…",
         "keep": "Keep it",
-        "short": "Delete",
-        "subscribersText_one": "{{count}} customer is subscribed, so this plan cannot be deleted. Unpublish it instead to stop new sign-ups.",
-        "subscribersText_other": "{{count}} customers are subscribed, so this plan cannot be deleted. Unpublish it instead to stop new sign-ups."
+        "short": "Delete"
       },
       "subscribers": "Subscribers",
       "actions": "Actions",
@@ -1587,7 +1658,16 @@
         "tooBig": "Visit length can be at most {{max}} minutes",
         "step": "Visit length must be in steps of {{step}} minutes, for example 30, 45 or 60"
       },
-      "savedClose": "Close"
+      "savedClose": "Close",
+      "inUse": {
+        "title": "\"{{name}}\" can't be deleted",
+        "subscribers_one": "This plan has {{count}} active subscriber and can't be deleted. Unpublish it to stop new sign-ups; the subscriber keeps the plan.",
+        "subscribers_other": "This plan has {{count}} active subscribers and can't be deleted. Unpublish it to stop new sign-ups; current subscribers keep the plan.",
+        "subscribersDraft_one": "This plan has {{count}} active subscriber and can't be deleted. It is already unpublished, so nobody new can sign up.",
+        "subscribersDraft_other": "This plan has {{count}} active subscribers and can't be deleted. It is already unpublished, so nobody new can sign up.",
+        "visit": "A visit of this plan is happening right now, so it can't be deleted. Try again once the visit is done.",
+        "close": "Close"
+      }
     },
     "signUp": {
       "title": "Request an admin account",
@@ -2040,7 +2120,8 @@
     "extraWhatMissing": "Describe the extra work.",
     "extraPriceMissing": "Enter the price of the extra work, such as 20 or 19.50.",
     "tradeNameMissing": "Enter a name for the trade, such as \"Moving help\".",
-    "taskEmpty": "Type a task first, then add it."
+    "taskEmpty": "Type a task first, then add it.",
+    "problemTypeMissing": "Choose what went wrong."
   },
   "inbox": {
     "title": "Messages",
@@ -2074,5 +2155,73 @@
   "proBook": {
     "hint": "Need help at your own home? Book a service with the same account. Your own bookings never come to you as jobs.",
     "button": "Book a service for yourself"
+  },
+  "receipt": {
+    "brand": "MISK",
+    "title": "Receipt",
+    "number": "Receipt #{{number}}",
+    "kind": {
+      "fee": "Service fee",
+      "tip": "Tip"
+    },
+    "vat": "Prices include VAT.",
+    "state": {
+      "paid": "Paid",
+      "charging": "Charging in 24 h",
+      "on_hold": "On hold",
+      "refunded": "Refunded",
+      "released": "Not charged",
+      "unpaid": "Not paid"
+    },
+    "charging": "Your card is charged 24 hours after the job, unless you report a problem.",
+    "chargeAt": "Your card is charged on {{date}}, unless you report a problem.",
+    "onHold": "The payment is on hold while support looks into your report.",
+    "email": "Email",
+    "pdf": "PDF",
+    "sent": "Receipt sent to {{email}}."
+  },
+  "chat": {
+    "conversation": "Conversation with {{name}}",
+    "empty": "No messages yet. Write to {{name}} here.",
+    "you": "You",
+    "quickReplies": "Quick replies",
+    "message": "Message to {{name}}",
+    "placeholder": "Message {{name}}…",
+    "send": "Send",
+    "closed": "You can write here once a pro has accepted the job, and up to 7 days after it is done.",
+    "yourCustomer": "Your customer",
+    "extraAsked": "You asked for extra work: {{description}}, +{{price}}",
+    "status": {
+      "awaiting_payment": "Waiting for payment",
+      "searching": "Finding your pro",
+      "unassigned": "Finding your pro",
+      "accepted": "Booked for your job",
+      "on_the_way": "● On the way to you",
+      "working": "● Working on your job",
+      "completed": "Job complete",
+      "cancelled": "Booking cancelled"
+    },
+    "events": {
+      "customer": {
+        "accepted": "{{name}} accepted your job",
+        "on_the_way": "{{name}} is on the way",
+        "working": "{{name}} started working",
+        "completed": "{{name}} finished the job"
+      },
+      "pro": {
+        "accepted": "You accepted the job",
+        "on_the_way": "You set off to {{name}}",
+        "working": "You started working",
+        "completed": "You finished the job"
+      }
+    },
+    "quick": {
+      "thanks": "Thanks!",
+      "home": "I'll be home in time",
+      "gate": "The gate is open",
+      "onMyWay": "I'm on my way",
+      "arrived": "I'm here",
+      "done": "All done, have a look!"
+    }
   }
 }

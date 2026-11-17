@@ -59,7 +59,7 @@ export async function loadBooking(db: Queryable, bookingId: string, viewer: View
   if (!b) {
     return null;
   }
-  const [events, photos, extras, rating, proRating, tip] = await Promise.all([
+  const [events, photos, extras, rating, proRating, tip, unread] = await Promise.all([
     db.query('SELECT status, created_at AS at FROM booking_events WHERE booking_id = $1 ORDER BY id', [bookingId]),
     db.query('SELECT upload_id AS id, kind FROM booking_photos WHERE booking_id = $1 ORDER BY created_at', [bookingId]),
     db.query<{ id: string; description: string; priceCents: number; status: string; createdAt: Date }>(
@@ -67,7 +67,7 @@ export async function loadBooking(db: Queryable, bookingId: string, viewer: View
        FROM extra_requests WHERE booking_id = $1 ORDER BY created_at`,
       [bookingId],
     ),
-    db.query('SELECT stars, tags, created_at AS "createdAt" FROM ratings WHERE booking_id = $1', [bookingId]),
+    db.query('SELECT stars, tags, review, created_at AS "createdAt" FROM ratings WHERE booking_id = $1', [bookingId]),
     b.proId
       ? db.query<{ average: number | null; count: number }>(
           'SELECT round(avg(stars)::numeric, 2)::float AS average, count(*)::int AS count FROM ratings WHERE pro_id = $1',
@@ -77,6 +77,11 @@ export async function loadBooking(db: Queryable, bookingId: string, viewer: View
     db.query<{ amountCents: number; proCents: number; status: string }>(
       'SELECT amount_cents AS "amountCents", pro_cents AS "proCents", status FROM tips WHERE booking_id = $1',
       [bookingId],
+    ),
+    // Chat messages the viewer has not seen yet (D67).
+    db.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM booking_messages WHERE booking_id = $1 AND sender_role <> $2 AND read_at IS NULL",
+      [bookingId, viewer === 'pro' ? 'pro' : 'customer'],
     ),
   ]);
 
@@ -146,6 +151,7 @@ export async function loadBooking(db: Queryable, bookingId: string, viewer: View
           : null,
       lateCancel: b.lateCancel,
       tip: tip.rows[0] ?? null,
+      unreadMessages: unread.rows[0]?.n ?? 0,
       canTip: b.status === 'completed' && b.proId !== null && (!tip.rows[0] || tip.rows[0].status === 'failed'),
       canRate: b.status === 'completed' && !rating.rowCount,
       // Until the card is charged, the customer can tell MISK something went wrong.

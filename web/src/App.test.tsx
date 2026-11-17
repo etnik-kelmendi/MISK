@@ -428,6 +428,7 @@ describe('my bookings', () => {
     const api = fakeApi(users.customer);
     api.on('GET /bookings', { body: { bookings: Array.from({ length: 13 }, (_, i) => booking(i)) } });
     renderAt('/bookings');
+    await user().click(await screen.findByRole('button', { name: 'Past & receipts' }));
     expect(await screen.findByText('Job 10')).toBeInTheDocument();
     expect(screen.queryByText('Job 11')).not.toBeInTheDocument();
     const viewAll = screen.getByRole('button', { name: 'View all (13)' });
@@ -441,9 +442,96 @@ describe('my bookings', () => {
   it('shows no "View all" for ten bookings or fewer', async () => {
     const api = fakeApi(users.customer);
     api.on('GET /bookings', { body: { bookings: Array.from({ length: 10 }, (_, i) => booking(i)) } });
-    renderAt('/bookings');
+    renderAt('/bookings?tab=past');
     expect(await screen.findByText('Job 10')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /View all/ })).not.toBeInTheDocument();
+  });
+
+  it('shows upcoming jobs with Track and Chat, and plan visits, on the first tab', async () => {
+    const api = fakeApi(users.customer);
+    api.on('GET /bookings', {
+      body: {
+        bookings: [
+          { ...booking(0), id: 'b-up', status: 'accepted', serviceName: 'Hedge trimming', unreadMessages: 2, categoryIcon: 'leaf' },
+          { ...booking(1), hasReceipt: true },
+        ],
+        planVisits: [
+          {
+            id: 'v1',
+            startsAt: '2026-12-02T08:00:00.000Z',
+            endsAt: '2026-12-02T09:00:00.000Z',
+            subscriptionId: 's1',
+            planName: 'Weekly lawn care',
+            categoryId: 'cat-garden',
+            categoryIcon: 'leaf',
+            proName: 'Marta',
+          },
+        ],
+      },
+    });
+    renderAt('/bookings');
+    expect(await screen.findByText('Hedge trimming')).toBeInTheDocument();
+    expect(screen.queryByText('Job 2')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Track' })).toHaveAttribute('href', '/bookings/b-up');
+    expect(screen.getByRole('link', { name: /Chat\s*2 new/ })).toHaveAttribute('href', '/bookings/b-up/chat');
+    expect(screen.getByRole('link', { name: /Weekly lawn care/ })).toHaveAttribute('href', '/my-plans/s1');
+    expect(screen.getByRole('button', { name: 'Upcoming' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('opens the receipt of a past booking and emails it', async () => {
+    const api = fakeApi(users.customer);
+    api.on('GET /bookings', { body: { bookings: [{ ...booking(0), hasReceipt: true, categorySlug: 'garden', categoryActive: true }] } });
+    api.on('GET /bookings/b-0/receipt', {
+      body: {
+        receipt: {
+          number: 'R-1042',
+          bookingNumber: 'B-1042',
+          date: '2026-11-06T10:00:00.000Z',
+          serviceName: 'Lawn mowing',
+          proName: 'Daniel',
+          address: '12 Linden Street, 10115',
+          lines: [
+            { label: 'Lawn mowing, medium job', cents: 4550, kind: 'job' },
+            { label: 'Trim the front hedge (approved in the app)', cents: 2000, kind: 'extra' },
+            { label: 'Service fee', cents: 290, kind: 'fee' },
+          ],
+          totalCents: 6840,
+          state: 'charging',
+          chargeAt: '2026-11-07T10:00:00.000Z',
+        },
+      },
+    });
+    api.on('POST /bookings/b-0/receipt/email', { body: { sentTo: 'anna@example.com' } });
+    renderAt('/bookings?tab=past');
+    expect(await screen.findByRole('link', { name: 'Book again' })).toHaveAttribute('href', '/category/garden');
+    await user().click(screen.getByRole('button', { name: 'Receipt' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Receipt' });
+    expect(await within(sheet).findByText('Receipt #R-1042')).toBeInTheDocument();
+    expect(within(sheet).getByText('Trim the front hedge (approved in the app)')).toBeInTheDocument();
+    expect(within(sheet).getByText('€68.40')).toBeInTheDocument();
+    expect(within(sheet).getByRole('link', { name: 'PDF' })).toHaveAttribute('href', expect.stringMatching(/\/bookings\/b-0\/receipt\.pdf$/));
+    await user().click(within(sheet).getByRole('button', { name: 'Email' }));
+    expect(await within(sheet).findByText('Receipt sent to anna@example.com.')).toBeInTheDocument();
+    await user().keyboard('{Escape}');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('reports a problem from the list: what went wrong first, then the detail', async () => {
+    const api = fakeApi(users.customer);
+    api.on('GET /bookings', { body: { bookings: [{ ...booking(0), canReportProblem: true }] } });
+    api.on('POST /bookings/b-0/problem', { body: { booking: {} } });
+    renderAt('/bookings?tab=past');
+    await user().click(await screen.findByRole('button', { name: 'Report' }));
+    const sheet = screen.getByRole('dialog', { name: 'Report a problem' });
+    await user().click(within(sheet).getByRole('button', { name: 'Send report' }));
+    expect(within(sheet).getByText('Choose what went wrong.')).toBeInTheDocument();
+    expect(api.calls).not.toContain('POST /bookings/b-0/problem');
+    await user().click(within(sheet).getByRole('radio', { name: 'Poor quality' }));
+    await user().type(within(sheet).getByLabelText('Tell us more'), ' Edges not cut ');
+    await user().click(within(sheet).getByRole('button', { name: 'Send report' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(api.bodies['POST /bookings/b-0/problem']).toEqual({ note: 'Poor quality: Edges not cut' });
+    expect(api.calls.filter((c) => c === 'GET /bookings').length).toBeGreaterThan(1);
   });
 });
 
@@ -578,73 +666,119 @@ describe('a booking', () => {
     expect(await screen.findByText('Cancelled less than 24 hours before: €48.40 was charged.')).toBeInTheDocument();
   });
 
-  it('takes a tip and shows how much of it goes to the pro', async () => {
+  it('shows the pro, the timeline and a way to rate once the job is done', async () => {
     const api = fakeApi(users.customer);
-    const done = { status: 'completed' as const, canCancel: false, canTip: true };
+    api.on('GET /bookings/b1', { body: { booking: booking({ status: 'on_the_way', unreadMessages: 1 }) } });
+    renderAt('/bookings/b1');
+    expect(await screen.findByRole('link', { name: 'Chat with Daniel' })).toHaveAttribute('href', '/bookings/b1/chat');
+    expect(screen.getByRole('link', { name: 'Daniel sent you a message' })).toHaveAttribute('href', '/bookings/b1/chat');
+    expect(screen.getByText('12 Linden Street, 10115')).toBeInTheDocument();
+  });
+
+  it('links to the rating once the job is done, and opens the receipt', async () => {
+    const api = fakeApi(users.customer);
+    api.on('GET /bookings/b1', { body: { booking: booking({ status: 'completed', canCancel: false, canRate: true }) } });
+    api.on('GET /bookings/b1/receipt', { status: 404, body: { error: 'no_receipt' } });
+    renderAt('/bookings/b1');
+    expect(await screen.findByRole('heading', { name: 'Job complete' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Rate Daniel' })).toHaveAttribute('href', '/bookings/b1/rate');
+    await user().click(screen.getByRole('button', { name: 'Receipt' }));
+    expect(await within(screen.getByRole('dialog', { name: 'Receipt' })).findByText('This could not be loaded.')).toBeInTheDocument();
+  });
+
+  it('takes stars, tags, a written review and a tip in one go', async () => {
+    const api = fakeApi(users.customer);
+    const done = { status: 'completed' as const, canCancel: false };
+    api.on('GET /bookings/b1', { body: { booking: booking({ ...done, canRate: true, canTip: true }) } });
+    const rated = { ...done, canRate: false, canTip: true, rating: { stars: 5, tags: ['tidy'], review: 'Lovely work' } };
+    api.on('POST /bookings/b1/rating', { status: 201, body: { booking: booking(rated) } });
+    api.on('POST /bookings/b1/tip', {
+      status: 201,
+      body: { booking: booking({ ...rated, canTip: false, tip: { amountCents: 500, proCents: 410, status: 'captured' } }) },
+    });
+    renderAt('/bookings/b1/rate');
+    expect(await screen.findByRole('heading', { name: 'How was Daniel?' })).toBeInTheDocument();
+    expect(screen.getByText('(82% goes to Daniel)')).toBeInTheDocument();
+    const send = screen.getByRole('button', { name: 'Send review' });
+    await user().click(send);
+    expect(screen.getByText('Choose from 1 to 5 stars.')).toBeInTheDocument();
+    expect(api.calls).not.toContain('POST /bookings/b1/rating');
+    await user().click(screen.getByRole('radio', { name: '5 stars' }));
+    await user().click(screen.getByRole('checkbox', { name: 'Tidy work' }));
+    await user().type(screen.getByLabelText(/Write a review/), 'Lovely work');
+    await user().click(screen.getByRole('radio', { name: '€5' }));
+    expect(screen.getByText('€4.10 goes to Daniel.')).toBeInTheDocument();
+    await user().click(send);
+    expect(await screen.findByText('Review sent')).toBeInTheDocument();
+    expect(screen.getByText('Daniel gets €4.10 of your tip and your 5-star rating.')).toBeInTheDocument();
+    expect(api.bodies['POST /bookings/b1/rating']).toEqual({ stars: 5, tags: ['tidy'], review: 'Lovely work' });
+    expect(api.bodies['POST /bookings/b1/tip']).toEqual({ amountCents: 500 });
+    expect(screen.getByRole('link', { name: /See the plans/ })).toHaveAttribute('href', '/plans');
+  });
+
+  it('sends no tip when "No tip" stays chosen', async () => {
+    const api = fakeApi(users.customer);
+    const done = { status: 'completed' as const, canCancel: false };
+    api.on('GET /bookings/b1', { body: { booking: booking({ ...done, canRate: true, canTip: true }) } });
+    api.on('POST /bookings/b1/rating', { status: 201, body: { booking: booking({ ...done, canTip: true, rating: { stars: 4, tags: [] } }) } });
+    renderAt('/bookings/b1/rate');
+    await user().click(await screen.findByRole('radio', { name: '4 stars' }));
+    await user().click(screen.getByRole('button', { name: 'Send review' }));
+    expect(await screen.findByText('Review sent')).toBeInTheDocument();
+    expect(api.bodies['POST /bookings/b1/rating']).toEqual({ stars: 4, tags: [] });
+    expect(api.calls).not.toContain('POST /bookings/b1/tip');
+  });
+
+  it('still takes a tip after the review', async () => {
+    const api = fakeApi(users.customer);
+    const done = { status: 'completed' as const, canCancel: false, canTip: true, rating: { stars: 5, tags: [] } };
     api.on('GET /bookings/b1', { body: { booking: booking(done) } });
     api.on('POST /bookings/b1/tip', {
       status: 201,
       body: { booking: booking({ ...done, canTip: false, tip: { amountCents: 1000, proCents: 820, status: 'captured' } }) },
     });
-    renderAt('/bookings/b1');
+    renderAt('/bookings/b1/rate');
     expect(await screen.findByText('Add a tip for Daniel?')).toBeInTheDocument();
     expect(screen.getByText('€4.10 goes to Daniel.')).toBeInTheDocument();
     await user().click(screen.getByRole('radio', { name: '€10' }));
     expect(screen.getByText('€8.20 goes to Daniel.')).toBeInTheDocument();
     await user().click(screen.getByRole('button', { name: 'Tip €10' }));
     expect(api.bodies['POST /bookings/b1/tip']).toEqual({ amountCents: 1000 });
-    expect(await screen.findByText('You tipped €10. €8.20 went to Daniel. Thank you!')).toBeInTheDocument();
+    expect(await screen.findByText('Daniel gets €8.20 of your tip and your 5-star rating.')).toBeInTheDocument();
   });
 
-  it('takes a star rating with tags', async () => {
-    const api = fakeApi(users.customer);
-    api.on('GET /bookings/b1', { body: { booking: booking({ status: 'completed', canCancel: false, canRate: true }) } });
-    api.on('POST /bookings/b1/rating', {
-      status: 201,
-      body: { booking: booking({ status: 'completed', canRate: false, rating: { stars: 5, tags: ['tidy'] } }) },
-    });
-    renderAt('/bookings/b1');
-    const send = await screen.findByRole('button', { name: 'Send rating' });
-    await user().click(send);
-    expect(screen.getByText('Choose from 1 to 5 stars.')).toBeInTheDocument();
-    expect(api.calls).not.toContain('POST /bookings/b1/rating');
-    await user().click(screen.getByRole('radio', { name: '5 stars' }));
-    expect(screen.queryByText('Choose from 1 to 5 stars.')).not.toBeInTheDocument();
-    await user().click(screen.getByRole('checkbox', { name: 'Tidy work' }));
-    await user().click(send);
-    expect(await screen.findByText('You gave 5 stars. Thank you!')).toBeInTheDocument();
-    expect(api.bodies['POST /bookings/b1/rating']).toEqual({ stars: 5, tags: ['tidy'] });
-  });
   it('lets the customer report a problem before the card is charged', async () => {
     const api = fakeApi(users.customer);
     const done = { status: 'completed' as const, canCancel: false, chargeAt: '2026-11-07T10:00:00.000Z' };
     api.on('GET /bookings/b1', { body: { booking: booking({ ...done, canReportProblem: true }) } });
     api.on('POST /bookings/b1/problem', {
       body: {
-        booking: booking({ ...done, canReportProblem: false, problemReportedAt: '2026-11-06T12:00:00.000Z', problemNote: 'Back lawn not mowed' }),
+        booking: booking({ ...done, canReportProblem: false, problemReportedAt: '2026-11-06T12:00:00.000Z', problemNote: 'Other: Back lawn not mowed' }),
       },
     });
     renderAt('/bookings/b1');
     expect(await screen.findByText('We charge your card on Sat 7 Nov, 11:00. Not happy with the job? Tell us before then.')).toBeInTheDocument();
-    await user().click(screen.getByRole('button', { name: 'Report a problem' }));
-    const send = screen.getByRole('button', { name: 'Send to MISK' });
+    await user().click(screen.getByRole('button', { name: 'Report' }));
+    const sheet = screen.getByRole('dialog', { name: 'Report a problem' });
+    const send = within(sheet).getByRole('button', { name: 'Send report' });
+    await user().click(within(sheet).getByRole('radio', { name: 'Other' }));
     await user().click(send);
-    expect(screen.getByText('Tell us what went wrong.')).toBeInTheDocument();
-    expect(screen.getByLabelText('Tell us what was not done right')).toHaveFocus();
-    await user().type(screen.getByLabelText('Tell us what was not done right'), 'No');
-    expect(screen.getByText('Write at least 3 characters.')).toBeInTheDocument();
+    expect(within(sheet).getByText('Tell us what went wrong.')).toBeInTheDocument();
+    await user().type(within(sheet).getByLabelText('Tell us more'), 'No');
+    expect(within(sheet).getByText('Write at least 3 characters.')).toBeInTheDocument();
     expect(api.calls).not.toContain('POST /bookings/b1/problem');
-    await user().clear(screen.getByLabelText('Tell us what was not done right'));
-    await user().type(screen.getByLabelText('Tell us what was not done right'), '  Back lawn not mowed ');
+    await user().clear(within(sheet).getByLabelText('Tell us more'));
+    await user().type(within(sheet).getByLabelText('Tell us more'), '  Back lawn not mowed ');
     await user().click(send);
-    expect(await screen.findByText(/we got your report/)).toBeInTheDocument();
-    expect(api.bodies['POST /bookings/b1/problem']).toEqual({ note: 'Back lawn not mowed' });
+    expect(await screen.findByText('The payment is on hold. MISK support will contact you within 2 hours.')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(api.bodies['POST /bookings/b1/problem']).toEqual({ note: 'Other: Back lawn not mowed' });
   });
 
   it('sends photos with the problem report, and can add more while it is open', async () => {
     const api = fakeApi(users.customer);
     const done = { status: 'completed' as const, canCancel: false, chargeAt: '2026-11-07T10:00:00.000Z' };
-    const reported = { ...done, canReportProblem: false, problemReportedAt: '2026-11-06T12:00:00.000Z', problemNote: 'Mud on the terrace' };
+    const reported = { ...done, canReportProblem: false, problemReportedAt: '2026-11-06T12:00:00.000Z', problemNote: 'Something was damaged: Mud on the terrace' };
     let photos: { id: string; kind: 'problem' }[] = [];
     api.on('GET /bookings/b1', { body: { booking: booking({ ...done, canReportProblem: true }) } });
     api.on('POST /bookings/b1/problem', () => ({ body: { booking: booking({ ...reported, photos }) } }));
@@ -653,26 +787,74 @@ describe('a booking', () => {
       return { status: 201, body: { booking: booking({ ...reported, photos }) } };
     });
     renderAt('/bookings/b1');
-    await user().click(await screen.findByRole('button', { name: 'Report a problem' }));
-    await user().type(screen.getByLabelText('Tell us what was not done right'), 'Mud on the terrace');
-    const picker = screen.getByLabelText('Add photos');
-    await user().upload(picker, [
+    await user().click(await screen.findByRole('button', { name: 'Report' }));
+    const sheet = screen.getByRole('dialog', { name: 'Report a problem' });
+    await user().click(within(sheet).getByRole('radio', { name: 'Something was damaged' }));
+    await user().type(within(sheet).getByLabelText('Tell us more'), 'Mud on the terrace');
+    await user().upload(within(sheet).getByLabelText('Add photos'), [
       new File(['a'], 'terrace.jpg', { type: 'image/jpeg' }),
       new File(['b'], 'steps.png', { type: 'image/png' }),
       new File(['c'], 'extra.png', { type: 'image/png' }),
     ]);
-    expect(within(screen.getByRole('list', { name: 'Photos to send' })).getAllByRole('listitem')).toHaveLength(3);
-    await user().click(screen.getByRole('button', { name: 'Remove extra.png' }));
-    expect(within(screen.getByRole('list', { name: 'Photos to send' })).getAllByRole('listitem')).toHaveLength(2);
+    expect(within(within(sheet).getByRole('list', { name: 'Photos to send' })).getAllByRole('listitem')).toHaveLength(3);
+    await user().click(within(sheet).getByRole('button', { name: 'Remove extra.png' }));
+    expect(within(within(sheet).getByRole('list', { name: 'Photos to send' })).getAllByRole('listitem')).toHaveLength(2);
 
-    await user().click(screen.getByRole('button', { name: 'Send to MISK' }));
-    expect(await screen.findByText(/we got your report/)).toBeInTheDocument();
+    await user().click(within(sheet).getByRole('button', { name: 'Send report' }));
+    expect(await screen.findByText('The payment is on hold. MISK support will contact you within 2 hours.')).toBeInTheDocument();
     expect(api.calls.filter((c) => c === 'POST /bookings/b1/problem/photos')).toHaveLength(2);
+    expect(screen.getByText('Something was damaged: Mud on the terrace')).toBeInTheDocument();
     const sent = screen.getByRole('list', { name: 'Your photo of the problem' });
     expect(within(sent).getAllByRole('img')).toHaveLength(2);
 
     await user().upload(screen.getByLabelText('Add a photo'), new File(['d'], 'more.jpg', { type: 'image/jpeg' }));
     await waitFor(() => expect(within(screen.getByRole('list', { name: 'Your photo of the problem' })).getAllByRole('img')).toHaveLength(3));
+  });
+});
+
+describe('chat with the pro (D67)', () => {
+  const pending = { id: 'x1', description: 'Trim the front hedge', priceCents: 2000, status: 'pending' as const, createdAt: '2026-11-06T09:30:00.000Z' };
+  const message = (id: string, from: 'customer' | 'pro', body: string) => ({ id, from, body, createdAt: `2026-11-06T09:2${id}:00.000Z`, readAt: null });
+
+  it('shows messages, status notes and extra work, and sends typed and quick messages', async () => {
+    const api = fakeApi(users.customer);
+    api.on('GET /bookings/b1', { body: { booking: booking({ status: 'working', extras: [pending] }) } });
+    api.on('GET /bookings/b1/messages', { body: { messages: [message('1', 'pro', 'Starting with the back lawn')], canWrite: true } });
+    let sent = 1;
+    api.on('POST /bookings/b1/messages', () => {
+      sent += 1;
+      return { status: 201, body: { message: message(String(sent), 'customer', sent === 2 ? 'The gate code is 4411' : 'Thanks!') } };
+    });
+    api.on('POST /bookings/b1/extras/x1/approve', {
+      body: { booking: booking({ status: 'working', extras: [{ ...pending, status: 'approved' }], extrasCents: 2000, totalCents: 6840 }), payment: null },
+    });
+    renderAt('/bookings/b1/chat');
+    const log = await screen.findByRole('log', { name: 'Conversation with Daniel' });
+    expect(await within(log).findByText('Starting with the back lawn')).toBeInTheDocument();
+    expect(within(log).getByText('Daniel accepted your job')).toBeInTheDocument();
+    expect(screen.getByText('● Working on your job')).toBeInTheDocument();
+
+    await user().type(screen.getByLabelText('Message to Daniel'), '  The gate code is 4411 ');
+    await user().click(screen.getByRole('button', { name: 'Send' }));
+    expect(api.bodies['POST /bookings/b1/messages']).toEqual({ body: 'The gate code is 4411' });
+    expect(await within(log).findByText('The gate code is 4411')).toBeInTheDocument();
+    expect(screen.getByLabelText('Message to Daniel')).toHaveValue('');
+
+    await user().click(within(screen.getByRole('group', { name: 'Quick replies' })).getByRole('button', { name: 'Thanks!' }));
+    expect(api.bodies['POST /bookings/b1/messages']).toEqual({ body: 'Thanks!' });
+
+    await user().click(within(log).getByRole('button', { name: 'Approve +€20' }));
+    expect(await within(log).findByText('Approved')).toBeInTheDocument();
+  });
+
+  it('is closed after the job, with a way to rate the pro instead', async () => {
+    const api = fakeApi(users.customer);
+    api.on('GET /bookings/b1', { body: { booking: booking({ status: 'completed', canCancel: false, canRate: true }) } });
+    api.on('GET /bookings/b1/messages', { body: { messages: [], canWrite: false } });
+    renderAt('/bookings/b1/chat');
+    expect(await screen.findByText(/You can write here once a pro has accepted the job/)).toBeInTheDocument();
+    expect(screen.queryByLabelText('Message to Daniel')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Rate Daniel' })).toHaveAttribute('href', '/bookings/b1/rate');
   });
 });
 
@@ -1302,15 +1484,31 @@ describe('plan page', () => {
     expect(screen.getByText('Lawn care', { selector: 'a' })).toBeInTheDocument();
   });
 
-  it('says on the list why a plan with subscribers cannot be deleted', async () => {
-    const { api } = openPlansList([listed('p1', 'Lawn care', 3, 'published')]);
-    api.on('DELETE /admin/plans/p1', { status: 409, body: { error: 'plan_has_subscriptions' } });
+  it('does not delete a plan in use, says why with the number of subscribers, and offers to unpublish it (D66)', async () => {
+    const { api } = openPlansList([listed('p1', 'Lawn care', 12, 'published')]);
+    api.on('POST /admin/plans/p1/status', { body: { plan: listed('p1', 'Lawn care', 12, 'draft') } });
     renderAt('/admin/plans');
     await user().click(await screen.findByRole('button', { name: 'Delete Lawn care' }));
-    expect(screen.getByRole('alertdialog')).toHaveTextContent('3 customers are subscribed, so this plan cannot be deleted.');
-    await user().click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Delete plan' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Customers have subscribed to this plan, so it cannot be deleted.');
+    const dialog = screen.getByRole('alertdialog', { name: '"Lawn care" can\x27t be deleted' });
+    expect(dialog).toHaveTextContent("This plan has 12 active subscribers and can't be deleted. Unpublish it to stop new sign-ups");
+    expect(within(dialog).queryByRole('button', { name: 'Delete plan' })).not.toBeInTheDocument();
+    await user().click(within(dialog).getByRole('button', { name: 'Unpublish' }));
+    await waitFor(() => expect(api.bodies['POST /admin/plans/p1/status']).toEqual({ published: false }));
+    expect(api.calls).not.toContain('DELETE /admin/plans/p1');
     expect(screen.getByText('Lawn care', { selector: 'a' })).toBeInTheDocument();
+  });
+
+  it('does not delete a plan while one of its visits is happening', async () => {
+    const { api } = openPlansList([{ ...listed('p1', 'Hedge care', 0, 'draft'), visitInProgress: true }]);
+    renderAt('/admin/plans');
+    await user().click(await screen.findByRole('button', { name: 'Delete Hedge care' }));
+    const dialog = screen.getByRole('alertdialog');
+    expect(dialog).toHaveTextContent('A visit of this plan is happening right now');
+    // A draft is already hidden from customers: nothing to unpublish.
+    expect(within(dialog).queryByRole('button', { name: 'Unpublish' })).not.toBeInTheDocument();
+    await user().click(within(dialog).getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(api.calls).not.toContain('DELETE /admin/plans/p1');
   });
 
   async function fillComplete() {
@@ -1443,7 +1641,8 @@ describe('plan page', () => {
     expect(save).toBeEnabled();
     await user().type(screen.getByLabelText('Plan name'), 'Half done');
     await user().click(save);
-    expect(await screen.findByText('Draft saved')).toBeInTheDocument();
+    // A new plan opens again under its own address after the first save; check the confirmation that stays.
+    await waitFor(() => expect(screen.getByText('Draft saved')).toBeInTheDocument());
     expect(api.bodies['POST /admin/plans']).toMatchObject({ name: 'Half done', categoryId: null, priceCents: null, tasks: [] });
   });
 
@@ -1556,7 +1755,8 @@ describe('plan page', () => {
     expect(screen.getByLabelText('Plan name')).toHaveValue('Unsaved');
 
     await user().click(screen.getByRole('button', { name: 'Save draft' }));
-    expect(await screen.findByText('Draft saved')).toBeInTheDocument();
+    // A new plan opens again under its own address after the first save; check the confirmation that stays.
+    await waitFor(() => expect(screen.getByText('Draft saved')).toBeInTheDocument());
     await user().click(within(screen.getByRole('navigation', { name: 'Control panel' })).getByRole('link', { name: 'Plans' }));
     expect(await screen.findByRole('heading', { level: 1, name: 'Plans' })).toBeInTheDocument();
   });

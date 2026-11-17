@@ -1,8 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 import { currentUser } from '../auth/guard.js';
 import type { AppContext } from '../context.js';
+import { withTransaction } from '../db.js';
 import { conflict, notFound } from '../errors.js';
 import { isForeignKeyViolation, uuidParams } from '../http.js';
+import { logActivity } from '../settings/activity.js';
 
 export const FREQUENCIES = ['every_2_weeks', 'weekly', 'twice_weekly', 'three_times_weekly'] as const;
 export type Frequency = (typeof FREQUENCIES)[number];
@@ -68,6 +70,18 @@ export const PLAN_COLUMNS = `p.id, p.name, p.category_id AS "categoryId", c.name
   p.min_term_months AS "minTermMonths", p.pro_share_pct AS "proSharePct", p.status,
   p.published_at AS "publishedAt", p.updated_at AS "updatedAt"`;
 export const PLAN_FROM = 'plans p LEFT JOIN categories c ON c.id = p.category_id';
+
+/**
+ * A plan is in use while someone has it: an active (or overdue) subscription that has not ended, or one of
+ * its visits happening right now. A plan in use cannot be deleted (D66).
+ */
+const IN_USE_COLUMNS = `
+  (SELECT count(*)::int FROM subscriptions s
+   WHERE s.plan_id = p.id AND s.status IN ('active', 'past_due') AND (s.ends_at IS NULL OR s.ends_at > now())) AS subscribers,
+  EXISTS (
+    SELECT 1 FROM subscription_visits v JOIN subscriptions s ON s.id = v.subscription_id
+    WHERE s.plan_id = p.id AND v.status = 'planned' AND v.starts_at <= now() AND v.ends_at > now()
+  ) AS "visitInProgress"`;
 
 /** Cleans a body for storing: trimmed text, no blank names, no duplicate tasks, the fixed season. */
 function clean(body: PlanBody) {
@@ -138,9 +152,8 @@ export async function planRoutes(app: FastifyInstance, ctx: AppContext) {
 
   async function loadPlan(id: string) {
     const found = await pool.query(
-      `SELECT ${PLAN_COLUMNS},
-         (SELECT count(*)::int FROM subscriptions s WHERE s.plan_id = p.id AND s.status IN ('active', 'past_due')) AS subscribers
-       FROM ${PLAN_FROM} WHERE p.id = $1`,
+      `SELECT ${PLAN_COLUMNS}, ${IN_USE_COLUMNS}
+       FROM ${PLAN_FROM} WHERE p.id = $1 AND p.deleted_at IS NULL`,
       [id],
     );
     if (!found.rows[0]) {
@@ -159,9 +172,8 @@ export async function planRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.get('/admin/plans', { preHandler: guards.admin }, async () => {
     const result = await pool.query(
-      `SELECT ${PLAN_COLUMNS},
-         (SELECT count(*)::int FROM subscriptions s WHERE s.plan_id = p.id AND s.status IN ('active', 'past_due')) AS subscribers
-       FROM ${PLAN_FROM} ORDER BY p.status DESC, p.name NULLS LAST`,
+      `SELECT ${PLAN_COLUMNS}, ${IN_USE_COLUMNS}
+       FROM ${PLAN_FROM} WHERE p.deleted_at IS NULL ORDER BY p.status DESC, p.name NULLS LAST`,
     );
     return { plans: result.rows };
   });
@@ -253,34 +265,45 @@ export async function planRoutes(app: FastifyInstance, ctx: AppContext) {
          WHERE id = $1`,
         [request.params.id, published ? 'published' : 'draft'],
       );
+      await logActivity(pool, {
+        adminId: currentUser(request).id,
+        area: 'plans',
+        action: published ? 'plan_published' : 'plan_unpublished',
+        details: { name: plan.name ?? '' },
+      });
       request.log.info({ event: published ? 'plan_published' : 'plan_unpublished', planId: request.params.id });
       return { plan: await loadPlan(request.params.id) };
     },
   );
 
   // Deletes a plan nobody has ever subscribed to. Subscriptions keep their plan, so those plans can only be unpublished.
+  // Deleting hides a plan that nobody is using; it is never erased, so its records keep its name (D66).
   app.delete<{ Params: { id: string } }>(
     '/admin/plans/:id',
     { preHandler: guards.admin, schema: { params: uuidParams } },
     async (request, reply) => {
       const planId = request.params.id;
-      try {
-        const deleted = await pool.query(
-          `DELETE FROM plans p WHERE p.id = $1 AND NOT EXISTS (SELECT 1 FROM subscriptions s WHERE s.plan_id = p.id)`,
+      const adminId = currentUser(request).id;
+      await withTransaction(pool, async (client) => {
+        // Locked, so a customer cannot subscribe while the plan is being deleted.
+        const found = await client.query<{ name: string | null; subscribers: number; visitInProgress: boolean }>(
+          `SELECT p.name, ${IN_USE_COLUMNS} FROM plans p WHERE p.id = $1 AND p.deleted_at IS NULL FOR UPDATE OF p`,
           [planId],
         );
-        if (!deleted.rowCount) {
-          await loadPlan(planId);
-          throw conflict('plan_has_subscriptions');
+        const plan = found.rows[0];
+        if (!plan) {
+          throw notFound();
         }
-      } catch (error) {
-        // A customer subscribing at the same moment wins: the plan stays.
-        if (isForeignKeyViolation(error)) {
-          throw conflict('plan_has_subscriptions');
+        if (plan.subscribers > 0 || plan.visitInProgress) {
+          throw conflict('plan_in_use');
         }
-        throw error;
-      }
-      request.log.info({ event: 'plan_deleted', planId, by: currentUser(request).id });
+        await client.query(
+          "UPDATE plans SET deleted_at = now(), deleted_by = $2, status = 'draft', updated_at = now() WHERE id = $1",
+          [planId, adminId],
+        );
+        await logActivity(client, { adminId, area: 'plans', action: 'plan_deleted', details: { name: plan.name ?? '' } });
+      });
+      request.log.info({ event: 'plan_deleted', planId, by: adminId });
       return reply.code(204).send();
     },
   );

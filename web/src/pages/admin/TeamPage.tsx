@@ -368,6 +368,9 @@ const KNOWN_ACTIONS = [
   'user_suspended',
   'user_reinstated',
   'user_deleted',
+  'plan_deleted',
+  'plan_published',
+  'plan_unpublished',
 ] as const;
 type KnownAction = (typeof KNOWN_ACTIONS)[number];
 

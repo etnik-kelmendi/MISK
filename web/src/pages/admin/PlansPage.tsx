@@ -20,13 +20,35 @@ export const VISITS_PER_MONTH: Record<Frequency, number> = {
 };
 
 /** One row of the plans list, with Delete behind a confirmation, like in the editor. */
-function PlanRow({ plan, onDeleted }: { plan: Plan; onDeleted: (name: string) => void }) {
+/**
+ * Why a plan cannot be deleted, or null when it can (D66): it has active subscribers, or one of its visits is
+ * happening right now. The API refuses the same (`plan_in_use`).
+ */
+export function inUseText(plan: Pick<Plan, 'subscribers' | 'visitInProgress' | 'status'>, t: (key: string, options?: Record<string, unknown>) => string): string | null {
+  const live = plan.status === 'published';
+  if ((plan.subscribers ?? 0) > 0) {
+    return t(live ? 'admin.plans.inUse.subscribers' : 'admin.plans.inUse.subscribersDraft', { count: plan.subscribers });
+  }
+  return plan.visitInProgress ? t('admin.plans.inUse.visit') : null;
+}
+
+function PlanRow({ plan, onDeleted, onChanged }: { plan: Plan; onDeleted: (name: string) => void; onChanged: () => void }) {
   const { t } = useTranslation();
   const api = useApi();
   const removal = useAction();
+  const unpublish = useAction();
   const [confirm, setConfirm] = useState(false);
   const name = plan.name ?? t('admin.plans.untitled');
   const live = plan.status === 'published';
+  const inUse = inUseText(plan, t as never);
+
+  async function hide() {
+    const done = await unpublish.run(() => api.post(`/admin/plans/${plan.id}/status`, { published: false }).then(() => true));
+    if (done) {
+      setConfirm(false);
+      onChanged();
+    }
+  }
 
   async function remove() {
     const done = await removal.run(() => api.delete(`/admin/plans/${plan.id}`).then(() => true));
@@ -73,17 +95,34 @@ function PlanRow({ plan, onDeleted }: { plan: Plan; onDeleted: (name: string) =>
       {(confirm || removal.error) && (
         <tr className="hl">
           <td colSpan={7}>
-            {confirm ? (
+            {confirm && inUse ? (
+              // In use: Delete does nothing but explain why, and offers to unpublish instead.
+              <div role="alertdialog" aria-labelledby={`delete-${plan.id}`} aria-describedby={`delete-text-${plan.id}`} className="stack tight">
+                <p id={`delete-${plan.id}`} className="b">
+                  {t('admin.plans.inUse.title', { name })}
+                </p>
+                <p id={`delete-text-${plan.id}`} className="small">
+                  {inUse}
+                </p>
+                <div className="row gap8">
+                  {live && (
+                    <button type="button" className="abtn" disabled={unpublish.busy} onClick={() => void hide()}>
+                      {t('admin.plans.unpublish')}
+                    </button>
+                  )}
+                  <button type="button" className="abtn ghost" onClick={() => setConfirm(false)}>
+                    {t('admin.plans.inUse.close')}
+                  </button>
+                </div>
+                <ErrorText error={unpublish.error} />
+              </div>
+            ) : confirm ? (
               <div role="alertdialog" aria-labelledby={`delete-${plan.id}`} aria-describedby={`delete-text-${plan.id}`} className="stack tight">
                 <p id={`delete-${plan.id}`} className="b">
                   {t('admin.plans.delete.title', { name })}
                 </p>
                 <p id={`delete-text-${plan.id}`} className="small">
-                  {(plan.subscribers ?? 0) > 0
-                    ? t('admin.plans.delete.subscribersText', { count: plan.subscribers })
-                    : live
-                      ? t('admin.plans.delete.liveText')
-                      : t('admin.plans.delete.text')}
+                  {live ? t('admin.plans.delete.liveText') : t('admin.plans.delete.text')}
                 </p>
                 <div className="row gap8">
                   <button type="button" className="abtn danger" disabled={removal.busy} onClick={() => void remove()}>
@@ -152,6 +191,7 @@ export function PlansPage() {
                     <PlanRow
                       key={plan.id}
                       plan={plan}
+                      onChanged={reload}
                       onDeleted={(name) => {
                         setDeleted(name);
                         reload();
@@ -588,7 +628,33 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
           </div>
         </div>
       )}
-      {confirmDelete && current && (
+      {confirmDelete && current && inUseText(current, t as never) && (
+        // In use (D66): Delete only explains why, and offers to unpublish instead.
+        <div className="panel leave-warning" role="alertdialog" aria-labelledby="delete-title" aria-describedby="delete-text">
+          <p id="delete-title" className="b">
+            {t('admin.plans.inUse.title', { name: current.name ?? t('admin.plans.untitled') })}
+          </p>
+          <p id="delete-text" className="small">
+            {inUseText(current, t as never)}
+          </p>
+          <div className="row gap8">
+            {live && (
+              <button
+                type="button"
+                className="abtn"
+                disabled={publish.busy}
+                onClick={() => void setPublished(false).then(() => setConfirmDelete(false))}
+              >
+                {t('admin.plans.unpublish')}
+              </button>
+            )}
+            <button type="button" className="abtn ghost" onClick={() => setConfirmDelete(false)}>
+              {t('admin.plans.inUse.close')}
+            </button>
+          </div>
+        </div>
+      )}
+      {confirmDelete && current && !inUseText(current, t as never) && (
         <div className="panel leave-warning" role="alertdialog" aria-labelledby="delete-title" aria-describedby="delete-text">
           <p id="delete-title" className="b">
             {t('admin.plans.delete.title', { name: current.name ?? t('admin.plans.untitled') })}
