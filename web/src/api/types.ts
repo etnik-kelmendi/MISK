@@ -244,6 +244,9 @@ export interface BookingListItem {
   canRate: boolean;
   // The Bookings page (D67).
   endsAt?: string;
+  /** Where the job is: Job details starts from the last one (D69). */
+  address?: string;
+  postcode?: string;
   completedAt?: string | null;
   paymentStatus?: PaymentStatus;
   hasReceipt?: boolean;

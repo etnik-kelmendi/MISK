@@ -2260,5 +2260,34 @@
     "noPlans": "No monthly plan for {{trade}} yet",
     "noPlansText": "Book a one-off job, or see the plans we offer for other trades.",
     "seeAllPlans": "See all plans"
+  },
+  "details": {
+    "package_one": "Package of {{count}} service · one pro, one visit, {{pct}}% off",
+    "package_other": "Package of {{count}} services · one pro, one visit, {{pct}}% off",
+    "sizeName": {
+      "garden": {
+        "S": "Small",
+        "M": "Medium",
+        "L": "Large"
+      },
+      "job": {
+        "S": "Small",
+        "M": "Standard",
+        "L": "Large"
+      }
+    },
+    "unsureTitle": "Not sure of the size?",
+    "unsure": {
+      "garden": "Pick your best guess (a tennis court is about 260 m²). The pro checks it when they arrive. If the job is bigger, they send you a priced request in the app, and nothing extra is charged unless you approve it. If it's smaller, you pay the lower price.",
+      "job": "Pick your best guess. The pro checks it when they arrive. If the job is bigger, they send you a priced request in the app, and nothing extra is charged unless you approve it. If it's smaller, you pay the lower price."
+    },
+    "photos": "Photos",
+    "addPhotos": "Add photos (up to {{max}})",
+    "photosAttached_one": "{{count}} photo attached",
+    "photosAttached_other": "{{count}} photos attached",
+    "fixedPrice": "Fixed price {{price}} for this size.",
+    "fixedPriceHourly": "Fixed price {{price}} for this job.",
+    "planTitle": "Need this regularly? Make it a plan",
+    "planText": "{{name}} from {{price}}/month, same pro every time"
   }
 }

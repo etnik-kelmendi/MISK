@@ -656,6 +656,69 @@ describe('the Services page (D68)', () => {
 });
 
 describe('booking a job', () => {
+  it('fills in the last address, prices each size, and sends the chosen photos with the booking (D69)', async () => {
+    const api = fakeApi(users.customer);
+    api.on('GET /postcodes', { body: { postcodes: [{ code: '10115', name: 'Mitte' }, { code: '10117', name: 'Mitte South' }] } });
+    api.on('GET /bookings', {
+      body: {
+        bookings: [
+          { id: 'old', status: 'completed', serviceName: 'Lawn mowing', categoryId: 'cat-garden', startsAt: '2026-10-01T09:00:00.000Z', totalCents: 4840, proName: null, canRate: false, address: '3 Old Road', postcode: '10115' },
+          { id: 'new', status: 'completed', serviceName: 'Lawn mowing', categoryId: 'cat-garden', startsAt: '2026-11-01T09:00:00.000Z', totalCents: 4840, proName: null, canRate: false, address: '17 Maple Lane', postcode: '10117' },
+        ],
+      },
+    });
+    api.on('GET /plans', { body: { plans: [{ id: 'plan-lawn', name: 'Lawn care', categoryId: 'cat-garden', priceCents: 4900 }] } });
+    api.on('GET /availability', {
+      body: { slots: [{ startsAt: '2026-11-06T09:00:00.000Z', endsAt: '2026-11-06T10:00:00.000Z', freePros: 2, available: true }] },
+    });
+    api.on('POST /bookings', { status: 201, body: { booking: booking({ status: 'searching', pro: null }), payment: null } });
+    api.on('POST /bookings/b1/photos', { status: 201, body: { booking: booking({ status: 'searching', pro: null }) } });
+    api.on('GET /bookings/b1', { body: { booking: booking({ status: 'searching', pro: null }) } });
+    renderAt('/book?services=svc-mow');
+
+    await waitFor(() => expect(screen.getByLabelText('Street and house number')).toHaveValue('17 Maple Lane'));
+    await waitFor(() => expect(screen.getByLabelText('Postcode')).toHaveValue('10117'));
+    expect(screen.getByRole('radio', { name: /Small.*under 100 m².*€35/ })).toBeInTheDocument();
+    expect(screen.getByText('Not sure of the size?')).toBeInTheDocument();
+    expect(screen.getByText('Fixed price €45.50 for this size.')).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: /Need this regularly\? Make it a plan/ })).toHaveAttribute('href', '/plans/plan-lawn');
+
+    await user().upload(screen.getByLabelText('Add photos (up to 3)'), [
+      new File(['a'], 'lawn.jpg', { type: 'image/jpeg' }),
+      new File(['b'], 'gate.png', { type: 'image/png' }),
+    ]);
+    expect(screen.getByRole('img', { name: 'lawn.jpg' })).toBeInTheDocument();
+    await user().click(screen.getByRole('button', { name: 'Remove gate.png' }));
+    expect(screen.queryByRole('img', { name: 'gate.png' })).not.toBeInTheDocument();
+
+    await user().click(screen.getByRole('button', { name: 'Continue · €45.50' }));
+    await user().click(await screen.findByRole('button', { name: /10:00/ }));
+    await user().click(screen.getByRole('button', { name: /Continue · Fri 6 Nov, 10:00/ }));
+    expect(screen.getByText('1 photo attached')).toBeInTheDocument();
+    expect(screen.getByText('17 Maple Lane, 10117')).toBeInTheDocument();
+    await user().click(screen.getByRole('button', { name: 'Book and pay €48.40' }));
+    expect(await screen.findByText(/Finding your pro/)).toBeInTheDocument();
+    expect(api.calls.filter((c) => c === 'POST /bookings/b1/photos')).toHaveLength(1);
+    expect(api.bodies['POST /bookings']).toMatchObject({ address: '17 Maple Lane', postcode: '10117' });
+  });
+
+  it('calls the middle size "Standard" outside gardening, and checks the address', async () => {
+    const api = fakeApi(users.customer);
+    const garden = catalogue.categories[0];
+    const mowing = garden?.services[0];
+    if (!garden || !mowing) throw new Error('test catalogue changed');
+    api.on('GET /catalogue', {
+      body: { ...catalogue, categories: [{ ...garden, id: 'cat-clean', slug: 'cleaning', name: 'Cleaning', icon: 'sparkle', services: [{ ...mowing, categoryId: 'cat-clean', name: 'Home cleaning' }] }] },
+    });
+    api.on('GET /postcodes', { body: { postcodes: [{ code: '10115', name: 'Mitte' }] } });
+    api.on('GET /bookings', { body: { bookings: [] } });
+    renderAt('/book?services=svc-mow');
+    expect(await screen.findByRole('radio', { name: /Standard.*typical job/ })).toBeChecked();
+    expect(screen.getByText('Job size')).toBeInTheDocument();
+    await user().click(screen.getByRole('button', { name: /Continue · / }));
+    expect(screen.getByText('Enter the street and house number where the job is.')).toBeInTheDocument();
+  });
+
   it('walks details, time and payment, then opens the booking', async () => {
     const api = fakeApi(users.customer);
     api.on('GET /postcodes', { body: { postcodes: [{ code: '10115', name: 'Mitte' }] } });

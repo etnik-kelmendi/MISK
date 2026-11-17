@@ -725,3 +725,12 @@ span.cbox.on { background: var(--brand); border-color: var(--brand); }
 .search-hit:hover, .search-hit:focus-visible { background: var(--brand-soft); }
 .search-hit .ci { width: 34px; height: 34px; border-radius: 10px; font-size: 16px; }
 .pad-s { padding: 12px; }
+
+/* ---------- Job details (D69): photo previews, plan hint ---------- */
+.ph.add { display: grid; place-items: center; background: var(--card); border: 1.5px dashed var(--line); color: var(--muted); font-size: 22px; cursor: pointer; }
+.ph.add:hover { color: var(--brand); border-color: var(--brand); }
+.file-button input:focus-visible + .ph.add { outline: 3px solid var(--info); outline-offset: 2px; }
+.ph-preview { position: relative; }
+.ph-remove { position: absolute; top: 4px; right: 4px; width: 24px; height: 24px; border-radius: 50%; background: rgba(15, 26, 21, 0.65); color: #fff; display: grid; place-items: center; font-size: 12px; }
+.plan-hint { text-decoration: none; color: inherit; box-shadow: none; border: 1.5px dashed #e8c27a; background: var(--accent-soft); }
+.plan-hint-icon { width: 40px; height: 40px; border-radius: 12px; background: #fff; color: #b87a00; display: grid; place-items: center; font-size: 18px; flex: none; }

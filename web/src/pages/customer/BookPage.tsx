@@ -1,165 +1,18 @@
-import { useCallback, useState, type FormEvent } from 'react';
+import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router';
 import { useApi } from '../../api/ApiContext';
 import { useMarket } from '../../api/MarketContext';
-import type { CustomerBooking, JobSize, PaymentStep, Postcode, Service, Slot } from '../../api/types';
+import type { CustomerBooking, PaymentStep, Service, Slot } from '../../api/types';
 import { useResource } from '../../api/useResource';
 import { ErrorText } from '../../components/ErrorText';
 import { Icon } from '../../components/Icon';
-import { Waitlist } from '../../components/Waitlist';
 import { ResourceState } from '../../components/ResourceState';
 import { dateTime, dayKey, dayParts, euro, packagePrice, sizePrice, time } from '../../lib/format';
 import { useAction } from '../../lib/useAction';
-import { useValidation } from '../../lib/useValidation';
-import { FieldError } from '../../components/FieldError';
 import { CardPayment } from '../../payments/CardPayment';
 import { AppHeader } from '../../shells/Shells';
-
-const SIZES: JobSize[] = ['S', 'M', 'L'];
-
-interface Details {
-  address: string;
-  postcode: string;
-  size: JobSize;
-  notes: string;
-}
-
-function DetailsStep({
-  services,
-  isGarden,
-  details,
-  onChange,
-  onNext,
-}: {
-  services: Service[];
-  isGarden: boolean;
-  details: Details;
-  onChange: (details: Details) => void;
-  onNext: () => void;
-}) {
-  const { t } = useTranslation();
-  const api = useApi();
-  const loadPostcodes = useCallback(() => api.get<{ postcodes: Postcode[] }>('/postcodes'), [api]);
-  const postcodes = useResource(loadPostcodes);
-  const sizeGroup = isGarden ? 'garden' : 'job';
-  const price = packagePrice(services, details.size);
-  // The size changes the price of fixed-price services only; hourly ones cost their rate times their length.
-  const sized = services.some((service) => service.pricing !== 'hourly');
-  const [single] = services;
-  const form = useValidation(
-    {
-      address: !details.address.trim() ? t('validation.addressMissing') : details.address.trim().length < 3 && t('validation.addressShort'),
-      postcode: !details.postcode && t('validation.postcodeMissing'),
-    },
-    { address: 'address', postcode: 'postcode' },
-  );
-
-  function submit(event: FormEvent) {
-    event.preventDefault();
-    if (form.check()) {
-      onNext();
-    }
-  }
-
-  return (
-    <form onSubmit={submit} noValidate>
-      <div className="body">
-        <div className="field">
-          <label htmlFor="address">{t('book.address')}</label>
-          <input
-            id="address"
-            autoComplete="street-address"
-            required
-            minLength={3}
-            maxLength={200}
-            value={details.address}
-            {...form.describe('address')}
-            onChange={(event) => onChange({ ...details, address: event.target.value })}
-          />
-          <FieldError id="address" message={form.message('address')} />
-        </div>
-        <ResourceState state={postcodes.state} reload={postcodes.reload}>
-          {({ postcodes: list }) => (
-            <div className="field">
-              <label htmlFor="postcode">{t('book.postcode')}</label>
-              <select
-                id="postcode"
-                required
-                value={details.postcode}
-                {...form.describe('postcode')}
-                onChange={(event) => onChange({ ...details, postcode: event.target.value })}
-              >
-                <option value="">{t('book.choosePostcode')}</option>
-                {list.map((p) => (
-                  <option key={p.code} value={p.code}>
-                    {p.code} · {p.name}
-                  </option>
-                ))}
-              </select>
-              <FieldError id="postcode" message={form.message('postcode')} />
-              <span className="hint">{t('book.postcodeHint')}</span>
-            </div>
-          )}
-        </ResourceState>
-        <Waitlist />
-        {!sized && single && services.length === 1 ? (
-          <p className="info">
-            <Icon name="clock" />
-            {t('book.hourly', {
-              rate: euro(single.priceCents),
-              hours: single.durationMinutes / 60,
-            })}
-          </p>
-        ) : (
-          <fieldset className="sizes">
-            <legend className="h-sm">{t(`book.sizeTitle.${sizeGroup}`)}</legend>
-            {SIZES.map((size) => (
-              <label key={size} className={`size ${details.size === size ? 'on' : ''}`}>
-                <input
-                  type="radio"
-                  name="size"
-                  className="visually-hidden"
-                  checked={details.size === size}
-                  onChange={() => onChange({ ...details, size })}
-                />
-                <span className="n">{t(`book.size.${size}`)}</span>
-                <span className="d">{t(`book.sizeHint.${sizeGroup}.${size}`)}</span>
-                <span className="b small brand-text">{euro(packagePrice(services, size).jobCents)}</span>
-              </label>
-            ))}
-          </fieldset>
-        )}
-        <div className="field">
-          <label htmlFor="notes">{t('book.notes')}</label>
-          <textarea
-            id="notes"
-            rows={3}
-            maxLength={1000}
-            placeholder={t('book.notesPlaceholder')}
-            value={details.notes}
-            onChange={(event) => onChange({ ...details, notes: event.target.value })}
-          />
-        </div>
-        <div className="info">
-          <Icon name="tag" />
-          <p>
-            {t('book.fixedPrice', {
-              price: euro(price.jobCents),
-            })}
-          </p>
-        </div>
-      </div>
-      <div className="cta-bar">
-        <button className="cta" type="submit">
-          {t('book.continuePrice', {
-            price: euro(price.jobCents),
-          })}
-        </button>
-      </div>
-    </form>
-  );
-}
+import { EMPTY_DETAILS, JobDetailsStep, type Details } from './JobDetailsStep';
 
 function TimeStep({
   services,
@@ -289,6 +142,14 @@ function ReviewStep({ services, details, slot }: { services: Service[]; details:
     if (!result) {
       return;
     }
+    // The booking is made; its photos follow. One that fails can be added again on the booking page.
+    for (const photo of details.photos) {
+      try {
+        await api.upload(`/bookings/${result.booking.id}/photos`, photo);
+      } catch (caught) {
+        console.warn('A booking photo could not be sent', caught);
+      }
+    }
     if (result.payment) {
       setCreated({ booking: result.booking, payment: result.payment });
     } else {
@@ -309,6 +170,11 @@ function ReviewStep({ services, details, slot }: { services: Service[]; details:
           <p className="row small">
             <Icon name="pin" /> {details.address}, {details.postcode}
           </p>
+          {details.photos.length > 0 && (
+            <p className="row small">
+              <Icon name="camera" /> {t('details.photosAttached', { count: details.photos.length })}
+            </p>
+          )}
         </section>
         <section className="card" aria-label={t('book.price')}>
           {services.map((service, index) => (
@@ -366,12 +232,7 @@ export function BookPage() {
   const [params] = useSearchParams();
   const market = useMarket();
   const [step, setStep] = useState<'details' | 'time' | 'review'>('details');
-  const [details, setDetails] = useState<Details>({
-    address: '',
-    postcode: '',
-    size: 'M',
-    notes: '',
-  });
+  const [details, setDetails] = useState<Details>(EMPTY_DETAILS);
   const [slot, setSlot] = useState<Slot | null>(null);
 
   // One or more services of one trade (D68): /book?services=a,b, or /book/a from older links.
@@ -413,10 +274,13 @@ export function BookPage() {
         ))}
       </ol>
       {step === 'details' && (
-        <DetailsStep
+        <JobDetailsStep
+          category={category}
           services={services}
-          isGarden={category.icon === 'leaf' || category.icon === 'sun'}
           details={details}
+          onPrefill={(address, postcode) =>
+            setDetails((current) => (current.address || current.postcode ? current : { ...current, address, postcode }))
+          }
           onChange={(next) => {
             if (next.postcode !== details.postcode) {
               setSlot(null);

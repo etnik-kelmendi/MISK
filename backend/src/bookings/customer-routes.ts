@@ -286,6 +286,7 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
       pool.query(
         `SELECT b.id, b.status, b.service_name AS "serviceName", b.category_id AS "categoryId", b.starts_at AS "startsAt",
            b.ends_at AS "endsAt", b.completed_at AS "completedAt", b.payment_status AS "paymentStatus",
+           b.address, b.postcode,
            b.price_cents + CASE WHEN b.late_cancel THEN 0 ELSE b.fee_cents END
              + COALESCE((SELECT sum(x.price_cents) FROM extra_requests x WHERE x.booking_id = b.id AND x.status = 'approved'), 0)::int
              AS "totalCents",
