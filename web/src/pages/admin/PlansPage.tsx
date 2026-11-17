@@ -579,7 +579,8 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
               <Icon name="x" /> {t('admin.plans.delete.button')}
             </button>
           )}
-          <button type="submit" className="abtn soft big" disabled={save.busy}>
+          {/* The same button as Publish plan, so saving is just as clearly a button. */}
+          <button type="submit" className="abtn big" disabled={save.busy}>
             {t('admin.plans.saveDraft')}
           </button>
           {live ? (
