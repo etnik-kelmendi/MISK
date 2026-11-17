@@ -1629,6 +1629,13 @@ describe('plan page', () => {
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
   });
 
+  it('shows Save draft as a real button the same size as Publish plan', async () => {
+    openNewPlan();
+    const draft = await screen.findByRole('button', { name: 'Save draft' });
+    expect(draft).toHaveClass('abtn', 'soft', 'big');
+    expect(screen.getByRole('button', { name: 'Publish plan' })).toHaveClass('abtn', 'big');
+  });
+
   it('offers no delete for a plan that was never saved', async () => {
     openNewPlan();
     await screen.findByLabelText('Plan name');

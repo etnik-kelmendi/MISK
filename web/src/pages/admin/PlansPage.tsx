@@ -447,7 +447,11 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
     return () => window.removeEventListener('beforeunload', warn);
   }, [dirty]);
 
-  async function saveDraft(event?: FormEvent): Promise<Plan | null> {
+  /**
+   * Saves the plan. A new plan then opens under its own address, which reloads the editor; publishing a new
+   * plan asks to wait (`openNewPlan: false`) and opens it once published, so the reload shows it published.
+   */
+  async function saveDraft(event?: FormEvent, { openNewPlan = true } = {}): Promise<Plan | null> {
     event?.preventDefault();
     if (badNumbers.length > 0) {
       document.getElementById(`plan-${badNumbers[0]}`)?.focus();
@@ -464,7 +468,7 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
     setSavedInput(JSON.stringify(sent));
     dirtyRef.current = false;
     setSaved(true);
-    if (!current) {
+    if (!current && openNewPlan) {
       navigate(`/admin/plans/${result.plan.id}`, { replace: true, state: { saved: true } });
     }
     return result.plan;
@@ -494,13 +498,18 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
       if (first) document.getElementById(first[1])?.focus();
       return;
     }
-    const savedPlan = published ? await saveDraft() : current;
+    const isNew = !current;
+    const savedPlan = published ? await saveDraft(undefined, { openNewPlan: false }) : current;
     if (!savedPlan) {
       return;
     }
     const result = await publish.run(() => api.post<{ plan: Plan }>(`/admin/plans/${savedPlan.id}/status`, { published }));
     if (result) {
       setCurrent(result.plan);
+    }
+    if (isNew) {
+      // Saved either way, so the new plan opens under its own address; published or not, it shows as it is.
+      navigate(`/admin/plans/${savedPlan.id}`, { replace: true, state: { saved: true } });
     }
   }
 
@@ -570,7 +579,7 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
               <Icon name="x" /> {t('admin.plans.delete.button')}
             </button>
           )}
-          <button type="submit" className="abtn ghost big" disabled={save.busy}>
+          <button type="submit" className="abtn soft big" disabled={save.busy}>
             {t('admin.plans.saveDraft')}
           </button>
           {live ? (
