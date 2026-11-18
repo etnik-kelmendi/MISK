@@ -29,6 +29,7 @@ import { TeamPage } from './pages/admin/TeamPage';
 import { BookingPage } from './pages/customer/BookingPage';
 import { ChatPage } from './pages/customer/ChatPage';
 import { RatePage } from './pages/customer/RatePage';
+import { ReschedulePage } from './pages/customer/ReschedulePage';
 import { ProChatPage } from './pages/pro/ProChatPage';
 import { BookingsPage } from './pages/customer/BookingsPage';
 import { BookPage } from './pages/customer/BookPage';
@@ -87,6 +88,7 @@ function CustomerAndProRoutes() {
         <Route path="bookings/:id" element={<BookingPage />} />
         <Route path="bookings/:id/chat" element={<ChatPage />} />
         <Route path="bookings/:id/rate" element={<RatePage />} />
+        <Route path="bookings/:id/reschedule" element={<ReschedulePage />} />
         <Route path="plans" element={<CustomerPlansPage />} />
         <Route path="plans/:id" element={<SubscribePage />} />
         <Route path="my-plans/:id" element={<MyPlanPage />} />

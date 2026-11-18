@@ -47,6 +47,8 @@ function booking(overrides: Partial<CustomerBooking> = {}): CustomerBooking {
     pro: { id: 'u-pro', firstName: 'Daniel', ratingAverage: 4.9, ratingCount: 12 },
     canCancel: true,
     canRate: false,
+    services: [{ id: 'svc-mow', name: 'Lawn mowing', priceCents: 4550, durationMinutes: 60 }],
+    canReschedule: true,
     ...overrides,
   };
 }
@@ -2528,5 +2530,111 @@ describe('admin', () => {
     expect(within(row).queryByRole('button', { name: /email/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Set new password' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Change email' })).not.toBeInTheDocument();
+  });
+});
+
+describe('rescheduling and payment status (D75)', () => {
+  const row = (overrides: Record<string, unknown> = {}) => ({
+    id: 'b-row',
+    status: 'completed' as const,
+    serviceName: 'Lawn mowing',
+    categoryId: 'cat-garden',
+    startsAt: '2026-10-30T09:00:00.000Z',
+    totalCents: 4840,
+    proName: 'Daniel',
+    canRate: false,
+    ...overrides,
+  });
+  const slot = (startsAt: string, available = true) => ({
+    startsAt,
+    endsAt: new Date(new Date(startsAt).getTime() + 3600_000).toISOString(),
+    freePros: 2,
+    available,
+  });
+
+  it('offers Reschedule on every upcoming booking', async () => {
+    const api = fakeApi(users.customer);
+    api.on('GET /bookings', {
+      body: {
+        bookings: [
+          row({ id: 'b-a', status: 'accepted', serviceName: 'Hedge trimming', canReschedule: true }),
+          row({ id: 'b-b', status: 'searching', proName: null, canReschedule: false }),
+        ],
+      },
+    });
+    renderAt('/bookings');
+    const links = await screen.findAllByRole('link', { name: 'Reschedule' });
+    expect(links.map((link) => link.getAttribute('href'))).toEqual(['/bookings/b-a/reschedule', '/bookings/b-b/reschedule']);
+  });
+
+  it('moves a booking: pick a day and a time, then it opens the booking', async () => {
+    const api = fakeApi(users.customer);
+    api.on('GET /bookings/b1', { body: { booking: booking() } });
+    api.on('GET /availability', {
+      body: { slots: [slot('2026-11-06T09:00:00.000Z'), slot('2026-11-06T11:00:00.000Z'), slot('2026-11-06T13:00:00.000Z', false), slot('2026-11-07T09:00:00.000Z')] },
+    });
+    api.on('POST /bookings/b1/reschedule', { body: { booking: booking({ startsAt: '2026-11-07T09:00:00.000Z' }) } });
+    renderAt('/bookings/b1/reschedule');
+    expect(await screen.findByText('Now booked for Fri 6 Nov, 10:00')).toBeInTheDocument();
+    expect(await screen.findByText(/move your booking for free up to 24 hours before it starts/)).toBeInTheDocument();
+    // The current time cannot be chosen again, and a full time is off.
+    expect(screen.getByRole('button', { name: /10:00\s*Your time/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /14:00\s*Full/ })).toBeDisabled();
+    const move = screen.getByRole('button', { name: 'Choose a new time' });
+    expect(move).toBeDisabled();
+    await user().click(screen.getByRole('button', { name: /12:00/ }));
+    await user().click(screen.getByRole('button', { name: /^Sat\s*7/ }));
+    expect(screen.getByRole('button', { name: 'Choose a new time' })).toBeDisabled();
+    await user().click(screen.getByRole('button', { name: /10:00/ }));
+    await user().click(screen.getByRole('button', { name: 'Move to Sat 7 Nov, 10:00' }));
+    await waitFor(() => expect(api.bodies['POST /bookings/b1/reschedule']).toEqual({ startsAt: '2026-11-07T09:00:00.000Z' }));
+    expect(await screen.findByRole('heading', { name: 'Your booking' })).toBeInTheDocument();
+    await waitFor(() => expect(api.calls.filter((c) => c === 'GET /bookings/b1').length).toBeGreaterThan(1));
+  });
+
+  it('explains when the booking can no longer be moved', async () => {
+    const api = fakeApi(users.customer);
+    api.on('GET /bookings/b1', { body: { booking: booking({ canReschedule: false }) } });
+    renderAt('/bookings/b1/reschedule');
+    expect(await screen.findByText(/starts in less than 24 hours, or is already under way/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Back to the booking' })).toHaveAttribute('href', '/bookings/b1');
+    expect(api.calls).not.toContain('GET /availability');
+  });
+
+  it('shows the error when the time was just taken', async () => {
+    const api = fakeApi(users.customer);
+    api.on('GET /bookings/b1', { body: { booking: booking() } });
+    api.on('GET /availability', { body: { slots: [slot('2026-11-06T11:00:00.000Z')] } });
+    api.on('POST /bookings/b1/reschedule', { status: 409, body: { error: 'slot_unavailable' } });
+    renderAt('/bookings/b1/reschedule');
+    await user().click(await screen.findByRole('button', { name: /12:00/ }));
+    await user().click(screen.getByRole('button', { name: 'Move to Fri 6 Nov, 12:00' }));
+    expect(await screen.findByText('That time was just taken. Please choose another.')).toBeInTheDocument();
+  });
+
+  it('shows what happened to the money on each past booking', async () => {
+    const api = fakeApi(users.customer);
+    api.on('GET /bookings', {
+      body: {
+        bookings: [
+          row({ id: 'p1', serviceName: 'Job charging', paymentStatus: 'held' }),
+          row({ id: 'p2', serviceName: 'Job hold', paymentStatus: 'held', problemOpen: true }),
+          row({ id: 'p3', serviceName: 'Job paid', paymentStatus: 'captured' }),
+          row({ id: 'p4', serviceName: 'Job refunded', paymentStatus: 'refunded' }),
+          row({ id: 'p5', serviceName: 'Job cancelled', status: 'cancelled', paymentStatus: 'released' }),
+        ],
+      },
+    });
+    renderAt('/bookings?tab=past');
+    const badgeOf = async (service: string) => {
+      const item = (await screen.findByText(service)).closest('li');
+      if (!item) throw new Error('No row');
+      return item.querySelector('.badge')?.textContent;
+    };
+    expect(await badgeOf('Job charging')).toBe('Charging in 24 hours');
+    expect(await badgeOf('Job hold')).toBe('On hold');
+    expect(await badgeOf('Job paid')).toBe('Paid');
+    expect(await badgeOf('Job refunded')).toBe('Refunded');
+    expect(await badgeOf('Job cancelled')).toBe('Cancelled');
   });
 });

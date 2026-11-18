@@ -21,6 +21,8 @@ export interface SlotQuery {
   timezone: string;
   /** The person booking: when they are a pro too, they are not counted as free for their own job (D64). */
   customerId?: string;
+  /** A booking that is being moved: it does not count against the pros or the demand at its new time. */
+  excludeBookingId?: string;
 }
 
 export interface Slot {
@@ -43,7 +45,7 @@ export function eligibleProFilter(
   e: string,
   tz: string,
   customer = 'NULL::uuid',
-  /** A booking whose own pending offer does not count as busy, e.g. a flexible job the pro picks a time for. */
+  /** A booking whose own pending offer or job does not count as busy, e.g. a flexible job or one being moved. */
   ownBooking = 'NULL::uuid',
 ): string {
   return `p.status = 'approved' AND p.payouts_enabled AND p.jobs_paused_at IS NULL
@@ -59,6 +61,7 @@ export function eligibleProFilter(
     AND NOT EXISTS (
       SELECT 1 FROM bookings busy
       WHERE busy.pro_id = p.user_id AND busy.status IN ('accepted', 'on_the_way', 'working')
+        AND busy.id IS DISTINCT FROM ${ownBooking}
         AND tstzrange(busy.starts_at, busy.ends_at) && tstzrange(${s}, ${e})
     )
     AND NOT EXISTS (
@@ -92,9 +95,9 @@ export async function findSlots(db: Queryable, query: SlotQuery, onlyStart?: Dat
      )
      SELECT s.starts_at AS "startsAt", s.ends_at AS "endsAt",
        (SELECT count(*)::int FROM pro_profiles p
-        WHERE ${eligibleProFilter('$1', '$2', 's.starts_at', 's.ends_at', '$4', '$10::uuid')}) AS "freePros",
+        WHERE ${eligibleProFilter('$1', '$2', 's.starts_at', 's.ends_at', '$4', '$10::uuid', '$11::uuid')}) AS "freePros",
        (SELECT count(*)::int FROM bookings b
-        WHERE b.category_id = $1 AND b.status IN ('awaiting_payment', 'searching')
+        WHERE b.category_id = $1 AND b.status IN ('awaiting_payment', 'searching') AND b.id IS DISTINCT FROM $11::uuid
           AND tstzrange(b.starts_at, b.ends_at) && tstzrange(s.starts_at, s.ends_at)
           AND NOT EXISTS (SELECT 1 FROM booking_offers o WHERE o.booking_id = b.id AND o.status = 'pending'))
        + (SELECT count(*)::int FROM slot_holds h
@@ -116,6 +119,7 @@ export async function findSlots(db: Queryable, query: SlotQuery, onlyStart?: Dat
       MIN_LEAD_MINUTES,
       onlyStart ?? null,
       query.customerId ?? null,
+      query.excludeBookingId ?? null,
     ],
   );
   return result.rows.map(({ startsAt, endsAt, freePros, demand }) => ({

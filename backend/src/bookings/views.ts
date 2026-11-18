@@ -1,7 +1,7 @@
 import { proShareCents } from '../catalogue/pricing.js';
 import type { Queryable } from '../db.js';
 import { loadCustomerProfile } from './customer-profile.js';
-import { CHARGE_DELAY_HOURS, FREE_CANCEL_HOURS } from './lifecycle.js';
+import { CHARGE_DELAY_HOURS, CUSTOMER_RESCHEDULABLE, FREE_CANCEL_HOURS } from './lifecycle.js';
 
 export type Viewer = 'customer' | 'pro' | 'admin';
 
@@ -167,6 +167,8 @@ export async function loadBooking(db: Queryable, bookingId: string, viewer: View
           ? b.priceCents + b.feeCents
           : null,
       lateCancel: b.lateCancel,
+      // Free to move until 24 hours before the start, unless the pro has set off (D75).
+      canReschedule: CUSTOMER_RESCHEDULABLE.includes(b.status) && b.hoursLeft > FREE_CANCEL_HOURS,
       tip: tip.rows[0] ?? null,
       unreadMessages: unread.rows[0]?.n ?? 0,
       canTip: b.status === 'completed' && b.proId !== null && (!tip.rows[0] || tip.rows[0].status === 'failed'),

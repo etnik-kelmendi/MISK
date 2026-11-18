@@ -22,6 +22,17 @@ function yearOf(iso: string, timeZone: string): number {
   return Number(new Intl.DateTimeFormat('en-GB', { timeZone, year: 'numeric' }).format(new Date(iso)));
 }
 
+/** What happened to the money of a past booking (D75): on hold, refunded, paid or still to be charged. */
+function PaymentBadge({ booking }: { booking: BookingListItem }) {
+  const { t } = useTranslation();
+  if (booking.problemOpen) return <span className="badge r">{t('bookings.payment.onHold')}</span>;
+  if (booking.paymentStatus === 'refunded') return <span className="badge grey">{t('bookings.payment.refunded')}</span>;
+  if (booking.paymentStatus === 'captured') return <span className="badge g">{t('bookings.payment.paid')}</span>;
+  if (booking.status === 'completed' && booking.paymentStatus === 'held') return <span className="badge a">{t('bookings.payment.charging')}</span>;
+  // Cancelled without a charge: not a finished job, so none of the four applies.
+  return <StatusBadge status={booking.status} />;
+}
+
 function BookingRow({
   booking,
   onReceipt,
@@ -55,7 +66,7 @@ function BookingRow({
         </div>
         <span className="right">
           <span className="b small block">{euro(booking.totalCents)}</span>
-          {booking.problemOpen ? <span className="badge r">{t('bookings.onHold')}</span> : <StatusBadge status={booking.status} />}
+          {upcoming ? <StatusBadge status={booking.status} /> : <PaymentBadge booking={booking} />}
         </span>
       </div>
       <div className="row gap6 booking-actions">
@@ -63,6 +74,9 @@ function BookingRow({
           <>
             <Link to={`/bookings/${booking.id}`} className="mini-btn green">
               {t('bookings.track')}
+            </Link>
+            <Link to={`/bookings/${booking.id}/reschedule`} className="mini-btn">
+              {t('bookings.reschedule')}
             </Link>
             {booking.proName && (
               <Link to={`/bookings/${booking.id}/chat`} className="mini-btn">

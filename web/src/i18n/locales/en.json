@@ -74,7 +74,9 @@
     "pro_busy": "This pro already has another job at that time.",
     "time_in_past": "Choose a time in the future.",
     "nothing_to_charge": "There is no open problem on this job, so there is nothing to charge.",
-    "too_late_to_report": "The 24 hours to report a problem are over. Please contact us instead.",
+    "too_late_to_reschedule": "This booking starts in less than 24 hours, or is already under way, so it can't be moved here. You can still cancel it, or write to your pro.",
+    "same_time": "That is the time you already have. Please choose another.",
+    "too_late_to_report":"The 24 hours to report a problem are over. Please contact us instead.",
     "internal_error": "Something went wrong on our side. Please try again.",
     "request_failed": "That did not work. Please try again.",
     "password_too_short": "The password must have at least 12 characters.",
@@ -338,9 +340,29 @@
     "bookAgain": "Book again",
     "report": "Report",
     "onHold": "On hold",
+    "reschedule": "Reschedule",
+    "payment": {
+      "charging": "Charging in 24 hours",
+      "onHold": "On hold",
+      "paid": "Paid",
+      "refunded": "Refunded",
+      "cancelled": "Cancelled"
+    },
     "planVisits": "Plan visits",
     "planVisit": "Plan",
     "downloadAll": "Download all {{year}} receipts (PDF)"
+  },
+  "reschedule": {
+    "title": "Reschedule",
+    "currentTime": "Now booked for {{when}}",
+    "currentWindow": "Now booked for {{day}}, {{window}}",
+    "current": "Your time",
+    "full": "Full",
+    "rules": "You can move your booking for free up to 24 hours before it starts. If your pro is busy at the new time, we find you another verified pro.",
+    "choose": "Choose a new time",
+    "moveTo": "Move to {{when}}",
+    "notPossible": "This booking starts in less than 24 hours, or is already under way, so it can't be moved here. You can still cancel it, or write to your pro.",
+    "backToBooking": "Back to the booking"
   },
   "booking": {
     "title": "Your booking",

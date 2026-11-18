@@ -5,9 +5,12 @@ import { normalizePostcode } from '../catalogue/routes.js';
 import type { AppContext } from '../context.js';
 import { onlyRow, withTransaction } from '../db.js';
 import { ApiError, badRequest, conflict, notFound } from '../errors.js';
-import { isUniqueViolation, uuidParams } from '../http.js';
+import { isExclusionViolation, isUniqueViolation, uuidParams } from '../http.js';
+import { formatSlot, messages } from '../notifications/messages.js';
+import { enqueue } from '../notifications/outbox.js';
 import { readSingleFile, storeUpload } from '../uploads/uploads.js';
 import {
+  eligibleProFilter,
   FLEXIBLE_CONFIRM_HOUR,
   FLEXIBLE_WINDOWS,
   findSlots,
@@ -15,8 +18,9 @@ import {
   type FlexibleWindow,
   type Slot,
 } from './availability.js';
+import { offerNext } from './dispatch.js';
 import { setStatus, type BookingDeps } from './events.js';
-import { cancelBooking, CHARGE_DELAY_HOURS, confirmHold, settleBooking } from './lifecycle.js';
+import { cancelBooking, CHARGE_DELAY_HOURS, confirmHold, CUSTOMER_RESCHEDULABLE, FREE_CANCEL_HOURS, settleBooking } from './lifecycle.js';
 import { loadBooking } from './views.js';
 import { heldFor, waitlistFor } from './time-waitlist.js';
 
@@ -129,7 +133,7 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
     return booking;
   }
 
-  app.get<{ Querystring: { serviceId?: string; serviceIds?: string; postcode: string } }>(
+  app.get<{ Querystring: { serviceId?: string; serviceIds?: string; postcode: string; bookingId?: string } }>(
     '/availability',
     {
       preHandler: guards.customer,
@@ -143,6 +147,8 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
             // Several services of one visit, comma-separated (D68).
             serviceIds: { type: 'string', pattern: UUID_LIST, maxLength: 400 },
             postcode: { type: 'string', minLength: 2, maxLength: 10 },
+            // The customer's own booking being moved: it does not count against its new time (D75).
+            bookingId: { type: 'string', format: 'uuid' },
           },
         },
       },
@@ -150,7 +156,12 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
     async (request) => {
       const services = await activeServices(requestedServices(request.query));
       const postcode = await servedPostcode(request.query.postcode);
+      if (request.query.bookingId) {
+        const own = await pool.query('SELECT 1 FROM bookings WHERE id = $1 AND customer_id = $2', [request.query.bookingId, currentUser(request).id]);
+        if (!own.rowCount) throw notFound();
+      }
       const slots = await findSlots(pool, {
+        ...(request.query.bookingId ? { excludeBookingId: request.query.bookingId } : {}),
         categoryId: services[0].categoryId,
         postcode,
         durationMinutes: packagePrice(services, 'M').durationMinutes,
@@ -403,13 +414,14 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
            (b.status = 'completed' AND b.payment_status = 'held' AND b.problem_reported_at IS NULL
              AND b.completed_at + make_interval(hours => $2) > now()) AS "canReportProblem",
            (b.problem_reported_at IS NOT NULL AND b.problem_resolved_at IS NULL) AS "problemOpen",
+           (b.status = ANY($3::text[]) AND b.starts_at > now() + make_interval(hours => $4)) AS "canReschedule",
            (SELECT count(*)::int FROM booking_messages m WHERE m.booking_id = b.id AND m.sender_role = 'pro' AND m.read_at IS NULL)
              AS "unreadMessages"
          FROM bookings b LEFT JOIN users pu ON pu.id = b.pro_id JOIN categories c ON c.id = b.category_id
          WHERE b.customer_id = $1
          ORDER BY (b.status IN ('completed', 'cancelled')), b.starts_at DESC
          LIMIT 200`,
-        [customerId, CHARGE_DELAY_HOURS],
+        [customerId, CHARGE_DELAY_HOURS, CUSTOMER_RESCHEDULABLE, FREE_CANCEL_HOURS],
       ),
       pool.query(
         `SELECT v.id, v.starts_at AS "startsAt", v.ends_at AS "endsAt", s.id AS "subscriptionId", s.plan_name AS "planName",
@@ -428,6 +440,127 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
     '/bookings/:id',
     { preHandler: guards.customer, schema: { params: uuidParams } },
     async (request) => ({ booking: await ownBooking(currentUser(request).id, request.params.id) }),
+  );
+
+  // The customer moves a booking to another free time, free of charge until 24 hours before it starts (D75).
+  app.post<{ Params: { id: string }; Body: { startsAt: string } }>(
+    '/bookings/:id/reschedule',
+    {
+      preHandler: guards.customer,
+      schema: {
+        params: uuidParams,
+        body: {
+          type: 'object',
+          required: ['startsAt'],
+          additionalProperties: false,
+          properties: { startsAt: { type: 'string', format: 'date-time' } },
+        },
+      },
+    },
+    async (request) => {
+      const customerId = currentUser(request).id;
+      const bookingId = request.params.id;
+      const startsAt = new Date(request.body.startsAt);
+      const owned = await pool.query<{ category_id: string }>('SELECT category_id FROM bookings WHERE id = $1 AND customer_id = $2', [
+        bookingId,
+        customerId,
+      ]);
+      if (!owned.rows[0]) {
+        throw notFound();
+      }
+      const outcome = await withTransaction(pool, async (client) => {
+        // The same lock as booking, so two customers cannot both take the last free pro.
+        await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`book:${onlyRow(owned).category_id}`]);
+        const found = await client.query<{
+          status: string;
+          pro_id: string | null;
+          category_id: string;
+          postcode: string;
+          service_name: string;
+          starts_at: Date;
+          late: boolean;
+          minutes: number;
+        }>(
+          `SELECT status, pro_id, category_id, postcode, service_name, starts_at,
+             starts_at <= now() + make_interval(hours => $3) AS late,
+             COALESCE((SELECT sum(duration_minutes)::int FROM booking_services WHERE booking_id = bookings.id),
+               (extract(epoch FROM ends_at - starts_at) / 60)::int) AS minutes
+           FROM bookings WHERE id = $1 AND customer_id = $2 FOR UPDATE`,
+          [bookingId, customerId, FREE_CANCEL_HOURS],
+        );
+        const booking = found.rows[0];
+        if (!booking) {
+          throw notFound();
+        }
+        if (!CUSTOMER_RESCHEDULABLE.includes(booking.status) || booking.late) {
+          throw conflict('too_late_to_reschedule');
+        }
+        if (startsAt.getTime() === booking.starts_at.getTime()) {
+          throw badRequest('same_time');
+        }
+        const [slot] = await findSlots(
+          client,
+          {
+            categoryId: booking.category_id,
+            postcode: booking.postcode,
+            durationMinutes: booking.minutes,
+            timezone: ctx.config.timezone,
+            customerId,
+            excludeBookingId: bookingId,
+          },
+          startsAt,
+        );
+        if (!slot?.available) {
+          throw conflict('slot_unavailable');
+        }
+        const oldWhen = formatSlot(booking.starts_at, ctx.config.timezone);
+        const newWhen = formatSlot(slot.startsAt, ctx.config.timezone);
+        // The assigned pro stays when they are free at the new time.
+        let keepPro = false;
+        if (booking.pro_id) {
+          const free = await client.query(
+            `SELECT 1 FROM pro_profiles p WHERE p.user_id = $1 AND ${eligibleProFilter('$2', '$3', '$4', '$5', '$6', '$7::uuid', '$8::uuid')}`,
+            [booking.pro_id, booking.category_id, booking.postcode, slot.startsAt, slot.endsAt, ctx.config.timezone, customerId, bookingId],
+          );
+          keepPro = free.rowCount === 1;
+        }
+        if (!keepPro) {
+          // Offers made for the old time are void, and pros who passed or were asked may be asked again for the new one.
+          await client.query("DELETE FROM booking_offers WHERE booking_id = $1 AND status <> 'withdrawn'", [bookingId]);
+          if (booking.pro_id) {
+            await setStatus(client, bookingId, 'searching', ', pro_id = NULL');
+            await enqueue(client, booking.pro_id, 'booking_cancelled', messages.bookingCancelledForPro(booking.service_name, oldWhen));
+          } else if (booking.status !== 'searching') {
+            await setStatus(client, bookingId, 'searching');
+          }
+        }
+        try {
+          await client.query(
+            // A flexible booking becomes a fixed-time booking at this time.
+            `UPDATE bookings SET starts_at = $2, ends_at = $3,
+               time_confirmed_at = CASE WHEN flexible_window IS NOT NULL THEN COALESCE(time_confirmed_at, now()) END,
+               reminder_sent_at = NULL, updated_at = now()
+             WHERE id = $1`,
+            [bookingId, slot.startsAt, slot.endsAt],
+          );
+        } catch (error) {
+          if (isExclusionViolation(error)) {
+            throw conflict('slot_unavailable');
+          }
+          throw error;
+        }
+        await enqueue(client, customerId, 'booking_rescheduled', messages.bookingRescheduled(booking.service_name, newWhen));
+        if (keepPro && booking.pro_id) {
+          await enqueue(client, booking.pro_id, 'booking_rescheduled', messages.jobRescheduled(booking.service_name, newWhen));
+        }
+        return { keptPro: keepPro };
+      });
+      request.log.info({ event: 'booking_rescheduled_by_customer', bookingId, keptPro: outcome.keptPro });
+      if (!outcome.keptPro) {
+        await offerNext(deps(), bookingId);
+      }
+      return { booking: await ownBooking(customerId, bookingId) };
+    },
   );
 
   app.get<{ Params: { id: string } }>(

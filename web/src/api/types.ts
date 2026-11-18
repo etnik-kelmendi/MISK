@@ -137,6 +137,10 @@ export interface CustomerBooking extends BookingBase, Money {
   /** What cancelling now would cost: set when a pro is booked and the start is less than 24 hours away. */
   lateCancelCents: number | null;
   lateCancel: boolean;
+  /** The visit's services (D68): the free times are looked up for them. */
+  services: { id: string; name: string; priceCents: number; durationMinutes: number }[];
+  /** Free to move until 24 hours before the start, unless the pro has set off (D75). */
+  canReschedule: boolean;
   tip: { amountCents: number; proCents: number; status: 'pending' | 'captured' | 'failed' } | null;
   canTip: boolean;
   /** Chat messages from the pro the customer has not opened yet (D67). */
@@ -258,6 +262,7 @@ export interface BookingListItem {
   hasReceipt?: boolean;
   canReportProblem?: boolean;
   problemOpen?: boolean;
+  canReschedule?: boolean;
   unreadMessages?: number;
   categorySlug?: string;
   categoryIcon?: IconName;

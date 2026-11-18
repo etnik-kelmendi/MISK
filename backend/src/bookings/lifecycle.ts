@@ -19,6 +19,8 @@ const READY_TO_CHARGE = `b.completed_at <= now() - make_interval(hours => ${CHAR
 
 /** Customers may cancel an assigned job until this long before it starts (QUESTIONS Q3). */
 export const FREE_CANCEL_HOURS = 24;
+/** A customer can move a booking only before the pro sets off, and only more than FREE_CANCEL_HOURS ahead (D75). */
+export const CUSTOMER_RESCHEDULABLE = ['searching', 'unassigned', 'accepted'];
 
 /** The card hold for a booking or for approved extra work is in place (webhook or instant). */
 export async function confirmHold(deps: BookingDeps, intentId: string): Promise<void> {
