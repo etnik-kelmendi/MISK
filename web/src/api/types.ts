@@ -654,6 +654,10 @@ export interface AdminAccount {
 
 export type Frequency = 'every_2_weeks' | 'weekly' | 'twice_weekly' | 'three_times_weekly';
 
+/** The minimum terms a plan can have, in months (D77). */
+export const MIN_TERMS = [1, 3, 6, 12] as const;
+export type MinTerm = (typeof MIN_TERMS)[number];
+
 export interface PlanInput {
   name: string | null;
   categoryId: string | null;
@@ -664,8 +668,12 @@ export interface PlanInput {
   addonName: string | null;
   addonPriceCents: number | null;
   seasonal: boolean;
-  skipsPerMonth: number;
-  minTermMonths: number;
+  /** 1, 3, 6 or 12 (D77). */
+  minTermMonths: MinTerm;
+  /** Notice needed before a pause starts, 1 to 60 days (D77). */
+  pauseNoticeDays: number;
+  /** Most paused weeks a year, 1 to 10 (D77). */
+  maxPauseWeeks: number;
   proSharePct: number;
 }
 
@@ -693,6 +701,32 @@ export interface SubscriptionVisit {
   endsAt: string;
   status: VisitStatus;
   tasksDone: string[];
+  /** Where a moved visit was first planned (D77). */
+  movedFrom: string | null;
+  /** A move the customer asked for that the pro has not answered yet. */
+  pendingMove: { toStartsAt: string; toEndsAt: string; respondBy: string } | null;
+}
+
+/** The days a visit can move to, or why it cannot move (D77). */
+export interface VisitMoveOptions {
+  options: { startsAt: string; endsAt: string }[];
+  reason: 'not_movable' | 'too_late' | 'move_pending' | 'no_free_day' | null;
+}
+
+/** A customer's request to move a visit, waiting for the pro (D77). */
+export interface ProVisitMove {
+  id: string;
+  visitId: string;
+  subscriptionId: string;
+  planName: string;
+  customerName: string | null;
+  address: string;
+  postcode: string;
+  fromStartsAt: string;
+  fromEndsAt: string;
+  toStartsAt: string;
+  toEndsAt: string;
+  respondBy: string;
 }
 
 export interface Subscription {
@@ -715,8 +749,9 @@ export interface Subscription {
   seasonal: boolean;
   seasonFrom: number | null;
   seasonTo: number | null;
-  skipsPerMonth: number;
   minTermMonths: number;
+  pauseNoticeDays: number;
+  maxPauseWeeks: number;
   status: SubscriptionStatus;
   billingPaused: boolean;
   startedAt: string | null;
@@ -726,7 +761,6 @@ export interface Subscription {
   proName: string | null;
   cancelableFrom: string | null;
   visits: SubscriptionVisit[];
-  skipsLeftThisMonth: number;
 }
 
 export interface ProVisit {

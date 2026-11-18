@@ -21,7 +21,7 @@ export function createFakeGateway(options: { instantHolds?: boolean } = {}) {
   const failures = new Set<'hold' | 'capture' | 'transfer' | 'subscription' | 'payoutDetails' | 'payoutSchedule' | 'renew'>();
   const schedules = new Map<string, 'weekly' | 'monthly' | 'manual'>();
   const manualPayouts: string[] = [];
-  const subscriptions = new Map<string, { id: string; amountCents: number; status: 'incomplete' | 'active' | 'cancelled'; cancelAtPeriodEnd: boolean; paused: boolean; metadata: Record<string, string> }>();
+  const subscriptions = new Map<string, { id: string; amountCents: number; status: 'incomplete' | 'active' | 'cancelled'; cancelAtPeriodEnd: boolean; cancelAt: Date | null; paused: boolean; metadata: Record<string, string> }>();
   let instantHolds = options.instantHolds ?? true;
   // Every customer has one saved test card, like a returning customer (D73).
   const defaultCards = (): SavedCard[] => [{ id: 'pm_card_visa', brand: 'visa', last4: '4242', expMonth: 8, expYear: 2030 }];
@@ -106,6 +106,7 @@ export function createFakeGateway(options: { instantHolds?: boolean } = {}) {
         amountCents: input.amountCents,
         status: instantHolds ? 'active' : 'incomplete',
         cancelAtPeriodEnd: false,
+        cancelAt: null,
         paused: false,
         metadata: input.metadata,
       });
@@ -121,6 +122,12 @@ export function createFakeGateway(options: { instantHolds?: boolean } = {}) {
         } else {
           subscription.status = 'cancelled';
         }
+      }
+    },
+    async cancelSubscriptionAt(subscriptionId, at) {
+      const subscription = subscriptions.get(subscriptionId);
+      if (subscription) {
+        subscription.cancelAt = at;
       }
     },
     async setBillingPaused(subscriptionId, paused) {

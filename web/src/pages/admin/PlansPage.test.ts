@@ -30,10 +30,10 @@ describe('plan number fields', () => {
     expect(stepNumber('visitMinutes', '15', -1)).toBe(15);
     expect(stepNumber('visitMinutes', '600', 1)).toBe(600);
     expect(stepNumber('visitMinutes', '', 1)).toBe(15);
-    expect(stepNumber('minTermMonths', '0', -1)).toBe(0);
-    expect(stepNumber('minTermMonths', '', -1)).toBe(12);
-    expect(stepNumber('skipsPerMonth', '2', 1)).toBe(3);
-    expect(stepNumber('skipsPerMonth', '8', 1)).toBe(8);
+    expect(stepNumber('pauseNoticeDays', '1', -1)).toBe(1);
+    expect(stepNumber('pauseNoticeDays', '', -1)).toBe(60);
+    expect(stepNumber('pauseNoticeDays', '7', 1)).toBe(8);
+    expect(stepNumber('pauseNoticeDays', '60', 1)).toBe(60);
   });
 });
 

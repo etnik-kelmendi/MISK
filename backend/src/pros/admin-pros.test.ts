@@ -335,7 +335,8 @@ describe('acting on a pro', () => {
       addonName: null,
       addonPriceCents: null,
       seasonal: false,
-      skipsPerMonth: 1,
+      pauseNoticeDays: 7,
+      maxPauseWeeks: 4,
       minTermMonths: 3,
       proSharePct: 70,
     });

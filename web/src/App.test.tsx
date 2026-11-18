@@ -633,8 +633,9 @@ describe('the Services page (D68)', () => {
     seasonal: true,
     seasonFrom: 3,
     seasonTo: 10,
-    skipsPerMonth: 2,
     minTermMonths: 3,
+    pauseNoticeDays: 7,
+    maxPauseWeeks: 4,
     proSharePct: 70,
     status: 'published',
     publishedAt: '',
@@ -710,7 +711,8 @@ describe('the Services page (D68)', () => {
     expect(label).toHaveTextContent('1× a week (you can change it)');
     expect(label).toHaveTextContent('Mow, Edge');
     expect(label).toHaveTextContent('March to October');
-    expect(label).toHaveTextContent('Min. 3 months, then cancel monthly');
+    expect(label).toHaveTextContent("Minimum term: 3 months, then cancel with 30 days' notice");
+    expect(label).toHaveTextContent("Pause up to 4 weeks a year, with 7 days' notice");
     expect(screen.getByRole('button', { name: 'Choose a plan' })).toBeDisabled();
     await user().click(card);
     expect(screen.getByRole('link', { name: /Customise Lawn care/ })).toHaveAttribute('href', '/plans/plan-lawn');
@@ -1663,8 +1665,9 @@ describe('monthly plans in the apps', () => {
     seasonal: false,
     seasonFrom: null,
     seasonTo: null,
-    skipsPerMonth: 2,
     minTermMonths: 3,
+    pauseNoticeDays: 7,
+    maxPauseWeeks: 4,
     proSharePct: 70,
     status: 'published',
     publishedAt: '',
@@ -1691,8 +1694,9 @@ describe('monthly plans in the apps', () => {
     seasonal: false,
     seasonFrom: null,
     seasonTo: null,
-    skipsPerMonth: 2,
     minTermMonths: 3,
+    pauseNoticeDays: 7,
+    maxPauseWeeks: 4,
     status: 'active',
     billingPaused: false,
     startedAt: new Date().toISOString(),
@@ -1702,10 +1706,9 @@ describe('monthly plans in the apps', () => {
     proName: 'Daniel',
     cancelableFrom: future(90),
     visits: [
-      { id: 'v1', startsAt: future(2), endsAt: future(2), status: 'planned', tasksDone: [] },
-      { id: 'v2', startsAt: future(4), endsAt: future(4), status: 'planned', tasksDone: [] },
+      { id: 'v1', startsAt: future(2), endsAt: future(2), status: 'planned', tasksDone: [], movedFrom: null, pendingMove: null },
+      { id: 'v2', startsAt: future(4), endsAt: future(4), status: 'planned', tasksDone: [], movedFrom: null, pendingMove: null },
     ],
-    skipsLeftThisMonth: 2,
     ...overrides,
   });
 
@@ -1721,6 +1724,9 @@ describe('monthly plans in the apps', () => {
     await user().click(await screen.findByRole('link', { name: /Lawn care/ }));
     const summary = await screen.findByRole('region', { name: 'Your monthly price' });
     expect(within(summary).getByText('€49')).toBeInTheDocument();
+    expect(within(summary).getByText(/Minimum term: 3 months, then cancel with 30 days' notice/)).toBeInTheDocument();
+    expect(within(summary).getByText(/Pause up to 4 weeks a year, with 7 days' notice/)).toBeInTheDocument();
+    expect(within(summary).queryByText(/Skip/)).not.toBeInTheDocument();
     await user().click(screen.getByRole('button', { name: /Large/ }));
     expect(within(summary).getByText('€66.15')).toBeInTheDocument();
     await user().click(screen.getByRole('button', { name: /Medium/ }));
@@ -1752,27 +1758,222 @@ describe('monthly plans in the apps', () => {
     });
   });
 
-  it('lets the customer skip a visit, and explains when the plan can be cancelled', async () => {
+  it('shows the plan rules and no skipping on My plan (D77)', async () => {
     const api = fakeApi(users.customer);
-    api.on('GET /subscriptions/sub-1', { body: { subscription: subscription() } });
-    api.on('POST /subscriptions/sub-1/visits/v1/skip', {
+    api.on('GET /subscriptions/sub-1', {
       body: {
         subscription: subscription({
-          skipsLeftThisMonth: 1,
           visits: [
-            { id: 'v1', startsAt: future(2), endsAt: future(2), status: 'skipped', tasksDone: [] },
-            { id: 'v2', startsAt: future(4), endsAt: future(4), status: 'planned', tasksDone: [] },
+            { id: 'v0', startsAt: future(1), endsAt: future(1), status: 'skipped', tasksDone: [], movedFrom: null, pendingMove: null },
+            { id: 'v1', startsAt: future(2), endsAt: future(2), status: 'planned', tasksDone: [], movedFrom: null, pendingMove: null },
           ],
         }),
       },
     });
     renderAt('/my-plans/sub-1');
-    expect(await screen.findByText('Skips left this month: 2')).toBeInTheDocument();
-    await user().click(screen.getAllByRole('button', { name: 'Skip' })[0] as HTMLElement);
-    expect(await screen.findByText('Skips left this month: 1')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Undo' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Cancel this plan' })).not.toBeInTheDocument();
-    expect(screen.getByText(/You can cancel from/)).toBeInTheDocument();
+    const rules = await screen.findByRole('list', { name: 'Plan rules' });
+    expect(rules).toHaveTextContent("Minimum term: 3 months, then cancel with 30 days' notice");
+    expect(rules).toHaveTextContent("Pause up to 4 weeks a year, with 7 days' notice");
+    expect(screen.queryByRole('button', { name: /Skip/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/skips left/i)).not.toBeInTheDocument();
+    // A visit skipped before skipping was removed still shows as skipped, without a Move button.
+    expect(screen.getByText('Skipped')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /^Move the visit on/ })).toHaveLength(1);
+  });
+
+  it('moves a visit: shows the free days of the week and asks the pro to confirm', async () => {
+    const api = fakeApi(users.customer);
+    const day3 = future(3);
+    api.on('GET /subscriptions/sub-1', { body: { subscription: subscription() } });
+    api.on('GET /subscriptions/sub-1/visits/v2/move-options', {
+      body: { options: [{ startsAt: day3, endsAt: day3 }, { startsAt: future(5), endsAt: future(5) }], reason: null },
+    });
+    api.on('POST /subscriptions/sub-1/visits/v2/move', {
+      body: {
+        subscription: subscription({
+          visits: [
+            { id: 'v1', startsAt: future(2), endsAt: future(2), status: 'planned', tasksDone: [], movedFrom: null, pendingMove: null },
+            {
+              id: 'v2',
+              startsAt: future(4),
+              endsAt: future(4),
+              status: 'planned',
+              tasksDone: [],
+              movedFrom: null,
+              pendingMove: { toStartsAt: day3, toEndsAt: day3, respondBy: future(3) },
+            },
+          ],
+        }),
+      },
+    });
+    api.on('POST /subscriptions/sub-1/visits/v2/move/withdraw', { body: { subscription: subscription() } });
+    renderAt('/my-plans/sub-1');
+
+    const buttons = await screen.findAllByRole('button', { name: /^Move the visit on/ });
+    await user().click(buttons[1] as HTMLElement);
+    const sheet = await screen.findByRole('dialog', { name: 'Move this visit' });
+    const send = within(sheet).getByRole('button', { name: 'Ask Daniel to confirm' });
+    expect(send).toBeDisabled();
+    const choices = await within(sheet).findAllByRole('radio');
+    expect(choices).toHaveLength(2);
+    await user().click(choices[0] as HTMLElement);
+    await user().click(send);
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(api.bodies['POST /subscriptions/sub-1/visits/v2/move']).toEqual({ startsAt: day3 });
+    expect(screen.getByText(/Waiting for Daniel to confirm/)).toBeInTheDocument();
+    // A visit waiting for the pro has no Move button, only Withdraw.
+    expect(screen.getAllByRole('button', { name: /^Move the visit on/ })).toHaveLength(1);
+    await user().click(screen.getByRole('button', { name: /^Withdraw the request/ }));
+    await waitFor(() => expect(screen.queryByText(/Waiting for Daniel to confirm/)).not.toBeInTheDocument());
+    expect(api.calls).toContain('POST /subscriptions/sub-1/visits/v2/move/withdraw');
+  });
+
+  it('explains why a visit cannot move', async () => {
+    const api = fakeApi(users.customer);
+    api.on('GET /subscriptions/sub-1', { body: { subscription: subscription() } });
+    api.on('GET /subscriptions/sub-1/visits/v1/move-options', { body: { options: [], reason: 'too_late' } });
+    renderAt('/my-plans/sub-1');
+    await user().click((await screen.findAllByRole('button', { name: /^Move the visit on/ }))[0] as HTMLElement);
+    const sheet = await screen.findByRole('dialog', { name: 'Move this visit' });
+    expect(await within(sheet).findByText(/can be moved up to 24 hours before it starts/)).toBeInTheDocument();
+    expect(within(sheet).queryByRole('button', { name: /Ask Daniel/ })).not.toBeInTheDocument();
+  });
+
+  it('keeps Cancel plan disabled with the date until the minimum term is over', async () => {
+    const api = fakeApi(users.customer);
+    api.on('GET /subscriptions/sub-1', { body: { subscription: subscription({ cancelableFrom: '2027-02-12T10:00:00.000Z' }) } });
+    renderAt('/my-plans/sub-1');
+    const cancel = await screen.findByRole('button', { name: 'Cancel plan' });
+    expect(cancel).toBeDisabled();
+    expect(cancel).toHaveAccessibleDescription('You can cancel from 12 Feb 2027');
+    expect(api.calls).not.toContain('POST /subscriptions/sub-1/cancel');
+  });
+
+  it('cancels with 30 days notice once the minimum term is over', async () => {
+    const api = fakeApi(users.customer);
+    const endsAt = future(30);
+    api.on('GET /subscriptions/sub-1', { body: { subscription: subscription({ cancelableFrom: future(-1) }) } });
+    api.on('POST /subscriptions/sub-1/cancel', { body: { subscription: subscription({ cancelableFrom: future(-1), endsAt }) } });
+    renderAt('/my-plans/sub-1');
+    const cancel = await screen.findByRole('button', { name: 'Cancel plan' });
+    expect(cancel).toBeEnabled();
+    expect(screen.queryByText(/You can cancel from/)).not.toBeInTheDocument();
+    await user().click(cancel);
+    const dialog = screen.getByRole('alertdialog');
+    expect(dialog).toHaveTextContent(/Your plan ends on .+ \(30 days' notice\)\. Visits until then still take place and are charged\./);
+    await user().click(within(dialog).getByRole('button', { name: 'Yes, cancel the plan' }));
+    expect(await screen.findByText(/^Ends on /)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Cancel plan' })).not.toBeInTheDocument();
+    expect(api.calls).toContain('POST /subscriptions/sub-1/cancel');
+  });
+
+  it('shows the pro a request to move a visit, to accept or decline (D77)', async () => {
+    const api = fakeApi(users.pro);
+    api.on('GET /pro/profile', {
+      body: {
+        profile: {
+          status: 'approved',
+          homePostcode: '10115',
+          radiusKm: 12,
+          workingDays: [1, 2, 3, 4, 5],
+          reviewNote: null,
+          payoutsEnabled: true,
+          hasPayoutAccount: true,
+          ratingAverage: 4.9,
+          ratingCount: 10,
+          trades: ['cat-garden'],
+          documents: { id: null, certificate: null, insurance: null },
+        },
+      },
+    });
+    api.on('GET /pro/offers', { body: { offers: [] } });
+    api.on('GET /pro/jobs', { body: { jobs: [] } });
+    api.on('GET /pro/visits', { body: { visits: [] } });
+    api.on('GET /pro/plans', { body: { plans: [] } });
+    const request = (id: string) => ({
+      id,
+      visitId: `visit-${id}`,
+      subscriptionId: 'sub-1',
+      planName: 'Lawn care',
+      customerName: 'Sara',
+      address: '12 Linden Street',
+      postcode: '10115',
+      fromStartsAt: '2026-11-24T09:00:00.000Z',
+      fromEndsAt: '2026-11-24T10:00:00.000Z',
+      toStartsAt: '2026-11-26T09:00:00.000Z',
+      toEndsAt: '2026-11-26T10:00:00.000Z',
+      respondBy: '2026-11-23T09:00:00.000Z',
+    });
+    api.on('GET /pro/visit-moves', { body: { moves: [request('m1'), request('m2')] } });
+    api.on('POST /pro/visit-moves/m1/accept', { body: { moves: [request('m2')] } });
+    api.on('POST /pro/visit-moves/m2/decline', { body: { moves: [] } });
+    renderAt('/pro');
+
+    const section = await screen.findByRole('region', { name: 'Requests to move a visit' });
+    const cards = within(section).getAllByRole('article');
+    expect(cards).toHaveLength(2);
+    expect(cards[0]).toHaveAccessibleName('Sara asks to move Lawn care from Tue 24 Nov, 10:00 to Thu 26 Nov, 10:00');
+    expect(cards[0]).toHaveTextContent('No answer counts as declined');
+    await user().click(within(cards[0] as HTMLElement).getByRole('button', { name: 'Accept' }));
+    await waitFor(() => expect(within(section).getAllByRole('article')).toHaveLength(1));
+    expect(api.calls).toContain('POST /pro/visit-moves/m1/accept');
+    await user().click(within(section).getByRole('button', { name: 'Decline' }));
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Requests to move a visit' })).not.toBeInTheDocument());
+    expect(api.calls).toContain('POST /pro/visit-moves/m2/decline');
+  });
+
+  it('tells the pro when they are no longer free for a requested move', async () => {
+    const api = fakeApi(users.pro);
+    api.on('GET /pro/profile', {
+      body: {
+        profile: {
+          status: 'approved',
+          homePostcode: '10115',
+          radiusKm: 12,
+          workingDays: [1, 2, 3, 4, 5],
+          reviewNote: null,
+          payoutsEnabled: true,
+          hasPayoutAccount: true,
+          ratingAverage: 4.9,
+          ratingCount: 10,
+          trades: ['cat-garden'],
+          documents: { id: null, certificate: null, insurance: null },
+        },
+      },
+    });
+    api.on('GET /pro/offers', { body: { offers: [] } });
+    api.on('GET /pro/jobs', { body: { jobs: [] } });
+    api.on('GET /pro/visits', { body: { visits: [] } });
+    api.on('GET /pro/plans', { body: { plans: [] } });
+    api.on('GET /pro/visit-moves', {
+      body: {
+        moves: [
+          {
+            id: 'm1',
+            visitId: 'v1',
+            subscriptionId: 'sub-1',
+            planName: 'Lawn care',
+            customerName: 'Sara',
+            address: '12 Linden Street',
+            postcode: '10115',
+            fromStartsAt: '2026-11-24T09:00:00.000Z',
+            fromEndsAt: '2026-11-24T10:00:00.000Z',
+            toStartsAt: '2026-11-26T09:00:00.000Z',
+            toEndsAt: '2026-11-26T10:00:00.000Z',
+            respondBy: '2026-11-23T09:00:00.000Z',
+          },
+        ],
+      },
+    });
+    api.on('POST /pro/visit-moves/m1/accept', { status: 409, body: { error: 'pro_not_free' } });
+    renderAt('/pro');
+    const section = await screen.findByRole('region', { name: 'Requests to move a visit' });
+    await user().click(within(section).getByRole('button', { name: 'Accept' }));
+    expect(await within(section).findByRole('alert')).toHaveTextContent('You are no longer free at the new time');
+    expect(within(section).getByRole('button', { name: 'Accept' })).toBeDisabled();
+    expect(within(section).getByRole('button', { name: 'Decline' })).toBeEnabled();
   });
 
   it('shows the pro the plans in their trades and plan visits with a task checklist', async () => {
@@ -1991,8 +2192,9 @@ describe('plan page', () => {
         addonName: null,
         addonPriceCents: null,
         seasonal: false,
-        skipsPerMonth: 2,
         minTermMonths: 3,
+        pauseNoticeDays: 7,
+        maxPauseWeeks: 4,
         proSharePct: 70,
         subscribers: 0,
       },
@@ -2110,7 +2312,7 @@ describe('plan page', () => {
     await user().type(screen.getByRole('textbox', { name: 'Add a task' }), 'Mow{Enter}');
   }
 
-  it('sets name, category, monthly price, how often, visit length in minutes, skips and minimum term', async () => {
+  it('sets name, category, monthly price, how often, visit length in minutes, minimum term and pause rules (D77)', async () => {
     const api = openNewPlan();
     await fillComplete();
     expect(screen.getByText('Medium size. Small −15%, large +35%.')).toBeInTheDocument();
@@ -2118,10 +2320,24 @@ describe('plan page', () => {
     expect(screen.getByText('≈ 8.7 visits a month')).toBeInTheDocument();
     await user().clear(screen.getByLabelText('Visit length (minutes)'));
     await user().type(screen.getByLabelText('Visit length (minutes)'), '90');
-    await user().clear(screen.getByLabelText('Skips allowed per month'));
-    await user().type(screen.getByLabelText('Skips allowed per month'), '1');
-    await user().clear(screen.getByLabelText('Minimum term (months)'));
-    await user().type(screen.getByLabelText('Minimum term (months)'), '6');
+    expect(screen.queryByLabelText(/Skips/)).not.toBeInTheDocument();
+
+    const term = screen.getByRole('combobox', { name: 'Minimum term' });
+    expect(within(term).getAllByRole('option').map((o) => o.textContent)).toEqual(['1 month', '3 months', '6 months', '12 months']);
+    expect(term).toHaveValue('3');
+    await user().selectOptions(term, '6 months');
+
+    const notice = screen.getByLabelText('Notice before a pause starts (days)');
+    expect(notice).toHaveValue('7');
+    const weeks = screen.getByRole('combobox', { name: 'Most paused weeks a year' });
+    expect(within(weeks).getAllByRole('option')).toHaveLength(10);
+    expect(within(weeks).getAllByRole('option')[0]).toHaveTextContent('1 week');
+    expect(within(weeks).getAllByRole('option')[9]).toHaveTextContent('10 weeks');
+    expect(weeks).toHaveValue('4');
+    await user().clear(notice);
+    await user().type(notice, '14');
+    await user().selectOptions(weeks, '2 weeks');
+
     await user().click(screen.getByRole('button', { name: 'Save draft' }));
     await waitFor(() =>
       expect(api.bodies['POST /admin/plans']).toMatchObject({
@@ -2130,11 +2346,25 @@ describe('plan page', () => {
         priceCents: 4900,
         frequency: 'twice_weekly',
         visitMinutes: 90,
-        skipsPerMonth: 1,
         minTermMonths: 6,
+        pauseNoticeDays: 14,
+        maxPauseWeeks: 2,
         tasks: ['Mow'],
       }),
     );
+    expect(api.bodies['POST /admin/plans']).not.toHaveProperty('skipsPerMonth');
+  });
+
+  it('refuses a pause notice outside 1 to 60 days and points at it when publishing', async () => {
+    const api = openNewPlan();
+    await fillComplete();
+    const notice = screen.getByLabelText('Notice before a pause starts (days)');
+    await user().clear(notice);
+    await user().type(notice, '0');
+    expect(screen.getByText('Enter a notice from 1 to 60 days.')).toBeInTheDocument();
+    await user().click(screen.getByRole('button', { name: 'Publish plan' }));
+    expect(notice).toHaveFocus();
+    expect(api.calls).not.toContain('POST /admin/plans');
   });
 
   it('leaves an emptied number field empty and explains the limits before saving', async () => {
@@ -2220,7 +2450,7 @@ describe('plan page', () => {
     expect(within(preview).getByText('€49')).toBeInTheDocument();
     expect(within(preview).getByText('≈ €11.40 per visit')).toBeInTheDocument();
     expect(within(preview).getByText('Mow')).toBeInTheDocument();
-    expect(within(preview).getByText('2 skips/month · min. 3 months')).toBeInTheDocument();
+    expect(within(preview).getByText("Min. 3 months, then 30 days' notice · Pause up to 4 weeks a year, 7 days' notice")).toBeInTheDocument();
     expect(within(preview).getByText('Subscribe')).toBeInTheDocument();
     await user().clear(screen.getByLabelText('Plan name'));
     await user().type(screen.getByLabelText('Plan name'), 'Garden care');

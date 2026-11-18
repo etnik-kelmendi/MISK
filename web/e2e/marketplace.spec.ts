@@ -261,7 +261,8 @@ test.describe.serial('MISK marketplace', () => {
     await expectAccessible(customer);
     await customer.getByRole('button', { name: 'Subscribe · €49/month' }).click();
     await expect(customer.getByText('Daniel is your regular pro')).toBeVisible();
-    await expect(customer.getByRole('button', { name: 'Skip' }).first()).toBeVisible();
+    await expect(customer.getByRole('button', { name: /^Move the visit on/ }).first()).toBeVisible();
+    await expect(customer.getByRole('button', { name: 'Cancel plan' })).toBeDisabled();
     await expectAccessible(customer);
     await customer.context().close();
 

@@ -3,16 +3,21 @@ import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router';
 import { useApi } from '../../api/ApiContext';
 import { useMarket } from '../../api/MarketContext';
-import type { PaymentStep, Subscription } from '../../api/types';
+import type { PaymentStep, Subscription, SubscriptionVisit, VisitMoveOptions } from '../../api/types';
 import { useResource } from '../../api/useResource';
 import { ErrorText } from '../../components/ErrorText';
 import { Icon } from '../../components/Icon';
 import { ResourceState } from '../../components/ResourceState';
-import { dateTime, dayParts, euro, time } from '../../lib/format';
+import { Sheet } from '../../components/Sheet';
+import { dateTime, dayParts, euro, longDate, time } from '../../lib/format';
+import { planRuleTexts } from '../../lib/plans';
 import { useAction } from '../../lib/useAction';
 import { usePolling } from '../../lib/usePolling';
 import { CardPayment } from '../../payments/CardPayment';
 import { AppHeader } from '../../shells/Shells';
+
+/** After the minimum term a plan ends this many days after the customer cancels (D77). */
+const CANCEL_NOTICE_DAYS = 30;
 
 function FinishPayment({ subscription, onConfirmed }: { subscription: Subscription; onConfirmed: () => void }) {
   const { t } = useTranslation();
@@ -37,23 +42,112 @@ function FinishPayment({ subscription, onConfirmed }: { subscription: Subscripti
   );
 }
 
+/**
+ * Move one visit (D77): the other days of the same week when the pro is free at the same time, or why the
+ * visit cannot move. The pro confirms the new day; until then the visit keeps its time.
+ */
+function MoveSheet({
+  subscription,
+  visit,
+  onClose,
+  onRequested,
+}: {
+  subscription: Subscription;
+  visit: SubscriptionVisit;
+  onClose: () => void;
+  onRequested: (next: Subscription) => void;
+}) {
+  const { t } = useTranslation();
+  const api = useApi();
+  const { timezone } = useMarket();
+  const pro = subscription.proName ?? t('subscription.yourPro');
+  const load = useCallback(
+    () => api.get<VisitMoveOptions>(`/subscriptions/${subscription.id}/visits/${visit.id}/move-options`),
+    [api, subscription.id, visit.id],
+  );
+  const { state, reload } = useResource(load);
+  const [chosen, setChosen] = useState<string | null>(null);
+  const { run, busy, error } = useAction();
+
+  async function send() {
+    if (!chosen) return;
+    const result = await run(() =>
+      api.post<{ subscription: Subscription }>(`/subscriptions/${subscription.id}/visits/${visit.id}/move`, { startsAt: chosen }),
+    );
+    if (result) onRequested(result.subscription);
+  }
+
+  const hasOptions = state.status === 'ready' && state.data.options.length > 0;
+  return (
+    <Sheet
+      title={t('subscription.moveTitle')}
+      closeLabel={t('common.close')}
+      onClose={onClose}
+      footer={
+        hasOptions && (
+          <button type="button" className="cta" disabled={busy || !chosen} onClick={() => void send()}>
+            {t('subscription.moveSend', { pro })}
+          </button>
+        )
+      }
+    >
+      <div className="stack">
+        <p className="small muted">{t('subscription.moveNow', { date: dateTime(visit.startsAt, timezone) })}</p>
+        <ResourceState state={state} reload={reload}>
+          {({ options, reason }) =>
+            reason || options.length === 0 ? (
+              <p className="info amber" role="status">
+                {t(`subscription.moveReasons.${reason ?? 'no_free_day'}`, { pro })}
+              </p>
+            ) : (
+              <>
+                <p className="small">{t('subscription.moveIntro', { pro, time: time(visit.startsAt, timezone) })}</p>
+                <fieldset className="choices">
+                  <legend className="h-sm">{t('subscription.moveChoose')}</legend>
+                  {options.map((option) => (
+                    <label key={option.startsAt} className={`choice ${chosen === option.startsAt ? 'on' : ''}`}>
+                      <input
+                        type="radio"
+                        name="move-day"
+                        checked={chosen === option.startsAt}
+                        onChange={() => setChosen(option.startsAt)}
+                      />
+                      <span className="b">{dateTime(option.startsAt, timezone)}</span>
+                    </label>
+                  ))}
+                </fieldset>
+                <p className="tiny muted">{t('subscription.moveHelp', { pro })}</p>
+              </>
+            )
+          }
+        </ResourceState>
+        <ErrorText error={error} />
+      </div>
+    </Sheet>
+  );
+}
+
 function PlanView({ subscription, onChanged, reload }: { subscription: Subscription; onChanged: (s: Subscription) => void; reload: () => void }) {
   const { t } = useTranslation();
   const api = useApi();
   const { timezone } = useMarket();
   const visitAction = useAction();
   const cancel = useAction();
-  const [confirmCancel, setConfirmCancel] = useState(false);
-  const ending = subscription.status === 'active' && subscription.endsAt !== null;
-  const canCancel =
-    subscription.status === 'active' && !ending && subscription.cancelableFrom !== null && new Date(subscription.cancelableFrom) <= new Date();
+  /** When the plan would end if cancelled now, while the customer confirms (30 days' notice). */
+  const [cancelEnds, setCancelEnds] = useState<string | null>(null);
+  const [moving, setMoving] = useState<SubscriptionVisit | null>(null);
+  const running = subscription.status === 'active' || subscription.status === 'past_due';
+  const ending = running && subscription.endsAt !== null;
+  const canCancel = running && !ending && subscription.cancelableFrom !== null && new Date(subscription.cancelableFrom) <= new Date();
   const upcoming = subscription.visits.filter((v) => new Date(v.startsAt) > new Date() && v.status !== 'cancelled');
+  const pro = subscription.proName ?? t('subscription.yourPro');
+  const rules = planRuleTexts(t, subscription);
 
-  async function visit(id: string, action: 'skip' | 'unskip') {
-    const result = await visitAction.run(() => api.post<{ subscription: Subscription }>(`/subscriptions/${subscription.id}/visits/${id}/${action}`));
-    if (result) {
-      onChanged(result.subscription);
-    }
+  async function withdraw(visit: SubscriptionVisit) {
+    const result = await visitAction.run(() =>
+      api.post<{ subscription: Subscription }>(`/subscriptions/${subscription.id}/visits/${visit.id}/move/withdraw`),
+    );
+    if (result) onChanged(result.subscription);
   }
 
   return (
@@ -84,7 +178,11 @@ function PlanView({ subscription, onChanged, reload }: { subscription: Subscript
               : t('subscription.nextCharge', { date: dateTime(subscription.currentPeriodEnd, timezone) })}
           </p>
         )}
-        {ending && subscription.endsAt && <p className="small">{t('subscription.endsOn', { date: dateTime(subscription.endsAt, timezone) })}</p>}
+        {ending && subscription.endsAt && <p className="small">{t('subscription.endsOn', { date: longDate(subscription.endsAt, timezone) })}</p>}
+        <ul className="small muted stack tight" aria-label={t('subscription.rules')}>
+          <li>{rules.term}</li>
+          <li>{rules.pause}</li>
+        </ul>
       </div>
 
       {subscription.status === 'awaiting_payment' && <FinishPayment subscription={subscription} onConfirmed={reload} />}
@@ -96,12 +194,9 @@ function PlanView({ subscription, onChanged, reload }: { subscription: Subscript
 
       {subscription.status !== 'awaiting_payment' && subscription.status !== 'cancelled' && (
         <section aria-labelledby="visits-heading">
-          <div className="row between">
-            <h2 id="visits-heading" className="h-sm">
-              {t('subscription.upcoming')}
-            </h2>
-            <span className="small muted">{t('subscription.skipsLeft', { count: subscription.skipsLeftThisMonth })}</span>
-          </div>
+          <h2 id="visits-heading" className="h-sm">
+            {t('subscription.upcoming')}
+          </h2>
           {upcoming.length === 0 ? (
             <p className="card small muted">{subscription.billingPaused ? t('subscription.noVisitsWinter') : t('subscription.noVisits')}</p>
           ) : (
@@ -109,6 +204,7 @@ function PlanView({ subscription, onChanged, reload }: { subscription: Subscript
               {upcoming.map((v) => {
                 const parts = dayParts(v.startsAt, timezone);
                 const skipped = v.status === 'skipped';
+                const when = dateTime(v.startsAt, timezone);
                 return (
                   <li key={v.id} className={`visit ${skipped ? 'skipped' : ''}`}>
                     <span className="vd">
@@ -118,15 +214,34 @@ function PlanView({ subscription, onChanged, reload }: { subscription: Subscript
                     </span>
                     <span className="grow">
                       <span className="b small block">{time(v.startsAt, timezone)}</span>
-                      <span className="tiny muted">{skipped ? t('subscription.skipped') : subscription.tasks.slice(0, 3).join(', ')}</span>
+                      <span className="tiny muted block">{skipped ? t('subscription.skipped') : subscription.tasks.slice(0, 3).join(', ')}</span>
+                      {v.movedFrom && !skipped && (
+                        <span className="tiny muted block">{t('subscription.movedFrom', { date: dateTime(v.movedFrom, timezone) })}</span>
+                      )}
+                      {v.pendingMove && (
+                        <span className="tiny block move-waiting" role="status">
+                          {t('subscription.moveWaiting', { pro, date: dateTime(v.pendingMove.toStartsAt, timezone) })}{' '}
+                          <button
+                            type="button"
+                            className="link"
+                            disabled={visitAction.busy}
+                            aria-label={t('subscription.withdrawLabel', { date: when })}
+                            onClick={() => void withdraw(v)}
+                          >
+                            {t('subscription.withdraw')}
+                          </button>
+                        </span>
+                      )}
                     </span>
-                    {skipped ? (
-                      <button type="button" className="mini-btn" disabled={visitAction.busy} onClick={() => void visit(v.id, 'unskip')}>
-                        {t('subscription.undo')}
-                      </button>
-                    ) : (
-                      <button type="button" className="mini-btn" disabled={visitAction.busy} onClick={() => void visit(v.id, 'skip')}>
-                        {t('subscription.skip')}
+                    {v.status === 'planned' && !v.pendingMove && running && (
+                      <button
+                        type="button"
+                        className="mini-btn"
+                        aria-haspopup="dialog"
+                        aria-label={t('subscription.moveLabel', { date: when })}
+                        onClick={() => setMoving(v)}
+                      >
+                        {t('subscription.move')}
                       </button>
                     )}
                   </li>
@@ -138,39 +253,66 @@ function PlanView({ subscription, onChanged, reload }: { subscription: Subscript
         </section>
       )}
 
-      {subscription.status === 'active' && !ending && (
+      {moving && (
+        <MoveSheet
+          subscription={subscription}
+          visit={moving}
+          onClose={() => setMoving(null)}
+          onRequested={(next) => {
+            setMoving(null);
+            onChanged(next);
+          }}
+        />
+      )}
+
+      {running && !ending && (
+        // Always shown (D77): until the minimum term is over it is disabled and says from when.
         <section className="stack">
-          {canCancel ? (
-            confirmCancel ? (
-              <div className="card" role="alertdialog" aria-labelledby="cancel-plan">
-                <p id="cancel-plan">{t('subscription.cancelQuestion')}</p>
-                <div className="row gap8">
-                  <button type="button" className="btn btn-ghost" onClick={() => setConfirmCancel(false)}>
-                    {t('booking.keep')}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-danger"
-                    disabled={cancel.busy}
-                    onClick={() =>
-                      void cancel
-                        .run(() => api.post<{ subscription: Subscription }>(`/subscriptions/${subscription.id}/cancel`))
-                        .then((result) => result && onChanged(result.subscription))
-                    }
-                  >
-                    {t('subscription.cancelConfirm')}
-                  </button>
-                </div>
+          {cancelEnds && canCancel ? (
+            <div className="card" role="alertdialog" aria-labelledby="cancel-plan">
+              <p id="cancel-plan">
+                {t('subscription.cancelQuestion', { date: longDate(cancelEnds, timezone) })}
+              </p>
+              <div className="row gap8">
+                <button type="button" className="btn btn-ghost" onClick={() => setCancelEnds(null)}>
+                  {t('booking.keep')}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-danger"
+                  disabled={cancel.busy}
+                  onClick={() =>
+                    void cancel
+                      .run(() => api.post<{ subscription: Subscription }>(`/subscriptions/${subscription.id}/cancel`))
+                      .then((result) => {
+                        if (result) {
+                          setCancelEnds(null);
+                          onChanged(result.subscription);
+                        }
+                      })
+                  }
+                >
+                  {t('subscription.cancelConfirm')}
+                </button>
               </div>
-            ) : (
-              <button type="button" className="link danger" onClick={() => setConfirmCancel(true)}>
+            </div>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="btn btn-ghost cancel-plan"
+                disabled={!canCancel}
+                aria-describedby={!canCancel && subscription.cancelableFrom ? 'cancel-from' : undefined}
+                onClick={() => setCancelEnds(new Date(Date.now() + CANCEL_NOTICE_DAYS * 24 * 3600 * 1000).toISOString())}
+              >
                 {t('subscription.cancel')}
               </button>
-            )
-          ) : (
-            subscription.cancelableFrom && (
-              <p className="small muted">{t('subscription.cancelFrom', { date: dateTime(subscription.cancelableFrom, timezone) })}</p>
-            )
+              {!canCancel && subscription.cancelableFrom && (
+                <p id="cancel-from" className="small muted">
+                  {t('subscription.cancelFrom', { date: longDate(subscription.cancelableFrom, timezone) })}
+                </p>
+              )}
+            </>
           )}
           <ErrorText error={cancel.error} />
         </section>

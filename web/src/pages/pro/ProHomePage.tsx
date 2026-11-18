@@ -17,6 +17,7 @@ import { useAction } from '../../lib/useAction';
 import { usePolling } from '../../lib/usePolling';
 import { ApplicationForm } from './ApplicationForm';
 import { ProPlansSection } from './ProVisitPage';
+import { VisitMoveRequests } from './VisitMoveRequests';
 
 function useCountdown(until: string): number {
   const [now, setNow] = useState(() => Date.now());
@@ -180,6 +181,7 @@ function ApprovedHome({ profile }: { profile: ProProfile }) {
           )
         }
       </ResourceState>
+      <VisitMoveRequests onAnswered={jobs.reload} />
       <h2 className="h-sm">{t('pro.upcoming')}</h2>
       <ResourceState state={jobs.state} reload={jobs.reload}>
         {(list) => {

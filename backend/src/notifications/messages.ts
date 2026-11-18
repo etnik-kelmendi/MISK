@@ -108,4 +108,14 @@ export const messages = {
   planProReplaced: (plan: string, proName: string) => `MISK: ${proName} is your new regular pro for ${plan}.`,
   planProMissing: (plan: string) => `MISK: your regular pro for ${plan} has changed. We are finding a new one and will contact you.`,
   newRegularCustomer: (plan: string) => `MISK: you are the new regular pro for a ${plan} customer. See My week.`,
+  // Moving one plan visit within its week (D77).
+  visitMoveRequested: (customer: string, plan: string, from: string, to: string) =>
+    `MISK: ${customer} asks to move the ${plan} visit from ${from} to ${to}. Accept or decline in the app.`,
+  visitMoveAccepted: (pro: string, plan: string, to: string) => `MISK: ${pro} confirmed. Your ${plan} visit moves to ${to}.`,
+  visitMoveDeclined: (pro: string, plan: string, to: string, from: string) =>
+    `MISK: ${pro} cannot come on ${to}. Your ${plan} visit stays at ${from}.`,
+  visitMoveExpired: (pro: string, plan: string, from: string) =>
+    `MISK: ${pro} did not confirm the new time in time. Your ${plan} visit stays at ${from}.`,
+  visitMoveWithdrawn: (customer: string, plan: string, from: string) =>
+    `MISK: ${customer} withdrew the request to move the ${plan} visit. It stays at ${from}.`,
 };

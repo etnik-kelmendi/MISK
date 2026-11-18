@@ -27,6 +27,9 @@ export type NotificationKind =
   | 'time_free'
   | 'payment_action_needed'
   | 'plan_pro_changed'
+  | 'visit_move_requested'
+  | 'visit_move_answered'
+  | 'visit_move_withdrawn'
   | 'payout_sent'
   | 'waitlist_open'
   | 'admin_test';
@@ -69,6 +72,9 @@ const SUBJECTS: Partial<Record<NotificationKind, string>> = {
   time_free: 'A time you wanted is free',
   payment_action_needed: 'About the payment for your MISK job',
   account: 'About your MISK account',
+  visit_move_requested: 'A customer asks to move a plan visit',
+  visit_move_answered: 'About moving your MISK plan visit',
+  visit_move_withdrawn: 'A plan visit stays at its time',
 };
 
 /** How one message overrides the usual channels and email (see enqueue). */

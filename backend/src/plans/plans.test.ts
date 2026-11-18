@@ -23,7 +23,8 @@ const plan = () => ({
   addonName: 'Hedge trimming',
   addonPriceCents: 1500,
   seasonal: true,
-  skipsPerMonth: 2,
+  pauseNoticeDays: 7,
+  maxPauseWeeks: 4,
   minTermMonths: 3,
   proSharePct: 70,
 });
@@ -38,7 +39,8 @@ const empty = {
   addonName: null,
   addonPriceCents: null,
   seasonal: false,
-  skipsPerMonth: 2,
+  pauseNoticeDays: 7,
+  maxPauseWeeks: 4,
   minTermMonths: 3,
   proSharePct: 70,
 };
@@ -109,6 +111,43 @@ describe('plans', () => {
     await refuse({ visitMinutes: 50 });
     await refuse({ frequency: 'daily' });
     await refuse({ categoryId: '00000000-0000-4000-8000-000000000000' }, 404);
+  });
+
+  it('takes a minimum term of 1, 3, 6 or 12 months only (D77)', async () => {
+    for (const months of [0, 2, 4, 13]) {
+      const response = await call(t, 'POST', '/admin/plans', { cookie: admin, body: { ...plan(), minTermMonths: months } });
+      expect(response.statusCode).toBe(400);
+    }
+    for (const months of [1, 3, 6, 12]) {
+      const response = await call(t, 'POST', '/admin/plans', { cookie: admin, body: { ...plan(), minTermMonths: months } });
+      expect(response.statusCode).toBe(201);
+      expect(response.json().plan.minTermMonths).toBe(months);
+    }
+    // Skips are no longer a plan rule.
+    const withSkips = await call(t, 'POST', '/admin/plans', { cookie: admin, body: { ...plan(), skipsPerMonth: 2 } });
+    expect(withSkips.statusCode).toBe(400);
+    const created = (await call(t, 'POST', '/admin/plans', { cookie: admin, body: plan() })).json().plan;
+    expect(created).not.toHaveProperty('skipsPerMonth');
+  });
+
+  it('stores the pause rules: notice 1 to 60 days, 1 to 10 paused weeks a year (D77)', async () => {
+    const created = (await call(t, 'POST', '/admin/plans', { cookie: admin, body: { ...plan(), pauseNoticeDays: 14, maxPauseWeeks: 10 } })).json().plan;
+    expect(created).toMatchObject({ pauseNoticeDays: 14, maxPauseWeeks: 10 });
+    for (const body of [{ maxPauseWeeks: 0 }, { maxPauseWeeks: 11 }, { pauseNoticeDays: 0 }, { pauseNoticeDays: 61 }]) {
+      expect((await call(t, 'POST', '/admin/plans', { cookie: admin, body: { ...plan(), ...body } })).statusCode).toBe(400);
+    }
+    const withoutPause: Partial<ReturnType<typeof plan>> = plan();
+    delete withoutPause.pauseNoticeDays;
+    delete withoutPause.maxPauseWeeks;
+    expect((await call(t, 'POST', '/admin/plans', { cookie: admin, body: withoutPause })).statusCode).toBe(400);
+    // Older rows and direct inserts get the defaults: 7 days' notice, 4 weeks a year.
+    const row = await t.pool.query<{ pause_notice_days: number; max_pause_weeks: number }>(
+      `INSERT INTO plans (name, category_id, price_cents, frequency, visit_minutes, tasks) VALUES ('Old', $1, 4900, 'weekly', 60, '{Mow}')
+       RETURNING pause_notice_days, max_pause_weeks`,
+      [market.gardening],
+    );
+    expect(row.rows[0]).toEqual({ pause_notice_days: 7, max_pause_weeks: 4 });
+    await expect(t.pool.query('UPDATE plans SET min_term_months = 0')).rejects.toThrow();
   });
 
   it('keeps plan building to admins', async () => {

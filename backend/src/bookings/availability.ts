@@ -47,6 +47,8 @@ export function eligibleProFilter(
   customer = 'NULL::uuid',
   /** A booking whose own pending offer or job does not count as busy, e.g. a flexible job or one being moved. */
   ownBooking = 'NULL::uuid',
+  /** A plan visit that does not count as busy, e.g. one being moved to another day (D77). */
+  ownVisit = 'NULL::uuid',
 ): string {
   return `p.status = 'approved' AND p.payouts_enabled AND p.jobs_paused_at IS NULL
     AND p.user_id IS DISTINCT FROM ${customer}
@@ -67,6 +69,7 @@ export function eligibleProFilter(
     AND NOT EXISTS (
       SELECT 1 FROM subscription_visits visit
       WHERE visit.pro_id = p.user_id AND visit.status IN ('pending', 'planned')
+        AND visit.id IS DISTINCT FROM ${ownVisit}
         AND tstzrange(visit.starts_at, visit.ends_at) && tstzrange(${s}, ${e})
     )
     AND NOT EXISTS (

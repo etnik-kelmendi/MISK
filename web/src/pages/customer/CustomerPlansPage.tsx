@@ -7,6 +7,7 @@ import { useResource } from '../../api/useResource';
 import { Icon } from '../../components/Icon';
 import { ResourceState } from '../../components/ResourceState';
 import { euro } from '../../lib/format';
+import { planRuleTexts } from '../../lib/plans';
 import { AppHeader } from '../../shells/Shells';
 import { CATEGORY_COLORS } from './categoryColors';
 
@@ -60,9 +61,11 @@ export function CustomerPlansPage() {
                           </span>
                           <span className="grow">
                             <span className="b block">{plan.name}</span>
-                            <span className="small muted">
+                            <span className="small muted block">
                               {t(`admin.plans.frequency.${plan.frequency}`)} · {plan.tasks.join(' · ')}
                             </span>
+                            <span className="tiny muted block">{planRuleTexts(t, plan).term}</span>
+                            <span className="tiny muted block">{planRuleTexts(t, plan).pause}</span>
                           </span>
                           <span className="price">{t('plans.from', { price: euro(Math.round((plan.priceCents ?? 0) * 0.85)) })}</span>
                         </Link>

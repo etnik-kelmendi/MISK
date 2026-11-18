@@ -129,8 +129,9 @@ export const patternOf = (row: SubscriptionRow): VisitPattern => ({
 });
 
 /**
- * Adds the visits still missing in the planning window. A time the pro has since filled is left out
- * and logged, rather than double-booking them. Returns how many were added.
+ * Adds the visits still missing in the planning window, never after the plan's end (`ends_at`, e.g. the
+ * end of a cancelled plan's 30 days' notice). A time the pro has since filled is left out rather than
+ * double-booking them. Returns how many were added.
  */
 export async function planVisits(
   db: PoolClient | Queryable,
@@ -151,7 +152,8 @@ export async function planVisits(
      FROM unnest($3::timestamptz[]) AS s(starts_at)
      WHERE NOT EXISTS (
          SELECT 1 FROM subscription_visits v
-         WHERE (v.subscription_id = $1 AND v.starts_at = s.starts_at)
+         -- A visit moved to another day (D77) keeps its first time, which is never planned again.
+         WHERE (v.subscription_id = $1 AND (v.starts_at = s.starts_at OR v.moved_from = s.starts_at))
             OR (v.pro_id = $2 AND v.status IN ('pending', 'planned')
                 AND tstzrange(v.starts_at, v.ends_at) && tstzrange(s.starts_at, s.starts_at + make_interval(mins => $4::int))))
        AND NOT EXISTS (

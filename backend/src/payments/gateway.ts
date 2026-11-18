@@ -75,6 +75,11 @@ export interface PaymentGateway {
   subscriptionClientSecret(subscriptionId: string): Promise<string | null>;
   /** Stops billing, either now or once the paid month ends. */
   cancelSubscription(subscriptionId: string, atPeriodEnd: boolean): Promise<void>;
+  /**
+   * Stops billing at a given moment, e.g. after the customer's 30 days' notice (D77). The last part-month
+   * up to that moment is charged pro rata.
+   */
+  cancelSubscriptionAt(subscriptionId: string, at: Date): Promise<void>;
   /** Pauses or resumes monthly charges, e.g. for a seasonal plan in winter. */
   setBillingPaused(subscriptionId: string, paused: boolean): Promise<void>;
   onboardingLink(input: { accountId: string; returnUrl: string; refreshUrl: string }): Promise<string>;

@@ -84,6 +84,8 @@ export function fakeApi(user: User | null): FakeApi {
   // A first-time customer: no saved cards and no earlier choice (D73).
   routes.set('GET /payment-methods', { body: { cards: [], cardsAvailable: true, last: null, publishableKey: null } });
   routes.set('GET /inbox', { body: { messages: [], unread: 0 } });
+  // A pro has no requests to move a plan visit unless a test says so (D77).
+  routes.set('GET /pro/visit-moves', { body: { moves: [] } });
   routes.set('GET /auth/me', user ? { body: { user } } : { status: 401, body: { error: 'unauthenticated' } });
 
   vi.stubGlobal(

@@ -10,6 +10,7 @@ import {
   type Market,
   type TestContext,
 } from '../../test/helpers.js';
+import { visitMoveTick } from './moves.js';
 import { planSizePrice, subscriptionTick } from './service.js';
 
 let t: TestContext;
@@ -38,7 +39,8 @@ beforeEach(async () => {
       addonName: 'Hedge trimming',
       addonPriceCents: 1500,
       seasonal: false,
-      skipsPerMonth: 1,
+      pauseNoticeDays: 7,
+      maxPauseWeeks: 4,
       minTermMonths: 3,
       proSharePct: 70,
     },
@@ -188,38 +190,240 @@ describe('subscribing to a plan', () => {
 });
 
 describe('managing a plan', () => {
+  let pro: { cookie: string; proId: string };
   beforeEach(async () => {
-    await approvedPro(t, '+4915100000101', { trades: [market.gardening] });
+    pro = await approvedPro(t, '+4915100000101', { trades: [market.gardening] });
   });
 
-  it('lets the customer skip as many visits a month as the plan allows, and undo a skip', async () => {
+  interface Visit {
+    id: string;
+    startsAt: string;
+    endsAt: string;
+    status: string;
+    movedFrom: string | null;
+    pendingMove: { toStartsAt: string; toEndsAt: string; respondBy: string } | null;
+  }
+  const DAY = 24 * 3600 * 1000;
+  const weekday = (iso: string) => new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Berlin', weekday: 'short' }).format(new Date(iso));
+  const clock = (iso: string) =>
+    new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Berlin', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(iso));
+  const load = async (id: string) => (await call(t, 'GET', `/subscriptions/${id}`, { cookie: customer })).json().subscription;
+  /** A subscribed customer and a planned visit at least 8 days ahead, so its whole week is still to come. */
+  async function laterVisit() {
     const subscription = (await subscribe()).json().subscription;
-    const [first, second] = subscription.visits;
-    const skipped = await call(t, 'POST', `/subscriptions/${subscription.id}/visits/${first.id}/skip`, { cookie: customer });
-    expect(skipped.json().subscription.visits[0].status).toBe('skipped');
-    const sameMonth = new Date(first.startsAt).getMonth() === new Date(second.startsAt).getMonth();
-    const another = await call(t, 'POST', `/subscriptions/${subscription.id}/visits/${second.id}/skip`, { cookie: customer });
-    if (sameMonth) {
-      expect(another.json()).toEqual({ error: 'no_skips_left' });
+    const visit = (subscription.visits as Visit[]).find((v) => new Date(v.startsAt).getTime() > Date.now() + 8 * DAY);
+    if (!visit) throw new Error('no visit 8 days ahead');
+    return { subscription, visit };
+  }
+  const options = async (subscriptionId: string, visitId: string) =>
+    (await call(t, 'GET', `/subscriptions/${subscriptionId}/visits/${visitId}/move-options`, { cookie: customer })).json() as {
+      options: { startsAt: string; endsAt: string }[];
+      reason: string | null;
+    };
+  const move = (subscriptionId: string, visitId: string, startsAt: string) =>
+    call(t, 'POST', `/subscriptions/${subscriptionId}/visits/${visitId}/move`, { cookie: customer, body: { startsAt } });
+  const inbox = async (kind: string) =>
+    (await t.pool.query<{ user_id: string; body: string }>('SELECT user_id, body FROM inbox WHERE kind = $1 ORDER BY created_at', [kind])).rows;
+
+  it('no longer lets the customer skip a visit (D77)', async () => {
+    const subscription = (await subscribe()).json().subscription;
+    expect(subscription).not.toHaveProperty('skipsLeftThisMonth');
+    const [first] = subscription.visits;
+    for (const action of ['skip', 'unskip']) {
+      const response = await call(t, 'POST', `/subscriptions/${subscription.id}/visits/${first.id}/${action}`, { cookie: customer });
+      expect(response.statusCode).toBe(410);
+      expect(response.json()).toEqual({ error: 'skips_removed' });
     }
-    const undone = await call(t, 'POST', `/subscriptions/${subscription.id}/visits/${first.id}/unskip`, { cookie: customer });
-    expect(undone.json().subscription.visits[0].status).toBe('planned');
+    expect((await load(subscription.id)).visits[0].status).toBe('planned');
   });
 
-  it('only cancels after the minimum term, and then at the end of the paid month', async () => {
+  it('copies the minimum term and pause rules onto the subscription', async () => {
+    await t.pool.query('UPDATE plans SET min_term_months = 6, pause_notice_days = 14, max_pause_weeks = 2');
+    const subscription = (await subscribe()).json().subscription;
+    expect(subscription).toMatchObject({ minTermMonths: 6, pauseNoticeDays: 14, maxPauseWeeks: 2 });
+    await t.pool.query('UPDATE plans SET pause_notice_days = 30');
+    expect((await load(subscription.id)).pauseNoticeDays).toBe(14);
+  });
+
+  it('offers the other days of the same week when the pro is free at the same time', async () => {
+    const { subscription, visit } = await laterVisit();
+    // The pro does not work on Thursdays.
+    await t.pool.query("UPDATE pro_profiles SET working_days = '{1,2,3,5,6,7}' WHERE user_id = $1", [pro.proId]);
+    const result = await options(subscription.id, visit.id);
+    expect(result.reason).toBeNull();
+    expect(result.options.map((o) => weekday(o.startsAt))).toEqual(['Mon', 'Wed', 'Fri', 'Sat', 'Sun']);
+    expect(result.options.every((o) => clock(o.startsAt) === clock(visit.startsAt))).toBe(true);
+    const length = new Date(visit.endsAt).getTime() - new Date(visit.startsAt).getTime();
+    expect(result.options.every((o) => new Date(o.endsAt).getTime() - new Date(o.startsAt).getTime() === length)).toBe(true);
+    const sameWeek = await t.pool.query<{ ok: boolean }>(
+      `SELECT bool_and(date_trunc('week', o AT TIME ZONE 'Europe/Berlin') = date_trunc('week', $1::timestamptz AT TIME ZONE 'Europe/Berlin')) AS ok
+       FROM unnest($2::timestamptz[]) AS o`,
+      [visit.startsAt, result.options.map((o) => o.startsAt)],
+    );
+    expect(sameWeek.rows[0]?.ok).toBe(true);
+
+    // A day the pro is busy or off, another week, or another time of day is refused.
+    const thursday = new Date(new Date(visit.startsAt).getTime() + 2 * DAY).toISOString();
+    expect((await move(subscription.id, visit.id, thursday)).json()).toEqual({ error: 'pro_not_free' });
+    const nextWeek = new Date(new Date(visit.startsAt).getTime() + 7 * DAY).toISOString();
+    expect((await move(subscription.id, visit.id, nextWeek)).json()).toEqual({ error: 'move_not_same_week' });
+    const otherTime = new Date(new Date(result.options[0]?.startsAt ?? '').getTime() + 3600_000).toISOString();
+    expect((await move(subscription.id, visit.id, otherTime)).json()).toEqual({ error: 'move_not_same_week' });
+  });
+
+  it('needs the request at least 24 hours before the visit', async () => {
+    const { subscription, visit } = await laterVisit();
+    await t.pool.query("UPDATE subscription_visits SET starts_at = now() + interval '23 hours', ends_at = now() + interval '24 hours' WHERE id = $1", [
+      visit.id,
+    ]);
+    expect(await options(subscription.id, visit.id)).toEqual({ options: [], reason: 'too_late' });
+    const target = new Date(Date.now() + 2 * DAY).toISOString();
+    expect((await move(subscription.id, visit.id, target)).json()).toEqual({ error: 'visit_not_movable' });
+  });
+
+  it('moves only that visit once the pro accepts, and leaves billing alone', async () => {
+    const { subscription, visit } = await laterVisit();
+    const before = await t.pool.query('SELECT price_cents, current_period_end FROM subscriptions');
+    const payoutsBefore = await t.pool.query('SELECT count(*)::int AS n FROM subscription_payouts');
+    const { options: choices } = await options(subscription.id, visit.id);
+    const target = choices.find((o) => weekday(o.startsAt) === 'Thu');
+    if (!target) throw new Error('no Thursday offered');
+
+    const requested = await move(subscription.id, visit.id, target.startsAt);
+    expect(requested.statusCode).toBe(200);
+    const waiting = (requested.json().subscription.visits as Visit[]).find((v) => v.id === visit.id);
+    expect(waiting?.startsAt).toBe(visit.startsAt);
+    expect(new Date(waiting?.pendingMove?.toStartsAt ?? '').toISOString()).toBe(new Date(target.startsAt).toISOString());
+    // The pro answers by 24 hours before the original time (sooner than the new time here).
+    expect(new Date(waiting?.pendingMove?.respondBy ?? '').getTime()).toBe(new Date(visit.startsAt).getTime() - DAY);
+    expect((await move(subscription.id, visit.id, target.startsAt)).json()).toEqual({ error: 'move_pending' });
+    expect(await options(subscription.id, visit.id)).toEqual({ options: [], reason: 'move_pending' });
+
+    // The pro is told in the app and by push, not by SMS.
+    const told = await inbox('visit_move_requested');
+    expect(told).toEqual([{ user_id: pro.proId, body: expect.stringContaining('Sara asks to move the Lawn care visit') }]);
+    const sms = await t.pool.query("SELECT 1 FROM notifications WHERE kind = 'visit_move_requested' AND channel = 'sms'");
+    expect(sms.rowCount).toBe(0);
+
+    const moves = (await call(t, 'GET', '/pro/visit-moves', { cookie: pro.cookie })).json().moves;
+    expect(moves).toEqual([
+      expect.objectContaining({ visitId: visit.id, customerName: 'Sara', planName: 'Lawn care', fromStartsAt: visit.startsAt }),
+    ]);
+    const stranger = await approvedPro(t, '+4915100000109', { trades: [market.gardening] });
+    expect((await call(t, 'POST', `/pro/visit-moves/${moves[0].id}/accept`, { cookie: stranger.cookie })).statusCode).toBe(404);
+
+    const accepted = await call(t, 'POST', `/pro/visit-moves/${moves[0].id}/accept`, { cookie: pro.cookie });
+    expect(accepted.json()).toEqual({ moves: [] });
+    const after = await load(subscription.id);
+    const moved = (after.visits as Visit[]).find((v) => v.id === visit.id);
+    expect(moved).toMatchObject({ startsAt: target.startsAt, endsAt: target.endsAt, status: 'planned', pendingMove: null });
+    expect(moved?.movedFrom).toBe(visit.startsAt);
+    const others = (after.visits as Visit[]).filter((v) => v.id !== visit.id);
+    expect(others.map((v) => v.startsAt)).toEqual((subscription.visits as Visit[]).filter((v) => v.id !== visit.id).map((v) => v.startsAt));
+    expect((await inbox('visit_move_answered'))[0]?.body).toContain('Daniel confirmed');
+
+    // The planner never plans the original time again, and nothing about billing changed.
+    await subscriptionTick(t.deps);
+    const again = await t.pool.query('SELECT 1 FROM subscription_visits WHERE starts_at = $1', [visit.startsAt]);
+    expect(again.rowCount).toBe(0);
+    expect((await t.pool.query('SELECT price_cents, current_period_end FROM subscriptions')).rows).toEqual(before.rows);
+    expect((await t.pool.query('SELECT count(*)::int AS n FROM subscription_payouts')).rows).toEqual(payoutsBefore.rows);
+    expect([...t.fake.subscriptions.values()][0]).toMatchObject({ amountCents: 6400, cancelAt: null, cancelAtPeriodEnd: false });
+  });
+
+  it('keeps the visit when the pro declines, and tells the customer', async () => {
+    const { subscription, visit } = await laterVisit();
+    const target = (await options(subscription.id, visit.id)).options[0];
+    await move(subscription.id, visit.id, target?.startsAt ?? '');
+    const [request] = (await call(t, 'GET', '/pro/visit-moves', { cookie: pro.cookie })).json().moves;
+    const declined = await call(t, 'POST', `/pro/visit-moves/${request.id}/decline`, { cookie: pro.cookie });
+    expect(declined.json()).toEqual({ moves: [] });
+    const kept = ((await load(subscription.id)).visits as Visit[]).find((v) => v.id === visit.id);
+    expect(kept).toMatchObject({ startsAt: visit.startsAt, status: 'planned', pendingMove: null, movedFrom: null });
+    expect((await inbox('visit_move_answered'))[0]?.body).toMatch(/Daniel cannot come on .*\. Your Lawn care visit stays at /);
+    expect((await call(t, 'POST', `/pro/visit-moves/${request.id}/accept`, { cookie: pro.cookie })).json()).toEqual({ error: 'move_not_pending' });
+  });
+
+  it('refuses the move when the pro is no longer free, leaving the request to decline', async () => {
+    const { subscription, visit } = await laterVisit();
+    const target = (await options(subscription.id, visit.id)).options.find((o) => weekday(o.startsAt) === 'Thu');
+    await move(subscription.id, visit.id, target?.startsAt ?? '');
+    await t.pool.query("UPDATE pro_profiles SET working_days = '{1,2,3,5,6,7}' WHERE user_id = $1", [pro.proId]);
+    const [request] = (await call(t, 'GET', '/pro/visit-moves', { cookie: pro.cookie })).json().moves;
+    expect((await call(t, 'POST', `/pro/visit-moves/${request.id}/accept`, { cookie: pro.cookie })).json()).toEqual({ error: 'pro_not_free' });
+    expect((await call(t, 'GET', '/pro/visit-moves', { cookie: pro.cookie })).json().moves).toHaveLength(1);
+    expect(((await load(subscription.id)).visits as Visit[]).find((v) => v.id === visit.id)?.startsAt).toBe(visit.startsAt);
+  });
+
+  it('declines a move by itself when the pro does not answer in time', async () => {
+    const { subscription, visit } = await laterVisit();
+    const target = (await options(subscription.id, visit.id)).options[0];
+    await move(subscription.id, visit.id, target?.startsAt ?? '');
+    expect(await visitMoveTick(t.deps)).toBe(0);
+    await t.pool.query("UPDATE subscription_visit_moves SET respond_by = now() - interval '1 minute'");
+    expect((await call(t, 'GET', '/pro/visit-moves', { cookie: pro.cookie })).json().moves).toEqual([]);
+    expect(await visitMoveTick(t.deps)).toBe(1);
+    expect((await t.pool.query('SELECT status FROM subscription_visit_moves')).rows).toEqual([{ status: 'expired' }]);
+    expect((await inbox('visit_move_answered'))[0]?.body).toMatch(/Daniel did not confirm the new time in time\. Your Lawn care visit stays at /);
+    const kept = ((await load(subscription.id)).visits as Visit[]).find((v) => v.id === visit.id);
+    expect(kept).toMatchObject({ startsAt: visit.startsAt, pendingMove: null });
+    expect(await visitMoveTick(t.deps)).toBe(0);
+  });
+
+  it('lets the customer withdraw a request the pro has not answered', async () => {
+    const { subscription, visit } = await laterVisit();
+    const target = (await options(subscription.id, visit.id)).options[0];
+    await move(subscription.id, visit.id, target?.startsAt ?? '');
+    const url = `/subscriptions/${subscription.id}/visits/${visit.id}/move/withdraw`;
+    const withdrawn = await call(t, 'POST', url, { cookie: customer });
+    expect(((withdrawn.json().subscription.visits as Visit[]).find((v) => v.id === visit.id))?.pendingMove).toBeNull();
+    expect((await call(t, 'POST', url, { cookie: customer })).json()).toEqual({ error: 'move_not_pending' });
+    expect((await call(t, 'GET', '/pro/visit-moves', { cookie: pro.cookie })).json().moves).toEqual([]);
+    expect((await inbox('visit_move_withdrawn'))[0]?.user_id).toBe(pro.proId);
+    // The visit can be moved again afterwards.
+    expect((await move(subscription.id, visit.id, target?.startsAt ?? '')).statusCode).toBe(200);
+  });
+
+  it('only cancels after the minimum term, then with 30 days notice', async () => {
     const subscription = (await subscribe()).json().subscription;
     expect((await call(t, 'POST', `/subscriptions/${subscription.id}/cancel`, { cookie: customer })).json()).toEqual({
       error: 'in_minimum_term',
     });
     await t.pool.query("UPDATE subscriptions SET started_at = now() - interval '4 months'");
+    // A visit after the notice ends, e.g. planned before the plan was cancelled.
+    const late = await t.pool.query<{ id: string }>(
+      `INSERT INTO subscription_visits (subscription_id, pro_id, starts_at, ends_at, status)
+       VALUES ($1, $2, now() + interval '35 days', now() + interval '35 days 1 hour', 'planned') RETURNING id`,
+      [subscription.id, pro.proId],
+    );
+    const plannedBefore = (subscription.visits as Visit[]).filter((v) => v.status === 'planned').map((v) => v.id);
+
+    const started = Date.now();
     const cancelled = (await call(t, 'POST', `/subscriptions/${subscription.id}/cancel`, { cookie: customer })).json().subscription;
-    expect(cancelled.endsAt).not.toBeNull();
-    expect([...t.fake.subscriptions.values()][0]?.cancelAtPeriodEnd).toBe(true);
-    expect(cancelled.visits.filter((v: { status: string; startsAt: string }) => v.status === 'planned' && v.startsAt >= cancelled.endsAt)).toEqual([]);
+    const endsAt = new Date(cancelled.endsAt).getTime();
+    expect(endsAt).toBeGreaterThanOrEqual(started + 30 * DAY - 1000);
+    expect(endsAt).toBeLessThanOrEqual(Date.now() + 30 * DAY + 1000);
+    const stripe = [...t.fake.subscriptions.values()][0];
+    expect(stripe?.cancelAt?.getTime()).toBe(endsAt);
+    expect(stripe?.cancelAtPeriodEnd).toBe(false);
+    // Visits during the notice still take place; the one after the end is cancelled.
+    const statuses = new Map((cancelled.visits as Visit[]).map((v) => [v.id, v.status]));
+    expect(plannedBefore.every((id) => statuses.get(id) === 'planned')).toBe(true);
+    expect(statuses.get(late.rows[0]?.id ?? '')).toBe('cancelled');
+    expect((await call(t, 'POST', `/subscriptions/${subscription.id}/cancel`, { cookie: customer })).json()).toEqual({ error: 'already_cancelled' });
+
+    // Planning never adds visits after the end.
+    await t.pool.query("DELETE FROM subscription_visits WHERE starts_at > now() + interval '9 days'");
+    await t.pool.query("UPDATE subscriptions SET ends_at = now() + interval '10 days'");
+    await subscriptionTick(t.deps);
+    const afterEnd = await t.pool.query(
+      "SELECT 1 FROM subscription_visits v JOIN subscriptions s ON s.id = v.subscription_id WHERE v.status = 'planned' AND v.ends_at > s.ends_at",
+    );
+    expect(afterEnd.rowCount).toBe(0);
 
     await t.pool.query("UPDATE subscriptions SET ends_at = now() - interval '1 minute'");
     await subscriptionTick(t.deps);
-    expect((await call(t, 'GET', `/subscriptions/${subscription.id}`, { cookie: customer })).json().subscription.status).toBe('cancelled');
+    expect((await load(subscription.id)).status).toBe('cancelled');
   });
 
   it('keeps other customers out', async () => {

@@ -9,7 +9,7 @@ import { useResource } from '../../api/useResource';
 import { Icon } from '../../components/Icon';
 import { ResourceState } from '../../components/ResourceState';
 import { euro, PACKAGE_DISCOUNT_PCT } from '../../lib/format';
-import { planSizePrice } from '../../lib/plans';
+import { planRuleTexts, planSizePrice } from '../../lib/plans';
 import { AppHeader } from '../../shells/Shells';
 import { CATEGORY_COLORS } from './categoryColors';
 
@@ -112,7 +112,9 @@ function PlanList({ category }: { category: Category }) {
                     <dt>{t('services.yourPro')}</dt>
                     <dd>{t('services.samePro')}</dd>
                     <dt>{t('services.contract')}</dt>
-                    <dd>{t('services.contractValue', { count: p.minTermMonths })}</dd>
+                    <dd>{planRuleTexts(t, p).term}</dd>
+                    <dt>{t('services.pause')}</dt>
+                    <dd>{planRuleTexts(t, p).pause}</dd>
                   </dl>
                 </label>
               ))}

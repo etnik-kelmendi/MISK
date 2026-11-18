@@ -9,7 +9,7 @@ import { ErrorText } from '../../components/ErrorText';
 import { Icon } from '../../components/Icon';
 import { ResourceState } from '../../components/ResourceState';
 import { euro } from '../../lib/format';
-import { currentMonth, DAYS_PER_WEEK, planSizePrice, VISITS_PER_MONTH } from '../../lib/plans';
+import { currentMonth, DAYS_PER_WEEK, planRuleTexts, planSizePrice, VISITS_PER_MONTH } from '../../lib/plans';
 import { useAction } from '../../lib/useAction';
 import { useValidation } from '../../lib/useValidation';
 import { FieldError } from '../../components/FieldError';
@@ -206,8 +206,8 @@ function SubscribeForm({ plan, postcodes }: { plan: Plan; postcodes: Postcode[] 
           <ul className="small sub stack tight">
             <li>✓ {t('subscribe.regularPro', { visits: VISITS_PER_MONTH[plan.frequency] })}</li>
             <li>✓ {plan.seasonal ? t('admin.plans.seasonShort') : t('subscribe.allYear')}</li>
-            <li>✓ {t('subscribe.skips', { count: plan.skipsPerMonth })}</li>
-            <li>✓ {t('subscribe.term', { months: plan.minTermMonths })}</li>
+            <li>✓ {planRuleTexts(t, plan).term}</li>
+            <li>✓ {planRuleTexts(t, plan).pause}</li>
           </ul>
         </section>
         {offSeason && (

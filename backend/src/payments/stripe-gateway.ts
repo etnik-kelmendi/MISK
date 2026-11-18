@@ -208,6 +208,13 @@ export function createStripeGateway(config: StripeConfig): PaymentGateway {
       }
     },
 
+    async cancelSubscriptionAt(subscriptionId, at) {
+      await stripe.subscriptions.update(subscriptionId, {
+        cancel_at: Math.floor(at.getTime() / 1000),
+        proration_behavior: 'create_prorations',
+      });
+    },
+
     async setBillingPaused(subscriptionId, paused) {
       await stripe.subscriptions.update(subscriptionId, { pause_collection: paused ? { behavior: 'void' } : '' });
     },

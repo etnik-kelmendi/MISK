@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next';
 import { Link, useBlocker, useLocation, useNavigate, useParams } from 'react-router';
 import { useApi } from '../../api/ApiContext';
-import type { AdminCategory, Frequency, Plan, PlanInput } from '../../api/types';
+import { MIN_TERMS, type AdminCategory, type Frequency, type MinTerm, type Plan, type PlanInput } from '../../api/types';
 import { useResource } from '../../api/useResource';
 import { ErrorText } from '../../components/ErrorText';
 import { Icon } from '../../components/Icon';
@@ -208,7 +208,7 @@ export function PlansPage() {
   );
 }
 
-type NumberField = 'visitMinutes' | 'skipsPerMonth' | 'minTermMonths';
+type NumberField = 'visitMinutes' | 'pauseNoticeDays';
 type PlanField = 'name' | 'category' | 'price' | 'tasks' | 'addonPrice';
 
 /** Every field that can stop publishing, with its input, in the order they appear on the page. */
@@ -217,17 +217,18 @@ const FIELD_ORDER: [PlanField | NumberField, string][] = [
   ['category', 'plan-category'],
   ['price', 'plan-price'],
   ['visitMinutes', 'plan-visitMinutes'],
-  ['minTermMonths', 'plan-minTermMonths'],
   ['tasks', 'plan-new-task'],
   ['addonPrice', 'plan-addon-price'],
-  ['skipsPerMonth', 'plan-skipsPerMonth'],
+  ['pauseNoticeDays', 'plan-pauseNoticeDays'],
 ];
+
+/** Most paused weeks a year an admin can choose (D77). */
+export const PAUSE_WEEKS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as const;
 
 /** The limits the API accepts for each number, so the editor can explain them before saving. */
 export const NUMBER_LIMITS: Record<NumberField, { min: number; max: number; step: number }> = {
   visitMinutes: { min: 15, max: 600, step: 15 },
-  skipsPerMonth: { min: 0, max: 8, step: 1 },
-  minTermMonths: { min: 0, max: 12, step: 1 },
+  pauseNoticeDays: { min: 1, max: 60, step: 1 },
 };
 
 /** A whole number within the field's limits, or null while the field is empty or out of range. */
@@ -276,8 +277,9 @@ interface Draft {
   addonName: string;
   addonPrice: string;
   seasonal: boolean;
-  skipsPerMonth: string;
-  minTermMonths: string;
+  minTermMonths: MinTerm;
+  pauseNoticeDays: string;
+  maxPauseWeeks: number;
   proSharePct: number;
 }
 
@@ -294,8 +296,9 @@ function toDraft(plan: Plan | null): Draft {
       addonName: '',
       addonPrice: '',
       seasonal: false,
-      skipsPerMonth: '2',
-      minTermMonths: '3',
+      minTermMonths: 3,
+      pauseNoticeDays: '7',
+      maxPauseWeeks: 4,
       proSharePct: 70,
     };
   }
@@ -310,8 +313,9 @@ function toDraft(plan: Plan | null): Draft {
     addonName: plan.addonName ?? '',
     addonPrice: plan.addonPriceCents === null ? '' : (plan.addonPriceCents / 100).toFixed(2),
     seasonal: plan.seasonal,
-    skipsPerMonth: String(plan.skipsPerMonth),
-    minTermMonths: String(plan.minTermMonths),
+    minTermMonths: plan.minTermMonths,
+    pauseNoticeDays: String(plan.pauseNoticeDays),
+    maxPauseWeeks: plan.maxPauseWeeks,
     proSharePct: plan.proSharePct,
   };
 }
@@ -328,8 +332,9 @@ function inputOf(draft: Draft): PlanInput {
     addonName,
     addonPriceCents: addonName ? parseEuroToCents(draft.addonPrice) : null,
     seasonal: draft.seasonal,
-    skipsPerMonth: parseNumberField('skipsPerMonth', draft.skipsPerMonth) ?? Number.NaN,
-    minTermMonths: parseNumberField('minTermMonths', draft.minTermMonths) ?? Number.NaN,
+    minTermMonths: draft.minTermMonths,
+    pauseNoticeDays: parseNumberField('pauseNoticeDays', draft.pauseNoticeDays) ?? Number.NaN,
+    maxPauseWeeks: draft.maxPauseWeeks,
     proSharePct: draft.proSharePct,
   };
 }
@@ -727,7 +732,21 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
             <span className="hint">{t('admin.plans.visitsHint', { visits })}</span>
           </div>
           {number('visitMinutes')}
-          {number('minTermMonths')}
+          <div className="af">
+            <label htmlFor="plan-minTermMonths">{t('admin.plans.fields.minTermMonths')}</label>
+            <select
+              id="plan-minTermMonths"
+              value={draft.minTermMonths}
+              onChange={(e) => set('minTermMonths', Number(e.target.value) as MinTerm)}
+            >
+              {MIN_TERMS.map((months) => (
+                <option key={months} value={months}>
+                  {t('admin.plans.termOption', { count: months })}
+                </option>
+              ))}
+            </select>
+            <span className="hint">{t('admin.plans.termHint')}</span>
+          </div>
 
           <fieldset className="af full">
             <legend>{t('admin.plans.fields.tasks')}</legend>
@@ -814,7 +833,18 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
             />
             <span className="hint">{draft.seasonal ? t('admin.plans.seasonOn') : t('admin.plans.seasonOff')}</span>
           </div>
-          {number('skipsPerMonth')}
+          {number('pauseNoticeDays')}
+          <div className="af">
+            <label htmlFor="plan-maxPauseWeeks">{t('admin.plans.fields.maxPauseWeeks')}</label>
+            <select id="plan-maxPauseWeeks" value={draft.maxPauseWeeks} onChange={(e) => set('maxPauseWeeks', Number(e.target.value))}>
+              {PAUSE_WEEKS.map((weeks) => (
+                <option key={weeks} value={weeks}>
+                  {t('admin.plans.weeksOption', { count: weeks })}
+                </option>
+              ))}
+            </select>
+            <span className="hint">{t('admin.plans.pauseHint')}</span>
+          </div>
 
           <div className="af full">
             <label htmlFor="plan-share">{t('admin.plans.fields.proSharePct', { pct: draft.proSharePct })}</label>
@@ -880,7 +910,11 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
             </span>
             <p className="tiny muted">
               {draft.seasonal && `${t('admin.plans.seasonShort')} · `}
-              {t('admin.plans.rulesShort', { skips: draft.skipsPerMonth.trim() || '–', months: draft.minTermMonths.trim() || '–' })}
+              {t('admin.plans.rulesShort', {
+                months: draft.minTermMonths,
+                weeks: draft.maxPauseWeeks,
+                days: draft.pauseNoticeDays.trim() || '–',
+              })}
             </p>
           </div>
           <p className="small muted">

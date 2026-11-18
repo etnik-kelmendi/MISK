@@ -29,6 +29,11 @@ export const DAYS_PER_WEEK: Record<Frequency, number> = {
 export const SEASON_FROM = 4;
 export const SEASON_TO = 10;
 export const MIN_PLAN_PRICE_CENTS = 500;
+/** The minimum terms an admin can choose, in months (D77). */
+export const MIN_TERMS = [1, 3, 6, 12] as const;
+export type MinTerm = (typeof MIN_TERMS)[number];
+/** After the minimum term a customer can cancel with this much notice (D77). */
+export const CANCEL_NOTICE_DAYS = 30;
 
 export interface PlanBody {
   name: string | null;
@@ -40,8 +45,9 @@ export interface PlanBody {
   addonName: string | null;
   addonPriceCents: number | null;
   seasonal: boolean;
-  skipsPerMonth: number;
-  minTermMonths: number;
+  minTermMonths: MinTerm;
+  pauseNoticeDays: number;
+  maxPauseWeeks: number;
   proSharePct: number;
 }
 
@@ -58,16 +64,18 @@ const planProperties = {
   addonName: nullable({ type: 'string', maxLength: 80 }),
   addonPriceCents: nullable({ type: 'integer', minimum: 0, maximum: 99_900 }),
   seasonal: { type: 'boolean' },
-  skipsPerMonth: { type: 'integer', minimum: 0, maximum: 8 },
-  minTermMonths: { type: 'integer', minimum: 0, maximum: 12 },
+  minTermMonths: { type: 'integer', enum: MIN_TERMS },
+  pauseNoticeDays: { type: 'integer', minimum: 1, maximum: 60 },
+  maxPauseWeeks: { type: 'integer', minimum: 1, maximum: 10 },
   proSharePct: { type: 'integer', minimum: 50, maximum: 90 },
 } as const;
 
 export const PLAN_COLUMNS = `p.id, p.name, p.category_id AS "categoryId", c.name AS "categoryName", c.icon AS "categoryIcon",
   p.price_cents AS "priceCents", p.frequency, p.visit_minutes AS "visitMinutes", p.tasks,
   p.addon_name AS "addonName", p.addon_price_cents AS "addonPriceCents", p.seasonal,
-  p.season_from AS "seasonFrom", p.season_to AS "seasonTo", p.skips_per_month AS "skipsPerMonth",
-  p.min_term_months AS "minTermMonths", p.pro_share_pct AS "proSharePct", p.status,
+  p.season_from AS "seasonFrom", p.season_to AS "seasonTo",
+  p.min_term_months AS "minTermMonths", p.pause_notice_days AS "pauseNoticeDays", p.max_pause_weeks AS "maxPauseWeeks",
+  p.pro_share_pct AS "proSharePct", p.status,
   p.published_at AS "publishedAt", p.updated_at AS "updatedAt"`;
 export const PLAN_FROM = 'plans p LEFT JOIN categories c ON c.id = p.category_id';
 
@@ -106,8 +114,9 @@ function clean(body: PlanBody) {
     seasonal: body.seasonal,
     seasonFrom: body.seasonal ? SEASON_FROM : null,
     seasonTo: body.seasonal ? SEASON_TO : null,
-    skipsPerMonth: body.skipsPerMonth,
     minTermMonths: body.minTermMonths,
+    pauseNoticeDays: body.pauseNoticeDays,
+    maxPauseWeeks: body.maxPauseWeeks,
     proSharePct: body.proSharePct,
   };
 }
@@ -136,8 +145,9 @@ const values = (p: ReturnType<typeof clean>) => [
   p.seasonal,
   p.seasonFrom,
   p.seasonTo,
-  p.skipsPerMonth,
   p.minTermMonths,
+  p.pauseNoticeDays,
+  p.maxPauseWeeks,
   p.proSharePct,
 ];
 
@@ -192,8 +202,9 @@ export async function planRoutes(app: FastifyInstance, ctx: AppContext) {
       try {
         const created = await pool.query<{ id: string }>(
           `INSERT INTO plans (name, category_id, price_cents, frequency, visit_minutes, tasks, addon_name,
-             addon_price_cents, seasonal, season_from, season_to, skips_per_month, min_term_months, pro_share_pct)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id`,
+             addon_price_cents, seasonal, season_from, season_to, min_term_months, pause_notice_days, max_pause_weeks,
+             pro_share_pct)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING id`,
           values(clean(request.body)),
         );
         const id = created.rows[0]?.id ?? '';
@@ -223,7 +234,7 @@ export async function planRoutes(app: FastifyInstance, ctx: AppContext) {
         await pool.query(
           `UPDATE plans SET name = $2, category_id = $3, price_cents = $4, frequency = $5, visit_minutes = $6,
              tasks = $7, addon_name = $8, addon_price_cents = $9, seasonal = $10, season_from = $11, season_to = $12,
-             skips_per_month = $13, min_term_months = $14, pro_share_pct = $15, updated_at = now()
+             min_term_months = $13, pause_notice_days = $14, max_pause_weeks = $15, pro_share_pct = $16, updated_at = now()
            WHERE id = $1`,
           [request.params.id, ...values(plan)],
         );

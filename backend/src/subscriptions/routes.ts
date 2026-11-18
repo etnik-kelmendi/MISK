@@ -6,7 +6,8 @@ import { normalizePostcode } from '../catalogue/routes.js';
 import type { AppContext } from '../context.js';
 import { withTransaction } from '../db.js';
 import { ApiError, badRequest, conflict, notFound } from '../errors.js';
-import { DAYS_PER_WEEK, PLAN_COLUMNS, PLAN_FROM, VISITS_PER_MONTH, type Frequency } from '../plans/routes.js';
+import { CANCEL_NOTICE_DAYS, DAYS_PER_WEEK, PLAN_COLUMNS, PLAN_FROM, VISITS_PER_MONTH, type Frequency } from '../plans/routes.js';
+import { acceptMove, declineMove, loadMovableVisit, moveBlock, moveTargets, pendingMovesForPro, requestMove, withdrawMove } from './moves.js';
 import {
   chooseRegularPro,
   dropUnpaidSubscription,
@@ -30,8 +31,9 @@ interface PlanRow {
   seasonal: boolean;
   seasonFrom: number | null;
   seasonTo: number | null;
-  skipsPerMonth: number;
   minTermMonths: number;
+  pauseNoticeDays: number;
+  maxPauseWeeks: number;
   proSharePct: number;
   stripeProductId: string | null;
 }
@@ -50,8 +52,9 @@ interface SubscribeBody {
 const SUBSCRIPTION_COLUMNS = `s.id, s.plan_id AS "planId", s.plan_name AS "planName", s.category_id AS "categoryId", s.tasks, s.size,
   s.frequency, s.days, s.time_window AS "timeWindow", s.visit_minutes AS "visitMinutes", s.address, s.postcode, s.notes,
   s.with_addon AS "withAddon", s.addon_name AS "addonName", s.price_cents AS "priceCents", s.seasonal,
-  s.season_from AS "seasonFrom", s.season_to AS "seasonTo", s.skips_per_month AS "skipsPerMonth",
-  s.min_term_months AS "minTermMonths", s.status, s.billing_paused AS "billingPaused", s.started_at AS "startedAt",
+  s.season_from AS "seasonFrom", s.season_to AS "seasonTo", s.min_term_months AS "minTermMonths",
+  s.pause_notice_days AS "pauseNoticeDays", s.max_pause_weeks AS "maxPauseWeeks", s.status,
+  s.billing_paused AS "billingPaused", s.started_at AS "startedAt",
   s.current_period_end AS "currentPeriodEnd", s.ends_at AS "endsAt", s.created_at AS "createdAt",
   pu.first_name AS "proName",
   CASE WHEN s.started_at IS NULL THEN NULL ELSE s.started_at + make_interval(months => s.min_term_months) END AS "cancelableFrom"`;
@@ -72,7 +75,7 @@ export async function subscriptionRoutes(app: FastifyInstance, ctx: AppContext) 
     return found.rows[0];
   }
 
-  /** A customer's own plan, with the visits planned ahead and how many skips are left this month. */
+  /** A customer's own plan, with the visits planned ahead and any move waiting for the pro (D77). */
   async function loadSubscription(id: string, customerId: string) {
     const found = await pool.query(
       `SELECT ${SUBSCRIPTION_COLUMNS} FROM subscriptions s LEFT JOIN users pu ON pu.id = s.pro_id
@@ -84,23 +87,16 @@ export async function subscriptionRoutes(app: FastifyInstance, ctx: AppContext) 
       throw notFound();
     }
     const visits = await pool.query(
-      `SELECT id, starts_at AS "startsAt", ends_at AS "endsAt", status, tasks_done AS "tasksDone"
-       FROM subscription_visits WHERE subscription_id = $1 AND status <> 'pending'
-         AND starts_at > now() - interval '14 days'
-       ORDER BY starts_at LIMIT 40`,
+      `SELECT v.id, v.starts_at AS "startsAt", v.ends_at AS "endsAt", v.status, v.tasks_done AS "tasksDone",
+         v.moved_from AS "movedFrom",
+         (SELECT json_build_object('toStartsAt', m.to_starts_at, 'toEndsAt', m.to_ends_at, 'respondBy', m.respond_by)
+          FROM subscription_visit_moves m WHERE m.visit_id = v.id AND m.status = 'pending') AS "pendingMove"
+       FROM subscription_visits v WHERE v.subscription_id = $1 AND v.status <> 'pending'
+         AND v.starts_at > now() - interval '14 days'
+       ORDER BY v.starts_at LIMIT 40`,
       [id],
     );
-    const skipped = await pool.query<{ n: number }>(
-      `SELECT count(*)::int AS n FROM subscription_visits
-       WHERE subscription_id = $1 AND status = 'skipped'
-         AND date_trunc('month', starts_at AT TIME ZONE $2) = date_trunc('month', now() AT TIME ZONE $2)`,
-      [id, config.timezone],
-    );
-    return {
-      ...subscription,
-      visits: visits.rows,
-      skipsLeftThisMonth: Math.max(0, subscription.skipsPerMonth - (skipped.rows[0]?.n ?? 0)),
-    };
+    return { ...subscription, visits: visits.rows };
   }
 
   app.post<{ Body: SubscribeBody }>(
@@ -179,8 +175,8 @@ export async function subscriptionRoutes(app: FastifyInstance, ctx: AppContext) 
         const inserted = await client.query<{ id: string; created_at: Date }>(
           `INSERT INTO subscriptions (customer_id, plan_id, category_id, plan_name, tasks, size, frequency, days, time_window,
              visit_minutes, address, postcode, notes, with_addon, addon_name, price_cents, pro_share_pct, seasonal,
-             season_from, season_to, skips_per_month, min_term_months, pro_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+             season_from, season_to, skips_per_month, min_term_months, pause_notice_days, max_pause_weeks, pro_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, 0, $21, $22, $23, $24)
            RETURNING id, created_at`,
           [
             customer.id,
@@ -203,8 +199,9 @@ export async function subscriptionRoutes(app: FastifyInstance, ctx: AppContext) 
             plan.seasonal,
             plan.seasonFrom,
             plan.seasonTo,
-            plan.skipsPerMonth,
             plan.minTermMonths,
+            plan.pauseNoticeDays,
+            plan.maxPauseWeeks,
             proId,
           ],
         );
@@ -300,67 +297,70 @@ export async function subscriptionRoutes(app: FastifyInstance, ctx: AppContext) 
 
   const visitParams = {
     type: 'object',
+    required: ['id', 'visitId'],
     properties: { id: { type: 'string', format: 'uuid' }, visitId: { type: 'string', format: 'uuid' } },
   } as const;
 
-  app.post<{ Params: { id: string; visitId: string } }>(
-    '/subscriptions/:id/visits/:visitId/skip',
+  // Skipping visits was removed (D77): visits can be moved within their week instead.
+  for (const action of ['skip', 'unskip']) {
+    app.post(`/subscriptions/:id/visits/:visitId/${action}`, { preHandler: guards.customer, schema: { params: visitParams } }, async () => {
+      throw new ApiError(410, 'skips_removed');
+    });
+  }
+
+  // The days this visit can move to: other days of its week when the pro is free at the same time (D77).
+  app.get<{ Params: { id: string; visitId: string } }>(
+    '/subscriptions/:id/visits/:visitId/move-options',
     { preHandler: guards.customer, schema: { params: visitParams } },
     async (request) => {
-      const customerId = currentUser(request).id;
-      await withTransaction(pool, async (client) => {
-        const found = await client.query<{ skips_per_month: number; month: Date }>(
-          `SELECT s.skips_per_month, date_trunc('month', v.starts_at AT TIME ZONE $3) AS month
-           FROM subscription_visits v JOIN subscriptions s ON s.id = v.subscription_id
-           WHERE v.id = $1 AND s.id = $2 AND s.customer_id = $4 AND v.status = 'planned' AND v.starts_at > now()
-           FOR UPDATE OF v, s`,
-          [request.params.visitId, request.params.id, config.timezone, customerId],
-        );
-        const visit = found.rows[0];
-        if (!visit) {
-          throw conflict('visit_not_skippable');
-        }
-        const used = await client.query<{ n: number }>(
-          `SELECT count(*)::int AS n FROM subscription_visits
-           WHERE subscription_id = $1 AND status = 'skipped' AND date_trunc('month', starts_at AT TIME ZONE $2) = $3`,
-          [request.params.id, config.timezone, visit.month],
-        );
-        if ((used.rows[0]?.n ?? 0) >= visit.skips_per_month) {
-          throw conflict('no_skips_left');
-        }
-        await client.query("UPDATE subscription_visits SET status = 'skipped' WHERE id = $1", [request.params.visitId]);
+      const visit = await loadMovableVisit(pool, {
+        subscriptionId: request.params.id,
+        visitId: request.params.visitId,
+        customerId: currentUser(request).id,
       });
+      const block = moveBlock(visit);
+      if (block) {
+        return { options: [], reason: block };
+      }
+      const options = await moveTargets(pool, visit, config.timezone);
+      return { options, reason: options.length ? null : 'no_free_day' };
+    },
+  );
+
+  app.post<{ Params: { id: string; visitId: string }; Body: { startsAt: string } }>(
+    '/subscriptions/:id/visits/:visitId/move',
+    {
+      preHandler: guards.customer,
+      schema: {
+        params: visitParams,
+        body: {
+          type: 'object',
+          required: ['startsAt'],
+          additionalProperties: false,
+          properties: { startsAt: { type: 'string', format: 'date-time' } },
+        },
+      },
+    },
+    async (request) => {
+      const customerId = currentUser(request).id;
+      const ids = { subscriptionId: request.params.id, visitId: request.params.visitId, customerId };
+      await requestMove(deps(), ids, new Date(request.body.startsAt));
       return { subscription: await loadSubscription(request.params.id, customerId) };
     },
   );
 
   app.post<{ Params: { id: string; visitId: string } }>(
-    '/subscriptions/:id/visits/:visitId/unskip',
+    '/subscriptions/:id/visits/:visitId/move/withdraw',
     { preHandler: guards.customer, schema: { params: visitParams } },
     async (request) => {
       const customerId = currentUser(request).id;
-      try {
-        const restored = await pool.query(
-          `UPDATE subscription_visits v SET status = 'planned'
-           FROM subscriptions s
-           WHERE v.id = $1 AND s.id = v.subscription_id AND s.id = $2 AND s.customer_id = $3 AND v.status = 'skipped' AND v.starts_at > now()`,
-          [request.params.visitId, request.params.id, customerId],
-        );
-        if (!restored.rowCount) {
-          throw conflict('visit_not_skippable');
-        }
-      } catch (error) {
-        // The pro filled the time meanwhile.
-        if (typeof error === 'object' && error !== null && 'code' in error && error.code === '23P01') {
-          throw conflict('pro_no_longer_free');
-        }
-        throw error;
-      }
+      await withdrawMove(deps(), { subscriptionId: request.params.id, visitId: request.params.visitId, customerId });
       return { subscription: await loadSubscription(request.params.id, customerId) };
     },
   );
 
-  // Cancelling stops billing when the paid month ends, once the minimum term is over.
+  // After the minimum term a plan can be cancelled with 30 days' notice (D77). Visits until then still take
+  // place and are charged (the last part-month pro rata); later visits are cancelled.
   app.post<{ Params: { id: string } }>(
     '/subscriptions/:id/cancel',
     { preHandler: guards.customer, schema: { params: idParams } },
@@ -368,7 +368,7 @@ export async function subscriptionRoutes(app: FastifyInstance, ctx: AppContext) 
       const customerId = currentUser(request).id;
       const found = await pool.query<{ stripe_subscription_id: string | null; status: string; in_term: boolean; ends_at: Date | null }>(
         `SELECT stripe_subscription_id, status, ends_at,
-           now() < started_at + make_interval(months => min_term_months) AS in_term
+           started_at IS NULL OR now() < started_at + make_interval(months => min_term_months) AS in_term
          FROM subscriptions WHERE id = $1 AND customer_id = $2`,
         [request.params.id, customerId],
       );
@@ -386,20 +386,27 @@ export async function subscriptionRoutes(app: FastifyInstance, ctx: AppContext) 
       if (row.in_term) {
         throw conflict('in_minimum_term');
       }
+      const endsAt = new Date(Date.now() + CANCEL_NOTICE_DAYS * 24 * 3600 * 1000);
       if (row.stripe_subscription_id) {
-        await gateway.cancelSubscription(row.stripe_subscription_id, true);
+        await gateway.cancelSubscriptionAt(row.stripe_subscription_id, endsAt);
       }
       await withTransaction(pool, async (client) => {
-        await client.query('UPDATE subscriptions SET ends_at = COALESCE(current_period_end, now()), updated_at = now() WHERE id = $1', [
-          request.params.id,
-        ]);
+        await client.query('UPDATE subscriptions SET ends_at = $2, updated_at = now() WHERE id = $1', [request.params.id, endsAt]);
         await client.query(
-          `UPDATE subscription_visits v SET status = 'cancelled' FROM subscriptions s
-           WHERE s.id = v.subscription_id AND s.id = $1 AND v.status = 'planned' AND v.starts_at >= s.ends_at`,
-          [request.params.id],
+          `UPDATE subscription_visits SET status = 'cancelled'
+           WHERE subscription_id = $1 AND status IN ('pending', 'planned') AND ends_at > $2`,
+          [request.params.id, endsAt],
+        );
+        // A move to a time after the end can no longer happen.
+        await client.query(
+          `UPDATE subscription_visit_moves m SET status = 'withdrawn', responded_at = now()
+           FROM subscription_visits v
+           WHERE m.subscription_id = $1 AND m.status = 'pending' AND v.id = m.visit_id
+             AND (v.status <> 'planned' OR m.to_ends_at > $2)`,
+          [request.params.id, endsAt],
         );
       });
-      request.log.info({ event: 'subscription_cancelled', subscriptionId: request.params.id });
+      request.log.info({ event: 'subscription_cancelled', subscriptionId: request.params.id, endsAt });
       return { subscription: await loadSubscription(request.params.id, customerId) };
     },
   );
@@ -425,6 +432,31 @@ export async function subscriptionRoutes(app: FastifyInstance, ctx: AppContext) 
       })),
     };
   });
+
+  // Customers' requests to move one visit (D77), for the pro to accept or decline.
+  app.get('/pro/visit-moves', { preHandler: guards.pro }, async (request) => ({
+    moves: await pendingMovesForPro(pool, currentUser(request).id),
+  }));
+
+  app.post<{ Params: { id: string } }>(
+    '/pro/visit-moves/:id/accept',
+    { preHandler: guards.pro, schema: { params: idParams } },
+    async (request) => {
+      const proId = currentUser(request).id;
+      await acceptMove(deps(), request.params.id, proId);
+      return { moves: await pendingMovesForPro(pool, proId) };
+    },
+  );
+
+  app.post<{ Params: { id: string } }>(
+    '/pro/visit-moves/:id/decline',
+    { preHandler: guards.pro, schema: { params: idParams } },
+    async (request) => {
+      const proId = currentUser(request).id;
+      await declineMove(deps(), request.params.id, proId);
+      return { moves: await pendingMovesForPro(pool, proId) };
+    },
+  );
 
   app.get<{ Querystring: { from?: string; to?: string } }>(
     '/pro/visits',
