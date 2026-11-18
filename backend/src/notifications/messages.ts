@@ -118,4 +118,25 @@ export const messages = {
     `MISK: ${pro} did not confirm the new time in time. Your ${plan} visit stays at ${from}.`,
   visitMoveWithdrawn: (customer: string, plan: string, from: string) =>
     `MISK: ${customer} withdrew the request to move the ${plan} visit. It stays at ${from}.`,
+  // Pausing a plan (D78).
+  planPaused: (plan: string, from: string, to: string, creditCents: number) =>
+    creditCents > 0
+      ? `MISK: your ${plan} is paused from ${from} to ${to}. ${formatEuro(creditCents)} is credited to your next bill.`
+      : `MISK: your ${plan} is paused from ${from} to ${to}. No visits fall in this time, so nothing is credited.`,
+  planPausedForPro: (customer: string, plan: string, from: string, to: string, visits: string[]) =>
+    visits.length > 0
+      ? `MISK: ${customer} paused the ${plan} plan from ${from} to ${to}. These visits are called off: ${visits.join('; ')}.`
+      : `MISK: ${customer} paused the ${plan} plan from ${from} to ${to}. No visits are planned for you in this time.`,
+  planPauseCalledOff: (plan: string, reversedCents: number, notBack: string[]) =>
+    [
+      `MISK: the pause of your ${plan} is called off.`,
+      notBack.length === 0
+        ? 'All visits take place as planned.'
+        : `Your pro is not free on ${notBack.join('; ')}, so ${notBack.length === 1 ? 'this visit stays' : 'these visits stay'} cancelled and credited.`,
+      reversedCents > 0 ? `${formatEuro(reversedCents)} of the credit is taken back for the visits that take place.` : '',
+    ]
+      .filter(Boolean)
+      .join(' '),
+  planPauseCalledOffForPro: (customer: string, plan: string, visits: string[]) =>
+    `MISK: ${customer} called off the pause of the ${plan} plan. These visits are back: ${visits.join('; ')}.`,
 };

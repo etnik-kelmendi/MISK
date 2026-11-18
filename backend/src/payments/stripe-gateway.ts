@@ -12,6 +12,14 @@ function toHoldResult(intent: Stripe.PaymentIntent): HoldResult {
   };
 }
 
+/** Balance changes are whole, positive cent amounts; the sign is set by the method. */
+function positiveCents(amountCents: number): number {
+  if (!Number.isInteger(amountCents) || amountCents <= 0) {
+    throw new Error(`Invalid balance amount: ${amountCents}`);
+  }
+  return amountCents;
+}
+
 function chargeIdOf(intent: Stripe.PaymentIntent): string {
   const charge = intent.latest_charge;
   const id = typeof charge === 'string' ? charge : charge?.id;
@@ -217,6 +225,25 @@ export function createStripeGateway(config: StripeConfig): PaymentGateway {
 
     async setBillingPaused(subscriptionId, paused) {
       await stripe.subscriptions.update(subscriptionId, { pause_collection: paused ? { behavior: 'void' } : '' });
+    },
+
+    // A negative customer balance is a credit Stripe takes off the next invoice; a positive one is added to it.
+    async creditCustomer(input) {
+      const transaction = await stripe.customers.createBalanceTransaction(
+        input.customerRef,
+        { amount: -positiveCents(input.amountCents), currency: CURRENCY, description: input.description },
+        { idempotencyKey: input.idempotencyKey },
+      );
+      return { transactionId: transaction.id };
+    },
+
+    async reverseCustomerCredit(input) {
+      const transaction = await stripe.customers.createBalanceTransaction(
+        input.customerRef,
+        { amount: positiveCents(input.amountCents), currency: CURRENCY, description: input.description },
+        { idempotencyKey: input.idempotencyKey },
+      );
+      return { transactionId: transaction.id };
     },
 
     async createConnectedAccount({ userId, idempotencyKey }) {

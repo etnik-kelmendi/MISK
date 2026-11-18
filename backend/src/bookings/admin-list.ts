@@ -138,7 +138,11 @@ export async function adminListRoutes(app: FastifyInstance, ctx: AppContext) {
            s.customer_id AS "customerId", s.notes, s.price_cents AS "priceCents", s.pro_share_pct AS "proSharePct", s.frequency, s.status AS "subscriptionStatus",
            cat.name AS "categoryName",
            json_build_object('firstName', cu.first_name, 'lastName', cu.last_name, 'phone', cu.phone, 'email', cu.email) AS customer,
-           json_build_object('id', pu.id, 'firstName', pu.first_name, 'phone', pu.phone) AS pro
+           json_build_object('id', pu.id, 'firstName', pu.first_name, 'phone', pu.phone) AS pro,
+           -- The customer's pause that called this visit off (D78), shown read-only to the team.
+           (SELECT json_build_object('startsOn', to_char(pz.starts_on, 'YYYY-MM-DD'), 'endsOn', to_char(pz.starts_on + pz.weeks * 7, 'YYYY-MM-DD'),
+              'creditCents', pz.credit_cents, 'visitsCalledOff', pz.visits_called_off)
+            FROM subscription_pauses pz WHERE pz.id = v.paused_by AND pz.status = 'active') AS pause
          FROM subscription_visits v JOIN subscriptions s ON s.id = v.subscription_id
          JOIN users cu ON cu.id = s.customer_id JOIN users pu ON pu.id = v.pro_id JOIN categories cat ON cat.id = s.category_id
          WHERE v.id = $1`,

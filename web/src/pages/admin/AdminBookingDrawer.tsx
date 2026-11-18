@@ -10,7 +10,7 @@ import { ErrorText } from '../../components/ErrorText';
 import { PhotoGrid } from '../../components/Photos';
 import { ResourceState } from '../../components/ResourceState';
 import { StatusBadge } from '../../components/StatusBadge';
-import { dateTime, euro, zonedParts, zonedToIso } from '../../lib/format';
+import { dateTime, dayName, euro, zonedParts, zonedToIso } from '../../lib/format';
 import { useAction } from '../../lib/useAction';
 import { usePolling } from '../../lib/usePolling';
 import { CustomerProfileCard } from './CustomerProfileCard';
@@ -616,6 +616,19 @@ function VisitDetails({ visit }: { visit: AdminVisit }) {
         </dd>
         <dt>{t('admin.booking.notes')}</dt>
         <dd>{visit.notes || '–'}</dd>
+        {visit.pause && (
+          <>
+            <dt>{t('admin.booking.visit.paused')}</dt>
+            <dd>
+              {t('admin.booking.visit.pausedBy', {
+                from: dayName(`${visit.pause.startsOn}T12:00:00Z`, 'UTC'),
+                to: dayName(`${visit.pause.endsOn}T12:00:00Z`, 'UTC'),
+                credit: euro(visit.pause.creditCents),
+                count: visit.pause.visitsCalledOff,
+              })}
+            </dd>
+          </>
+        )}
       </dl>
       {visit.customerProfile && <CustomerProfileCard profile={visit.customerProfile} />}
       <section className="stack" aria-label={t('admin.booking.money')}>

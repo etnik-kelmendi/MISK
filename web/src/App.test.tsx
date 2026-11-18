@@ -1709,6 +1709,7 @@ describe('monthly plans in the apps', () => {
       { id: 'v1', startsAt: future(2), endsAt: future(2), status: 'planned', tasksDone: [], movedFrom: null, pendingMove: null },
       { id: 'v2', startsAt: future(4), endsAt: future(4), status: 'planned', tasksDone: [], movedFrom: null, pendingMove: null },
     ],
+    pauses: [],
     ...overrides,
   });
 
@@ -1867,6 +1868,134 @@ describe('monthly plans in the apps', () => {
     expect(await screen.findByText(/^Ends on /)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Cancel plan' })).not.toBeInTheDocument();
     expect(api.calls).toContain('POST /subscriptions/sub-1/cancel');
+  });
+
+  describe('pausing a plan (D78)', () => {
+    const pauseOptions = (overrides: object = {}) => ({
+      earliestStartOn: '2026-12-07',
+      latestStartOn: '2027-12-31',
+      latestEndOn: '2028-01-28',
+      noticeDays: 7,
+      maxPauseWeeks: 4,
+      weeksLeftThisYear: 4,
+      weeksLeft: { '2026': 4, '2027': 4 },
+      visitCreditCents: 1488,
+      // Tuesday and Thursday mornings, 08:00 in Berlin.
+      visitStarts: ['2026-12-08', '2026-12-10', '2026-12-15', '2026-12-17', '2026-12-22', '2026-12-24'].map((d) => `${d}T07:00:00.000Z`),
+      reason: null,
+      ...overrides,
+    });
+    const pauseRow = (overrides: object = {}) => ({
+      id: 'p1',
+      startsOn: '2026-12-07',
+      endsOn: '2026-12-21',
+      weeks: 2,
+      startsAt: '2026-12-06T23:00:00.000Z',
+      endsAt: '2026-12-20T23:00:00.000Z',
+      status: 'upcoming',
+      visitsCalledOff: 4,
+      visitCreditCents: 1488,
+      creditCents: 5952,
+      visitsRestored: 0,
+      reversedCents: 0,
+      createdAt: '',
+      withdrawnAt: null,
+      ...overrides,
+    });
+    const pausedVisits = [
+      { id: 'v1', startsAt: future(2), endsAt: future(2), status: 'planned', tasksDone: [], movedFrom: null, pendingMove: null, pausedBy: null },
+      { id: 'v2', startsAt: future(4), endsAt: future(4), status: 'cancelled', tasksDone: [], movedFrom: null, pendingMove: null, pausedBy: 'p1' },
+    ];
+
+    it('opens the sheet with the earliest day and weeks, updates the summary and pauses', async () => {
+      const api = fakeApi(users.customer);
+      api.on('GET /subscriptions/sub-1', { body: { subscription: subscription() } });
+      api.on('GET /subscriptions/sub-1/pause-options', { body: pauseOptions() });
+      api.on('POST /subscriptions/sub-1/pause', { body: { subscription: subscription({ pauses: [pauseRow()], visits: pausedVisits }) } });
+      renderAt('/my-plans/sub-1');
+
+      const start = await screen.findByRole('button', { name: 'Pause plan' });
+      await waitFor(() => expect(start).toBeEnabled());
+      await user().click(start);
+      const sheet = await screen.findByRole('dialog', { name: 'Pause your plan' });
+      const day = within(sheet).getByLabelText('First day of the pause');
+      expect(day).toHaveValue('2026-12-07');
+      expect(day).toHaveAttribute('min', '2026-12-07');
+      expect(day).toHaveAttribute('max', '2027-12-31');
+      const weeks = within(sheet).getByLabelText('How long');
+      expect(within(weeks).getAllByRole('option').map((o) => o.textContent)).toEqual(['1 week', '2 weeks', '3 weeks', '4 weeks']);
+      const summary = within(sheet).getByRole('status');
+      expect(summary).toHaveTextContent('Paused from Mon 7 Dec to Mon 14 Dec · 2 visits called off · €29.76 credited to your next bill');
+      expect(sheet).toHaveTextContent("You can pause up to 4 weeks a year with 7 days' notice. 4 weeks left this year.");
+
+      await user().selectOptions(weeks, '2');
+      expect(summary).toHaveTextContent('Paused from Mon 7 Dec to Mon 21 Dec · 4 visits called off · €59.52 credited to your next bill');
+      fireEvent.change(day, { target: { value: '2026-12-21' } });
+      expect(within(sheet).getByRole('status')).toHaveTextContent('Paused from Mon 21 Dec to Mon 4 Jan · 2 visits called off · €29.76 credited');
+      fireEvent.change(day, { target: { value: '2026-12-07' } });
+
+      await user().click(within(sheet).getByRole('button', { name: 'Pause plan' }));
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+      expect(api.bodies['POST /subscriptions/sub-1/pause']).toEqual({ startsOn: '2026-12-07', weeks: 2 });
+
+      const card = screen.getByRole('region', { name: 'Your pause' });
+      expect(card).toHaveTextContent('Paused from Mon 7 Dec to Mon 21 Dec');
+      expect(card).toHaveTextContent('€59.52 credited to your next bill');
+      expect(within(card).getByRole('button', { name: 'Call off pause' })).toBeEnabled();
+      expect(screen.queryByRole('button', { name: 'Pause plan' })).not.toBeInTheDocument();
+    });
+
+    it('calls off a pause that has not started, after confirming', async () => {
+      const api = fakeApi(users.customer);
+      api.on('GET /subscriptions/sub-1', { body: { subscription: subscription({ pauses: [pauseRow()], visits: pausedVisits }) } });
+      api.on('POST /subscriptions/sub-1/pause/p1/cancel', {
+        body: { subscription: subscription({ pauses: [pauseRow({ status: 'withdrawn', visitsRestored: 3, reversedCents: 4464 })] }) },
+      });
+      api.on('GET /subscriptions/sub-1/pause-options', { body: pauseOptions() });
+      renderAt('/my-plans/sub-1');
+
+      const card = await screen.findByRole('region', { name: 'Your pause' });
+      await user().click(within(card).getByRole('button', { name: 'Call off pause' }));
+      expect(api.calls).not.toContain('POST /subscriptions/sub-1/pause/p1/cancel');
+      const confirm = within(card).getByRole('alertdialog');
+      expect(confirm).toHaveTextContent('Visits come back if Daniel is still free then');
+      await user().click(within(confirm).getByRole('button', { name: 'Yes, call off the pause' }));
+
+      expect(await screen.findByText(/Pause called off\. 3 of 4 visits are back\./)).toHaveTextContent(
+        'The others stay cancelled and credited, as Daniel is not free then.',
+      );
+      expect(screen.queryByRole('region', { name: 'Your pause' })).not.toBeInTheDocument();
+      expect(await screen.findByRole('button', { name: 'Pause plan' })).toBeInTheDocument();
+    });
+
+    it('says why the plan cannot be paused when no weeks are left', async () => {
+      const api = fakeApi(users.customer);
+      api.on('GET /subscriptions/sub-1', { body: { subscription: subscription() } });
+      api.on('GET /subscriptions/sub-1/pause-options', {
+        body: pauseOptions({ reason: 'no_weeks_left', earliestStartOn: null, latestStartOn: null, latestEndOn: null, weeksLeftThisYear: 0, visitStarts: [] }),
+      });
+      renderAt('/my-plans/sub-1');
+      const start = await screen.findByRole('button', { name: 'Pause plan' });
+      await waitFor(() => expect(start).toHaveAccessibleDescription('You have used all 4 pause weeks this year.'));
+      expect(start).toBeDisabled();
+    });
+
+    it('shows paused visits as Paused without Move, and a running pause until its end', async () => {
+      const api = fakeApi(users.customer);
+      api.on('GET /subscriptions/sub-1', {
+        body: { subscription: subscription({ pauses: [pauseRow({ status: 'running' })], visits: pausedVisits }) },
+      });
+      renderAt('/my-plans/sub-1');
+      const card = await screen.findByRole('region', { name: 'Your pause' });
+      expect(card).toHaveTextContent('Paused until Mon 21 Dec');
+      expect(within(card).queryByRole('button', { name: 'Call off pause' })).not.toBeInTheDocument();
+      expect(screen.getByText('Paused')).toBeInTheDocument();
+      expect(screen.getAllByRole('button', { name: /^Move the visit on/ })).toHaveLength(1);
+      expect(screen.queryByRole('button', { name: 'Pause plan' })).not.toBeInTheDocument();
+      expect(api.calls).not.toContain('GET /subscriptions/sub-1/pause-options');
+      // Cancel plan still works alongside.
+      expect(screen.getByRole('button', { name: 'Cancel plan' })).toBeInTheDocument();
+    });
   });
 
   it('shows the pro a request to move a visit, to accept or decline (D77)', async () => {

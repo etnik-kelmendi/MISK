@@ -1,5 +1,15 @@
 import { randomUUID } from 'node:crypto';
-import type { GatewayEvent, HoldInput, PaymentGateway, SavedCard } from '../src/payments/gateway.js';
+import type { BalanceInput, GatewayEvent, HoldInput, PaymentGateway, SavedCard } from '../src/payments/gateway.js';
+
+/** A change to a customer's balance: a credit off the next bill, or a credit taken back (D78). */
+export interface FakeBalanceChange {
+  id: string;
+  kind: 'credit' | 'reversal';
+  customerRef: string;
+  amountCents: number;
+  description: string;
+  idempotencyKey: string;
+}
 
 export interface FakeIntent {
   id: string;
@@ -18,7 +28,25 @@ export interface FakeIntent {
 export function createFakeGateway(options: { instantHolds?: boolean } = {}) {
   const intents = new Map<string, FakeIntent>();
   const transfers: { id: string; accountId: string; amountCents: number; reversed: boolean }[] = [];
-  const failures = new Set<'hold' | 'capture' | 'transfer' | 'subscription' | 'payoutDetails' | 'payoutSchedule' | 'renew'>();
+  const failures = new Set<'hold' | 'capture' | 'transfer' | 'subscription' | 'payoutDetails' | 'payoutSchedule' | 'renew' | 'credit'>();
+  const balance: FakeBalanceChange[] = [];
+
+  /** Like Stripe: the same idempotency key returns the first result instead of changing the balance twice. */
+  function changeBalance(kind: FakeBalanceChange['kind'], input: BalanceInput) {
+    if (failures.has('credit')) {
+      throw new Error('fake balance change failure');
+    }
+    if (!Number.isInteger(input.amountCents) || input.amountCents <= 0) {
+      throw new Error(`fake: invalid balance amount ${input.amountCents}`);
+    }
+    const earlier = balance.find((change) => change.idempotencyKey === input.idempotencyKey);
+    if (earlier) {
+      return { transactionId: earlier.id };
+    }
+    const id = `cbtxn_${randomUUID()}`;
+    balance.push({ id, kind, ...input });
+    return { transactionId: id };
+  }
   const schedules = new Map<string, 'weekly' | 'monthly' | 'manual'>();
   const manualPayouts: string[] = [];
   const subscriptions = new Map<string, { id: string; amountCents: number; status: 'incomplete' | 'active' | 'cancelled'; cancelAtPeriodEnd: boolean; cancelAt: Date | null; paused: boolean; metadata: Record<string, string> }>();
@@ -136,6 +164,8 @@ export function createFakeGateway(options: { instantHolds?: boolean } = {}) {
         subscription.paused = paused;
       }
     },
+    creditCustomer: async (input) => changeBalance('credit', input),
+    reverseCustomerCredit: async (input) => changeBalance('reversal', input),
     onboardingLink: async ({ returnUrl }) => returnUrl,
     accountStatus: async () => ({ payoutsEnabled: true }),
     setPayoutSchedule: async (accountId, schedule) => {
@@ -168,6 +198,8 @@ export function createFakeGateway(options: { instantHolds?: boolean } = {}) {
     transfers,
     subscriptions,
     failures,
+    /** Credits and reversals on customers' balances, in order (D78). */
+    balance,
     schedules,
     manualPayouts,
     /** Makes payments that already exist in seeded data known to the fake. */
@@ -181,6 +213,7 @@ export function createFakeGateway(options: { instantHolds?: boolean } = {}) {
       intents.clear();
       subscriptions.clear();
       transfers.length = 0;
+      balance.length = 0;
       failures.clear();
       schedules.clear();
       manualPayouts.length = 0;

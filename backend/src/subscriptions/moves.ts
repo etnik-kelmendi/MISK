@@ -108,6 +108,10 @@ export async function moveTargets(
        AND ($9::timestamptz IS NULL OR sl.ends_at <= $9)
        AND NOT EXISTS (
          SELECT 1 FROM subscription_visits other WHERE other.subscription_id = $4 AND other.id <> $8 AND other.starts_at = sl.starts_at)
+       -- Never into a time the customer paused the plan (D78).
+       AND NOT EXISTS (
+         SELECT 1 FROM subscription_pauses pz
+         WHERE pz.subscription_id = $4 AND pz.status = 'active' AND sl.starts_at >= pz.starts_at AND sl.starts_at < pz.ends_at)
        AND EXISTS (
          SELECT 1 FROM pro_profiles p
          WHERE p.user_id = $5 AND ${eligibleProFilter('$6', '$7', 'sl.starts_at', 'sl.ends_at', '$2', 'NULL::uuid', 'NULL::uuid', '$8::uuid')})

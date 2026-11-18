@@ -7,6 +7,7 @@ import type { AppContext } from '../context.js';
 import { withTransaction } from '../db.js';
 import { ApiError, badRequest, conflict, notFound } from '../errors.js';
 import { CANCEL_NOTICE_DAYS, DAYS_PER_WEEK, PLAN_COLUMNS, PLAN_FROM, VISITS_PER_MONTH, type Frequency } from '../plans/routes.js';
+import { callOffPause, createPause, pauseOptions, pausesOf, settlePausesAfterPlanEnd } from './pause.js';
 import { acceptMove, declineMove, loadMovableVisit, moveBlock, moveTargets, pendingMovesForPro, requestMove, withdrawMove } from './moves.js';
 import {
   chooseRegularPro,
@@ -75,7 +76,7 @@ export async function subscriptionRoutes(app: FastifyInstance, ctx: AppContext) 
     return found.rows[0];
   }
 
-  /** A customer's own plan, with the visits planned ahead and any move waiting for the pro (D77). */
+  /** A customer's own plan, with the visits planned ahead, any move waiting for the pro (D77) and its pauses (D78). */
   async function loadSubscription(id: string, customerId: string) {
     const found = await pool.query(
       `SELECT ${SUBSCRIPTION_COLUMNS} FROM subscriptions s LEFT JOIN users pu ON pu.id = s.pro_id
@@ -89,6 +90,8 @@ export async function subscriptionRoutes(app: FastifyInstance, ctx: AppContext) 
     const visits = await pool.query(
       `SELECT v.id, v.starts_at AS "startsAt", v.ends_at AS "endsAt", v.status, v.tasks_done AS "tasksDone",
          v.moved_from AS "movedFrom",
+         -- The pause that called this visit off (D78), while that pause stands.
+         (SELECT pz.id FROM subscription_pauses pz WHERE pz.id = v.paused_by AND pz.status = 'active') AS "pausedBy",
          (SELECT json_build_object('toStartsAt', m.to_starts_at, 'toEndsAt', m.to_ends_at, 'respondBy', m.respond_by)
           FROM subscription_visit_moves m WHERE m.visit_id = v.id AND m.status = 'pending') AS "pendingMove"
        FROM subscription_visits v WHERE v.subscription_id = $1 AND v.status <> 'pending'
@@ -96,7 +99,7 @@ export async function subscriptionRoutes(app: FastifyInstance, ctx: AppContext) 
        ORDER BY v.starts_at LIMIT 40`,
       [id],
     );
-    return { ...subscription, visits: visits.rows };
+    return { ...subscription, visits: visits.rows, pauses: await pausesOf(pool, id) };
   }
 
   app.post<{ Body: SubscribeBody }>(
@@ -407,6 +410,62 @@ export async function subscriptionRoutes(app: FastifyInstance, ctx: AppContext) 
         );
       });
       request.log.info({ event: 'subscription_cancelled', subscriptionId: request.params.id, endsAt });
+      // Paused visits after the new end would not take place anyway: their credit is taken back (D78). A failure
+      // here is retried by the planning job.
+      await settlePausesAfterPlanEnd(deps(), request.params.id).catch((error: unknown) =>
+        request.log.error({ event: 'pause_settle_after_cancel_failed', subscriptionId: request.params.id, err: error }),
+      );
+      return { subscription: await loadSubscription(request.params.id, customerId) };
+    },
+  );
+
+  // ---------- Pausing (D78) ----------
+
+  app.get<{ Params: { id: string } }>(
+    '/subscriptions/:id/pause-options',
+    { preHandler: guards.customer, schema: { params: idParams } },
+    async (request) => pauseOptions(pool, { subscriptionId: request.params.id, customerId: currentUser(request).id }, config.timezone),
+  );
+
+  app.post<{ Params: { id: string }; Body: { startsOn: string; weeks: number } }>(
+    '/subscriptions/:id/pause',
+    {
+      preHandler: guards.customer,
+      schema: {
+        params: idParams,
+        body: {
+          type: 'object',
+          required: ['startsOn', 'weeks'],
+          additionalProperties: false,
+          properties: {
+            startsOn: { type: 'string', format: 'date' },
+            weeks: { type: 'integer', minimum: 1, maximum: 10 },
+          },
+        },
+      },
+    },
+    async (request) => {
+      const customerId = currentUser(request).id;
+      await createPause(deps(), { subscriptionId: request.params.id, customerId }, request.body);
+      return { subscription: await loadSubscription(request.params.id, customerId) };
+    },
+  );
+
+  app.post<{ Params: { id: string; pauseId: string } }>(
+    '/subscriptions/:id/pause/:pauseId/cancel',
+    {
+      preHandler: guards.customer,
+      schema: {
+        params: {
+          type: 'object',
+          required: ['id', 'pauseId'],
+          properties: { id: { type: 'string', format: 'uuid' }, pauseId: { type: 'string', format: 'uuid' } },
+        },
+      },
+    },
+    async (request) => {
+      const customerId = currentUser(request).id;
+      await callOffPause(deps(), { subscriptionId: request.params.id, customerId, pauseId: request.params.pauseId });
       return { subscription: await loadSubscription(request.params.id, customerId) };
     },
   );

@@ -406,6 +406,9 @@ code { font-family: ui-monospace, Consolas, monospace; font-size: 0.92em; backgr
 .big-price .small { color: #c9d6d0; font-weight: 600; }
 .visit { display: flex; align-items: center; gap: 12px; background: var(--card); border-radius: 14px; padding: 10px 12px; box-shadow: 0 1px 3px rgba(15, 26, 21, 0.06); }
 .visit.skipped { opacity: 0.6; }
+/* The plan's pause and the live summary in the Pause sheet (D78). */
+.pause-card { border-left: 4px solid var(--brand); }
+.pause-summary { font-weight: 600; }
 .visit .vd { min-width: 44px; text-align: center; }
 /* A move waiting for the pro, and the plan's Cancel button (D77). */
 .visit .move-waiting { color: #6b4500; margin-top: 2px; }

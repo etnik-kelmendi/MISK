@@ -37,3 +37,21 @@ export function planRuleTexts(
     pause: t('planRules.pause', { count: rules.maxPauseWeeks, notice: t('planRules.notice', { count: rules.pauseNoticeDays }) }),
   };
 }
+
+const DAY_MS = 24 * 3600 * 1000;
+
+/** A calendar day ('YYYY-MM-DD') plus `days` days. */
+export function addDays(day: string, days: number): string {
+  return new Date(Date.parse(`${day}T00:00:00Z`) + days * DAY_MS).toISOString().slice(0, 10);
+}
+
+/** Whole days from one calendar day to another. */
+export function daysBetween(from: string, to: string): number {
+  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / DAY_MS);
+}
+
+/** Whether text is a real calendar day 'YYYY-MM-DD'. */
+export function isCalendarDay(value: string): boolean {
+  const at = Date.parse(`${value}T00:00:00Z`);
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(at) && new Date(at).toISOString().startsWith(value);
+}

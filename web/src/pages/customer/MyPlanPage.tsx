@@ -15,6 +15,7 @@ import { useAction } from '../../lib/useAction';
 import { usePolling } from '../../lib/usePolling';
 import { CardPayment } from '../../payments/CardPayment';
 import { AppHeader } from '../../shells/Shells';
+import { PlanPause } from './PlanPause';
 
 /** After the minimum term a plan ends this many days after the customer cancels (D77). */
 const CANCEL_NOTICE_DAYS = 30;
@@ -139,7 +140,8 @@ function PlanView({ subscription, onChanged, reload }: { subscription: Subscript
   const running = subscription.status === 'active' || subscription.status === 'past_due';
   const ending = running && subscription.endsAt !== null;
   const canCancel = running && !ending && subscription.cancelableFrom !== null && new Date(subscription.cancelableFrom) <= new Date();
-  const upcoming = subscription.visits.filter((v) => new Date(v.startsAt) > new Date() && v.status !== 'cancelled');
+  // Visits called off by a pause stay listed, marked Paused (D78).
+  const upcoming = subscription.visits.filter((v) => new Date(v.startsAt) > new Date() && (v.status !== 'cancelled' || Boolean(v.pausedBy)));
   const pro = subscription.proName ?? t('subscription.yourPro');
   const rules = planRuleTexts(t, subscription);
 
@@ -204,9 +206,10 @@ function PlanView({ subscription, onChanged, reload }: { subscription: Subscript
               {upcoming.map((v) => {
                 const parts = dayParts(v.startsAt, timezone);
                 const skipped = v.status === 'skipped';
+                const paused = v.status === 'cancelled' && Boolean(v.pausedBy);
                 const when = dateTime(v.startsAt, timezone);
                 return (
-                  <li key={v.id} className={`visit ${skipped ? 'skipped' : ''}`}>
+                  <li key={v.id} className={`visit ${skipped || paused ? 'skipped' : ''}`}>
                     <span className="vd">
                       <span className="small muted block">{parts.weekday}</span>
                       <span className="b big block">{parts.day}</span>
@@ -214,7 +217,7 @@ function PlanView({ subscription, onChanged, reload }: { subscription: Subscript
                     </span>
                     <span className="grow">
                       <span className="b small block">{time(v.startsAt, timezone)}</span>
-                      <span className="tiny muted block">{skipped ? t('subscription.skipped') : subscription.tasks.slice(0, 3).join(', ')}</span>
+                      <span className="tiny muted block">{skipped ? t('subscription.skipped') : paused ? t('subscription.pause.visitPaused') : subscription.tasks.slice(0, 3).join(', ')}</span>
                       {v.movedFrom && !skipped && (
                         <span className="tiny muted block">{t('subscription.movedFrom', { date: dateTime(v.movedFrom, timezone) })}</span>
                       )}
@@ -252,6 +255,8 @@ function PlanView({ subscription, onChanged, reload }: { subscription: Subscript
           <ErrorText error={visitAction.error} />
         </section>
       )}
+
+      <PlanPause subscription={subscription} onChanged={onChanged} />
 
       {moving && (
         <MoveSheet

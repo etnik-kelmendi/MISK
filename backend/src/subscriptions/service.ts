@@ -34,13 +34,23 @@ export interface VisitPattern {
 
 /**
  * Visit start times from tomorrow for `PLANNING_DAYS` days, in the market time zone: on the chosen
- * weekdays, every other week for "every 2 weeks", only within the season for seasonal plans.
+ * weekdays, every other week for "every 2 weeks", only within the season for seasonal plans. With `days`,
+ * the local calendar days from `first` to `last` (both 'YYYY-MM-DD', inclusive) instead, e.g. the days of a
+ * pause (D78).
  */
-export async function plannedStarts(db: Queryable, pattern: VisitPattern, timezone: string): Promise<Date[]> {
+export async function plannedStarts(
+  db: Queryable,
+  pattern: VisitPattern,
+  timezone: string,
+  days?: { first: string; last: string },
+): Promise<Date[]> {
   const result = await db.query<{ starts_at: Date }>(
-    `WITH local_today AS (SELECT (now() AT TIME ZONE $1)::date AS d)
+    `WITH local_today AS (SELECT (now() AT TIME ZONE $1)::date AS d),
+     bounds AS (
+       SELECT COALESCE($12::date, local_today.d + 1) AS first, COALESCE($13::date, local_today.d + $2::int) AS last FROM local_today
+     )
      SELECT (day + make_interval(hours => $3::int)) AT TIME ZONE $1 AS starts_at
-     FROM local_today, generate_series(local_today.d + 1, local_today.d + $2::int, interval '1 day') AS day
+     FROM bounds, generate_series(bounds.first, bounds.last, interval '1 day') AS day
      WHERE extract(isodow FROM day)::int = ANY ($4::int[])
        AND (NOT $5::boolean OR ((day::date - date_trunc('week', ($6::timestamptz AT TIME ZONE $1))::date) / 7) % 2 = 0)
        AND (NOT $7::boolean OR extract(month FROM day)::int BETWEEN $8::int AND $9::int)
@@ -58,6 +68,8 @@ export async function plannedStarts(db: Queryable, pattern: VisitPattern, timezo
       pattern.seasonTo ?? 12,
       pattern.until,
       pattern.visitMinutes,
+      days?.first ?? null,
+      days?.last ?? null,
     ],
   );
   return result.rows.map((row) => row.starts_at);
@@ -130,8 +142,8 @@ export const patternOf = (row: SubscriptionRow): VisitPattern => ({
 
 /**
  * Adds the visits still missing in the planning window, never after the plan's end (`ends_at`, e.g. the
- * end of a cancelled plan's 30 days' notice). A time the pro has since filled is left out rather than
- * double-booking them. Returns how many were added.
+ * end of a cancelled plan's 30 days' notice) and never inside a pause (D78). A time the pro has since
+ * filled is left out rather than double-booking them. Returns how many were added.
  */
 export async function planVisits(
   db: PoolClient | Queryable,
@@ -156,6 +168,10 @@ export async function planVisits(
          WHERE (v.subscription_id = $1 AND (v.starts_at = s.starts_at OR v.moved_from = s.starts_at))
             OR (v.pro_id = $2 AND v.status IN ('pending', 'planned')
                 AND tstzrange(v.starts_at, v.ends_at) && tstzrange(s.starts_at, s.starts_at + make_interval(mins => $4::int))))
+       -- Nothing is planned while the customer has paused the plan (D78).
+       AND NOT EXISTS (
+         SELECT 1 FROM subscription_pauses pz
+         WHERE pz.subscription_id = $1 AND pz.status = 'active' AND s.starts_at >= pz.starts_at AND s.starts_at < pz.ends_at)
        AND NOT EXISTS (
          SELECT 1 FROM bookings b WHERE b.pro_id = $2 AND b.status IN ('accepted', 'on_the_way', 'working')
            AND tstzrange(b.starts_at, b.ends_at) && tstzrange(s.starts_at, s.starts_at + make_interval(mins => $4::int)))`,
@@ -185,7 +201,8 @@ export async function recordPaidMonth(
       return null;
     }
     await client.query("UPDATE subscription_visits SET status = 'planned' WHERE subscription_id = $1 AND status = 'pending'", [row.id]);
-    if (row.pro_id) {
+    // A month fully covered by credit, e.g. for paused visits (D78), is paid with nothing, so nothing is paid out.
+    if (row.pro_id && input.amountCents > 0) {
       await client.query(
         `INSERT INTO subscription_payouts (subscription_id, pro_id, invoice_id, amount_cents)
          VALUES ($1, $2, $3, $4) ON CONFLICT (invoice_id) DO NOTHING`,

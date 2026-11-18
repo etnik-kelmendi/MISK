@@ -82,6 +82,13 @@ export interface PaymentGateway {
   cancelSubscriptionAt(subscriptionId: string, at: Date): Promise<void>;
   /** Pauses or resumes monthly charges, e.g. for a seasonal plan in winter. */
   setBillingPaused(subscriptionId: string, paused: boolean): Promise<void>;
+  /**
+   * Credits the customer's balance, which comes off their next monthly bill, e.g. for plan visits called off
+   * by a pause (D78). Returns the provider's balance transaction id.
+   */
+  creditCustomer(input: BalanceInput): Promise<{ transactionId: string }>;
+  /** Takes back (part of) such a credit: the amount is added to the customer's next bill. */
+  reverseCustomerCredit(input: BalanceInput): Promise<{ transactionId: string }>;
   onboardingLink(input: { accountId: string; returnUrl: string; refreshUrl: string }): Promise<string>;
   accountStatus(accountId: string): Promise<{ payoutsEnabled: boolean }>;
   /** The pro's bank account (last 4 digits only) and their next payout, as their Stripe account shows it. */
@@ -105,6 +112,14 @@ export interface HoldInput {
   metadata: Record<string, string>;
   /** A card the customer saved before: the hold is placed on it at once (D73). */
   paymentMethodId?: string;
+}
+
+/** A change to a customer's balance with the provider; `amountCents` is always positive. */
+export interface BalanceInput {
+  customerRef: string;
+  amountCents: number;
+  description: string;
+  idempotencyKey: string;
 }
 
 /** A card saved with the payment provider, as Review & pay lists it (D73). */

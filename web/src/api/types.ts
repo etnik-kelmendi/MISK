@@ -231,6 +231,8 @@ export interface AdminVisit {
   customer: { firstName: string | null; lastName: string | null; phone: string | null; email: string | null };
   customerProfile: CustomerProfile | null;
   pro: { id: string; firstName: string | null; phone: string | null };
+  /** The customer's pause that called this visit off (D78). */
+  pause?: { startsOn: string; endsOn: string; creditCents: number; visitsCalledOff: number } | null;
   perVisitCents: number;
   proMonthlyCents: number;
   miskMonthlyCents: number;
@@ -705,6 +707,42 @@ export interface SubscriptionVisit {
   movedFrom: string | null;
   /** A move the customer asked for that the pro has not answered yet. */
   pendingMove: { toStartsAt: string; toEndsAt: string; respondBy: string } | null;
+  /** The pause that called this visit off (D78); absent or null when it was not paused. */
+  pausedBy?: string | null;
+}
+
+/** A pause of a monthly plan (D78). Days are 'YYYY-MM-DD' in the market time zone; `endsOn` is the first day after it. */
+export interface SubscriptionPause {
+  id: string;
+  startsOn: string;
+  endsOn: string;
+  weeks: number;
+  startsAt: string;
+  endsAt: string;
+  status: 'upcoming' | 'running' | 'past' | 'withdrawn';
+  visitsCalledOff: number;
+  visitCreditCents: number;
+  creditCents: number;
+  visitsRestored: number;
+  reversedCents: number;
+  createdAt: string;
+  withdrawnAt: string | null;
+}
+
+/** What a customer can choose when pausing, or why they cannot pause now (D78). */
+export interface PauseOptions {
+  earliestStartOn: string | null;
+  latestStartOn: string | null;
+  latestEndOn: string | null;
+  noticeDays: number;
+  maxPauseWeeks: number;
+  weeksLeftThisYear: number;
+  /** Weeks left per calendar year a pause can start in, keyed by the year. */
+  weeksLeft: Record<string, number>;
+  visitCreditCents: number;
+  /** The times of the visits a pause could call off. */
+  visitStarts: string[];
+  reason: 'not_active' | 'pause_already_planned' | 'no_weeks_left' | 'plan_ending' | null;
 }
 
 /** The days a visit can move to, or why it cannot move (D77). */
@@ -761,6 +799,8 @@ export interface Subscription {
   proName: string | null;
   cancelableFrom: string | null;
   visits: SubscriptionVisit[];
+  /** Newest first (D78). */
+  pauses: SubscriptionPause[];
 }
 
 export interface ProVisit {
