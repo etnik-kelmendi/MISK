@@ -76,7 +76,7 @@
     "nothing_to_charge": "There is no open problem on this job, so there is nothing to charge.",
     "too_late_to_reschedule": "This booking starts in less than 24 hours, or is already under way, so it can't be moved here. You can still cancel it, or write to your pro.",
     "same_time": "That is the time you already have. Please choose another.",
-    "too_late_to_report":"The 24 hours to report a problem are over. Please contact us instead.",
+    "too_late_to_report": "The 24 hours to report a problem are over. Please contact us instead.",
     "internal_error": "Something went wrong on our side. Please try again.",
     "request_failed": "That did not work. Please try again.",
     "password_too_short": "The password must have at least 12 characters.",
@@ -265,8 +265,8 @@
     "sizeHint": {
       "garden": {
         "S": "under 100 m²",
-        "M": "100–400 m²",
-        "L": "400 m² or more"
+        "M": "100 to 400 m²",
+        "L": "over 400 m²"
       },
       "job": {
         "S": "quick job",
@@ -2014,11 +2014,10 @@
     "thanks": "You tipped {{amount}}. {{pro}} went to {{name}}. Thank you!"
   },
   "waitlist": {
-    "notListed": "Your postcode is not listed?",
-    "postcode": "Your postcode",
-    "join": "Join the waitlist",
-    "joined": "You are on the waitlist for {{postcode}}. We tell you as soon as MISK comes there.",
-    "served": "MISK already serves {{postcode}}. Choose it in the list above."
+    "unavailableTitle": "MISK isn't available here yet",
+    "unavailableText": "We're not in this area yet. Join the waiting list and we'll tell you as soon as we are.",
+    "join": "Join the waiting list",
+    "joined": "You're on the waiting list for {{postcode}}. We'll let you know."
   },
   "push": {
     "title": "Notifications on this device",
@@ -2155,6 +2154,8 @@
     "addressMissing": "Enter the street and house number where the job is.",
     "addressShort": "Enter the full street and house number.",
     "postcodeMissing": "Choose your postcode.",
+    "postcodeFormat": "Enter a 5-digit postcode.",
+    "postcodeUnserved": "MISK isn't available at this postcode yet. Join the waiting list below, or use another address.",
     "daysMissing_one": "Choose {{count}} day for the visits.",
     "daysMissing_other": "Choose {{count}} days for the visits.",
     "starsMissing": "Choose from 1 to 5 stars.",
@@ -2316,13 +2317,11 @@
         "L": "Large"
       }
     },
-    "unsureTitle": "Not sure of the size?",
-    "unsure": {
-      "garden": "Pick your best guess (a tennis court is about 260 m²). The pro checks it when they arrive. If the job is bigger, they send you a priced request in the app, and nothing extra is charged unless you approve it. If it's smaller, you pay the lower price.",
-      "job": "Pick your best guess. The pro checks it when they arrive. If the job is bigger, they send you a priced request in the app, and nothing extra is charged unless you approve it. If it's smaller, you pay the lower price."
-    },
+    "unsureTitle": "Not sure?",
+    "unsureText": "Pick your best guess. The pro checks on arrival. If it's bigger, you approve the extra price first. If it's smaller, you pay less.",
     "photos": "Photos",
-    "addPhotos": "Add photos (up to {{max}})",
+    "takePhoto": "Take a photo",
+    "choosePhotos": "Choose from gallery",
     "photosAttached_one": "{{count}} photo attached",
     "photosAttached_other": "{{count}} photos attached",
     "fixedPrice": "Fixed price {{price}} for this size.",

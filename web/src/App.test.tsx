@@ -756,11 +756,15 @@ describe('booking a job', () => {
     await waitFor(() => expect(screen.getByLabelText('Street and house number')).toHaveValue('17 Maple Lane'));
     await waitFor(() => expect(screen.getByLabelText('Postcode')).toHaveValue('10117'));
     expect(screen.getByRole('radio', { name: /Small.*under 100 m².*€35/ })).toBeInTheDocument();
-    expect(screen.getByText('Not sure of the size?')).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /Medium.*100 to 400 m².*€45.50/ })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /Large.*over 400 m².*€/ })).toBeInTheDocument();
+    expect(screen.getByText('Not sure?')).toBeInTheDocument();
+    expect(screen.getByText("Pick your best guess. The pro checks on arrival. If it's bigger, you approve the extra price first. If it's smaller, you pay less.")).toBeInTheDocument();
+    expect(screen.getByLabelText('Take a photo')).toHaveAttribute('capture', 'environment');
     expect(screen.getByText('Fixed price €45.50 for this size.')).toBeInTheDocument();
     expect(await screen.findByRole('link', { name: /Need this regularly\? Make it a plan/ })).toHaveAttribute('href', '/plans/plan-lawn');
 
-    await user().upload(screen.getByLabelText('Add photos (up to 3)'), [
+    await user().upload(screen.getByLabelText('Choose from gallery'), [
       new File(['a'], 'lawn.jpg', { type: 'image/jpeg' }),
       new File(['b'], 'gate.png', { type: 'image/png' }),
     ]);
@@ -812,7 +816,7 @@ describe('booking a job', () => {
     renderAt('/book/svc-mow');
 
     await user().type(await screen.findByLabelText('Street and house number'), '12 Linden Street');
-    await user().selectOptions(await screen.findByLabelText('Postcode'), '10115');
+    await user().type(await screen.findByLabelText('Postcode'), '10115');
     await user().click(screen.getByRole('radio', { name: /Large/ }));
     expect(screen.getByRole('button', { name: 'Continue · €59.50' })).toBeEnabled();
     await user().click(screen.getByRole('radio', { name: /Medium/ }));
@@ -848,22 +852,60 @@ describe('booking a job', () => {
     await user().click(option);
     await user().click(screen.getByRole('button', { name: 'Continue · €38/h' }));
     await user().type(await screen.findByLabelText('Street and house number'), '12 Linden Street');
-    await user().selectOptions(await screen.findByLabelText('Postcode'), '10115');
+    await user().type(await screen.findByLabelText('Postcode'), '10115');
     expect(screen.queryByRole('radio', { name: /Large/ })).not.toBeInTheDocument();
     expect(screen.getByText(/Paid by the hour: €38\/h for about 2 h/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Continue · €76' })).toBeEnabled();
   });
 
-  it('puts a customer whose postcode is not served on the waitlist', async () => {
+  it('offers the waiting list for a postcode MISK does not serve and keeps Continue from going on', async () => {
     const api = fakeApi(users.customer);
     api.on('GET /postcodes', { body: { postcodes: [{ code: '10115', name: 'Mitte' }] } });
-    api.on('POST /waitlist', { status: 201, body: { postcode: '10178' } });
+    api.on('GET /bookings', { body: { bookings: [] } });
+    api.on('POST /waitlist', { status: 201, body: { postcode: '99999' } });
     renderAt('/book/svc-mow');
-    await user().click(await screen.findByRole('button', { name: 'Your postcode is not listed?' }));
-    await user().type(screen.getByLabelText('Your postcode'), '10178');
-    await user().click(screen.getByRole('button', { name: 'Join the waitlist' }));
-    expect(api.bodies['POST /waitlist']).toEqual({ postcode: '10178' });
-    expect(await screen.findByText(/You are on the waitlist for 10178/)).toBeInTheDocument();
+    await user().type(await screen.findByLabelText('Street and house number'), '12 Linden Street');
+    await user().type(screen.getByLabelText('Postcode'), '10115');
+    expect(screen.getByText('Mitte')).toBeInTheDocument();
+    expect(screen.queryByText("MISK isn't available here yet")).not.toBeInTheDocument();
+    await user().clear(screen.getByLabelText('Postcode'));
+    await user().type(screen.getByLabelText('Postcode'), '99999');
+    expect(screen.getByRole('status')).toHaveTextContent("MISK isn't available here yet");
+    expect(screen.getByText("We're not in this area yet. Join the waiting list and we'll tell you as soon as we are.")).toBeInTheDocument();
+    await user().click(screen.getByRole('button', { name: /Continue · / }));
+    expect(screen.getByText("MISK isn't available at this postcode yet. Join the waiting list below, or use another address.")).toBeInTheDocument();
+    expect(screen.queryByText('Choose a time')).not.toBeInTheDocument();
+    await user().click(screen.getByRole('button', { name: 'Join the waiting list' }));
+    expect(api.bodies['POST /waitlist']).toEqual({ postcode: '99999' });
+    expect(await screen.findByText("You're on the waiting list for 99999. We'll let you know.")).toBeInTheDocument();
+  });
+
+  it('asks for a 5-digit postcode', async () => {
+    const api = fakeApi(users.customer);
+    api.on('GET /postcodes', { body: { postcodes: [{ code: '10115', name: 'Mitte' }] } });
+    api.on('GET /bookings', { body: { bookings: [] } });
+    renderAt('/book/svc-mow');
+    await user().type(await screen.findByLabelText('Street and house number'), '12 Linden Street');
+    await user().type(screen.getByLabelText('Postcode'), '101');
+    await user().click(screen.getByRole('button', { name: /Continue · / }));
+    expect(screen.getByText('Enter a 5-digit postcode.')).toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('adds photos from the camera or the gallery, up to 3', async () => {
+    const api = fakeApi(users.customer);
+    api.on('GET /postcodes', { body: { postcodes: [{ code: '10115', name: 'Mitte' }] } });
+    api.on('GET /bookings', { body: { bookings: [] } });
+    renderAt('/book/svc-mow');
+    await user().upload(await screen.findByLabelText('Take a photo'), new File(['a'], 'one.jpg', { type: 'image/jpeg' }));
+    expect(screen.getByRole('img', { name: 'one.jpg' })).toBeInTheDocument();
+    await user().upload(screen.getByLabelText('Choose from gallery'), [
+      new File(['b'], 'two.jpg', { type: 'image/jpeg' }),
+      new File(['c'], 'three.jpg', { type: 'image/jpeg' }),
+    ]);
+    expect(screen.getByRole('img', { name: 'three.jpg' })).toBeInTheDocument();
+    expect(screen.queryByLabelText('Take a photo')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Choose from gallery')).not.toBeInTheDocument();
   });
 
   it('says so when the slot was just taken', async () => {
@@ -875,7 +917,7 @@ describe('booking a job', () => {
     api.on('POST /bookings', { status: 409, body: { error: 'slot_unavailable' } });
     renderAt('/book/svc-mow');
     await user().type(await screen.findByLabelText('Street and house number'), '12 Linden Street');
-    await user().selectOptions(await screen.findByLabelText('Postcode'), '10115');
+    await user().type(await screen.findByLabelText('Postcode'), '10115');
     await user().click(screen.getByRole('button', { name: /Continue/ }));
     await user().click(await screen.findByRole('button', { name: /10:00/ }));
     await user().click(screen.getByRole('button', { name: /Continue · / }));
@@ -1427,7 +1469,7 @@ describe('Choose time (D70)', () => {
   async function toTimeStep() {
     renderAt('/book?services=svc-mow');
     await user().type(await screen.findByLabelText('Street and house number'), '12 Linden Street');
-    await user().selectOptions(await screen.findByLabelText('Postcode'), '10115');
+    await user().type(await screen.findByLabelText('Postcode'), '10115');
     await user().click(screen.getByRole('button', { name: /Continue · / }));
   }
 
@@ -1530,7 +1572,7 @@ describe('Review & pay (D73)', () => {
   async function toReview(services = 'svc-mow') {
     renderAt(`/book?services=${services}`);
     await user().type(await screen.findByLabelText('Street and house number'), '12 Linden Street');
-    await user().selectOptions(await screen.findByLabelText('Postcode'), '10115');
+    await user().type(await screen.findByLabelText('Postcode'), '10115');
     await user().click(screen.getByRole('button', { name: /Continue · / }));
     await user().click(await screen.findByRole('button', { name: /10:00/ }));
     await user().click(screen.getByRole('button', { name: /Continue · Fri 6 Nov, 10:00/ }));

@@ -13,6 +13,9 @@ import { euro, packagePrice, PACKAGE_DISCOUNT_PCT } from '../../lib/format';
 import { planSizePrice } from '../../lib/plans';
 import { useValidation } from '../../lib/useValidation';
 
+/** Postcodes in MISK are 5 digits (D52). */
+const POSTCODE_FORMAT = /^\d{5}$/;
+
 export const SIZES: JobSize[] = ['S', 'M', 'L'];
 /** Photos a customer can send with a booking, as the API allows. */
 export const MAX_BOOKING_PHOTOS = 3;
@@ -113,10 +116,19 @@ export function JobDetailsStep({
   // The size changes the price of fixed-price services only; hourly ones cost their rate times their length.
   const sized = services.some((service) => service.pricing !== 'hourly');
   const [single] = services;
+  const servedList = postcodes.state.status === 'ready' ? postcodes.state.data.postcodes : null;
+  const wellFormed = POSTCODE_FORMAT.test(details.postcode);
+  const servedArea = wellFormed ? servedList?.find((p) => p.code === details.postcode) : undefined;
+  // Only known once the list of served postcodes has loaded.
+  const unserved = wellFormed && servedList !== null && !servedArea;
   const form = useValidation(
     {
       address: !details.address.trim() ? t('validation.addressMissing') : details.address.trim().length < 3 && t('validation.addressShort'),
-      postcode: !details.postcode && t('validation.postcodeMissing'),
+      postcode: !details.postcode
+        ? t('validation.postcodeMissing')
+        : !POSTCODE_FORMAT.test(details.postcode)
+          ? t('validation.postcodeFormat')
+          : unserved && t('validation.postcodeUnserved'),
     },
     { address: 'address', postcode: 'postcode' },
   );
@@ -178,29 +190,25 @@ export function JobDetailsStep({
           <FieldError id="address" message={form.message('address')} />
         </div>
         <ResourceState state={postcodes.state} reload={postcodes.reload}>
-          {({ postcodes: list }) => (
+          {() => (
             <div className="field">
               <label htmlFor="postcode">{t('book.postcode')}</label>
-              <select
+              <input
                 id="postcode"
+                inputMode="numeric"
+                autoComplete="postal-code"
+                maxLength={5}
                 required
                 value={details.postcode}
                 {...form.describe('postcode')}
-                onChange={(event) => onChange({ ...details, postcode: event.target.value })}
-              >
-                <option value="">{t('book.choosePostcode')}</option>
-                {list.map((p) => (
-                  <option key={p.code} value={p.code}>
-                    {p.code} · {p.name}
-                  </option>
-                ))}
-              </select>
+                onChange={(event) => onChange({ ...details, postcode: event.target.value.trim() })}
+              />
               <FieldError id="postcode" message={form.message('postcode')} />
-              <span className="hint">{t('book.postcodeHint')}</span>
+              {servedArea && <span className="hint">{servedArea.name}</span>}
             </div>
           )}
         </ResourceState>
-        <Waitlist />
+        {unserved && <Waitlist key={details.postcode} postcode={details.postcode} />}
 
         {!sized && single && services.length === 1 ? (
           <p className="info">
@@ -229,7 +237,7 @@ export function JobDetailsStep({
             <p className="info amber">
               <Icon name="bell" />
               <span>
-                <b>{t('details.unsureTitle')}</b> {t(`details.unsure.${group}`)}
+                <b>{t('details.unsureTitle')}</b> {t('details.unsureText')}
               </span>
             </p>
           </>
@@ -241,15 +249,23 @@ export function JobDetailsStep({
           </legend>
           <div className="photos">
             <PhotoPreviews files={details.photos} onRemove={(index) => onChange({ ...details, photos: details.photos.filter((_, i) => i !== index) })} />
-            {details.photos.length < MAX_BOOKING_PHOTOS && (
+          </div>
+          {details.photos.length < MAX_BOOKING_PHOTOS && (
+            <div className="photo-buttons">
               <span className="file-button">
-                <input id="job-photos" type="file" accept={IMAGE_TYPES} multiple className="visually-hidden" onChange={choose} />
-                <label htmlFor="job-photos" className="ph add" aria-label={t('details.addPhotos', { max: MAX_BOOKING_PHOTOS })}>
-                  <Icon name="camera" />
+                <input id="job-photo-camera" type="file" accept="image/*" capture="environment" className="visually-hidden" onChange={choose} />
+                <label htmlFor="job-photo-camera" className="btn btn-ghost">
+                  <Icon name="camera" /> {t('details.takePhoto')}
                 </label>
               </span>
-            )}
-          </div>
+              <span className="file-button">
+                <input id="job-photos" type="file" accept={IMAGE_TYPES} multiple className="visually-hidden" onChange={choose} />
+                <label htmlFor="job-photos" className="btn btn-ghost">
+                  <Icon name="upload" /> {t('details.choosePhotos')}
+                </label>
+              </span>
+            </div>
+          )}
           {tooBig && (
             <span className="error-text" role="alert">
               {t('errors.file_too_large')}
