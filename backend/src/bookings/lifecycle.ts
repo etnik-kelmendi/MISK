@@ -5,6 +5,7 @@ import { withTransaction } from '../db.js';
 import { conflict, notFound } from '../errors.js';
 import { bookingWhen, formatSlot, messages } from '../notifications/messages.js';
 import { enqueue } from '../notifications/outbox.js';
+import { FREE_CANCEL_LATE_MINUTES, loadArrival } from './arrival.js';
 import { offerNext } from './dispatch.js';
 import { setStatus, type BookingDeps } from './events.js';
 
@@ -105,6 +106,7 @@ export async function cancelBooking(
   options: { acceptLateCharge?: boolean; customerNote?: string } = {},
 ): Promise<void> {
   let late = false;
+  let proVeryLate = false;
   const holds = await withTransaction(deps.pool, async (client) => {
     const found = await client.query<{
       status: string;
@@ -135,7 +137,10 @@ export async function cancelBooking(
       if (!unassigned && !assigned) {
         throw conflict('too_late_to_cancel');
       }
-      late = assigned && booking.hours_left < FREE_CANCEL_HOURS && booking.payment_status === 'held';
+      // A pro running more than 30 minutes late (as the server works it out now) makes cancelling free (D83).
+      const arrival = assigned ? await loadArrival(client, bookingId) : null;
+      proVeryLate = arrival !== null && arrival.lateMinutes > FREE_CANCEL_LATE_MINUTES;
+      late = assigned && !proVeryLate && booking.hours_left < FREE_CANCEL_HOURS && booking.payment_status === 'held';
       if (late && !options.acceptLateCharge) {
         throw conflict('late_cancel_charge');
       }
@@ -178,7 +183,7 @@ export async function cancelBooking(
     }
     return result;
   });
-  deps.log.info({ event: 'booking_cancelled', bookingId, by, late });
+  deps.log.info({ event: 'booking_cancelled', bookingId, by, late, ...(proVeryLate ? { freeBecauseProLate: true } : {}) });
   await releaseHolds(deps, holds);
   if (late) {
     try {

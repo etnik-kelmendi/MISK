@@ -9,7 +9,7 @@ import { ResourceState } from '../../components/ResourceState';
 import { ChatNote, ChatView, type ChatEvent } from '../../chat/ChatView';
 import { dateTime, euro } from '../../lib/format';
 import { usePolling } from '../../lib/usePolling';
-import { statusEvents } from '../customer/ChatPage';
+import { closedText, statusEvents } from '../customer/ChatPage';
 
 /** The pro's side of the chat with the customer of a job (D67). */
 export function ProChatPage() {
@@ -42,6 +42,7 @@ export function ProChatPage() {
             side="pro"
             path={`/pro/jobs/${encodeURIComponent(job.id)}/messages`}
             otherName={name}
+            closedText={closedText(job.status, t)}
             statusLine={t(`status.${job.status}`)}
             subtitle={`${job.serviceName} · ${dateTime(job.startsAt, timezone)}`}
             back={`/pro/jobs/${encodeURIComponent(job.id)}`}

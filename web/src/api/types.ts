@@ -79,6 +79,8 @@ export interface Extra {
   id: string;
   description: string;
   priceCents: number;
+  /** How long the extra work takes (D83); null for requests from before. */
+  durationMinutes?: number | null;
   status: ExtraStatus;
   createdAt: string;
 }
@@ -117,6 +119,21 @@ export interface ProSummary {
   ratingAverage: number | null;
   ratingCount: number;
   phone?: string | null;
+  /** The pro's profile photo (D83); initials are shown without one. */
+  photoId?: string | null;
+  /** Finished bookings and plan visits (D83). */
+  jobsDone?: number;
+  /** Whether the customer saved this pro as a favourite (D83). */
+  isFavourite?: boolean;
+}
+
+/** When the pro is expected (D83): from their live position while on the way, else the booked start. */
+export interface Arrival {
+  expectedAt: string;
+  lateMinutes: number;
+  source: 'live' | 'booked';
+  proPosition?: { lat: number; lng: number; at: string };
+  destination: { lat: number; lng: number } | null;
 }
 
 export type PaymentStatus = 'pending' | 'held' | 'captured' | 'released' | 'refunded' | 'failed';
@@ -131,6 +148,10 @@ export interface Money {
 
 export interface CustomerBooking extends BookingBase, Money {
   pro: ProSummary | null;
+  /** Set while a pro is booked and has not arrived yet (D83). */
+  arrival?: Arrival | null;
+  /** The pro is more than 30 minutes late, so cancelling is free (D83). */
+  freeCancelProLate?: boolean;
   canCancel: boolean;
   canRate: boolean;
   canReportProblem: boolean;
@@ -287,7 +308,9 @@ export interface PlanVisitItem {
 export interface ChatMessage {
   id: string;
   from: 'customer' | 'pro';
-  body: string;
+  /** Null for a photo sent without text (D83). */
+  body: string | null;
+  photoId?: string | null;
   createdAt: string;
   readAt: string | null;
 }
@@ -305,6 +328,8 @@ export interface Receipt {
   totalCents: number;
   state: ReceiptState;
   chargeAt: string | null;
+  /** How the customer paid (D83), e.g. label "Apple Pay · Visa •••• 4242". */
+  paymentMethod?: { brand: string; last4: string | null; wallet: string | null; label: string } | null;
 }
 
 export interface Offer {
@@ -368,6 +393,8 @@ export interface ProProfile {
   suspendedReason: string | null;
   ratingAverage: number | null;
   ratingCount: number;
+  /** The pro's profile photo, shown to their customers (D83). */
+  photoId?: string | null;
   trades: string[];
   documents: Record<DocumentKind, (ProDocument & { state: CheckState }) | null>;
 }
@@ -903,6 +930,8 @@ export interface InboxMessage {
   id: string;
   kind: string;
   body: string;
+  /** The page of the app the message is about, e.g. a booking's chat (D83). */
+  link?: string | null;
   read: boolean;
   createdAt: string;
 }

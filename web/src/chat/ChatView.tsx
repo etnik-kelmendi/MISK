@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { useApi } from '../api/ApiContext';
@@ -7,6 +7,7 @@ import type { ChatMessage } from '../api/types';
 import { useResource } from '../api/useResource';
 import { ErrorText } from '../components/ErrorText';
 import { Icon } from '../components/Icon';
+import { Avatar, IMAGE_TYPES, MAX_FILE_BYTES, useLightbox } from '../components/Photos';
 import { ResourceState } from '../components/ResourceState';
 import { time } from '../lib/format';
 import { useAction } from '../lib/useAction';
@@ -26,23 +27,31 @@ export interface ChatEvent {
 
 /**
  * The chat between the customer and the pro of one booking (D67): messages, with the booking's own events
- * (accepted, on the way, extra work requests) in between, quick replies and a message field.
+ * (accepted, on the way, extra work requests) in between, quick replies, a message field and a photo button
+ * (D83). Photos open full screen.
  */
 export function ChatView({
   side,
   path,
   otherName,
+  otherPhotoId,
+  otherDetail,
   statusLine,
   subtitle,
   back,
   events,
   quickReplies,
   closedFooter,
+  closedText,
 }: {
   side: 'customer' | 'pro';
   /** The API path of the messages, e.g. /bookings/b1/messages. */
   path: string;
   otherName: string;
+  /** The other side's photo, shown in the header (D83). */
+  otherPhotoId?: string | null;
+  /** A short line about the other side next to the status, e.g. "212 jobs" (D83). */
+  otherDetail?: string;
   statusLine: string;
   subtitle: string;
   back: string;
@@ -50,6 +59,8 @@ export function ChatView({
   quickReplies: string[];
   /** Shown instead of the message field when the chat is closed, e.g. "Rate Daniel". */
   closedFooter?: ReactNode;
+  /** Why the chat is closed, e.g. "This job is done, so the chat is read-only." */
+  closedText?: string;
 }) {
   const { t } = useTranslation();
   const api = useApi();
@@ -62,6 +73,10 @@ export function ChatView({
   const canWrite = state.status === 'ready' && state.data.canWrite;
   const count = state.status === 'ready' ? state.data.messages.length : 0;
   usePolling(reload, CHAT_REFRESH_MS, canWrite);
+  const photoInput = useId();
+  const [photoTooBig, setPhotoTooBig] = useState(false);
+  const photoIds = state.status === 'ready' ? state.data.messages.flatMap((m) => (m.photoId ? [m.photoId] : [])) : [];
+  const lightbox = useLightbox(photoIds, t('chat.photos'));
 
   // New messages scroll into view.
   useEffect(() => {
@@ -79,18 +94,30 @@ export function ChatView({
     }
   }
 
+  async function sendPhoto(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file || send.busy) return;
+    // Over 8 MB is refused here already, as the API would (D83).
+    setPhotoTooBig(file.size > MAX_FILE_BYTES);
+    if (file.size > MAX_FILE_BYTES) return;
+    const result = await send.run(() => api.upload<{ message: ChatMessage }>(`${path}/photo`, file));
+    if (result) update((current) => ({ ...current, messages: [...current.messages, result.message] }));
+  }
+
   return (
     <div className="chat">
       <header className="appbar chat-head">
         <Link to={back} className="iconbtn" aria-label={t('common.back')}>
           <Icon name="chevL" />
         </Link>
-        <span className="av av-sm" aria-hidden="true">
-          {otherName.slice(0, 1).toUpperCase()}
-        </span>
+        <Avatar name={otherName} photoId={otherPhotoId} size="sm" />
         <div className="grow">
           <h1 className="b chat-name">{otherName}</h1>
-          <p className="tiny brand-text b">{statusLine}</p>
+          <p className="tiny brand-text b">
+            {statusLine}
+            {otherDetail && <span className="muted"> · {otherDetail}</span>}
+          </p>
         </div>
       </header>
       <ResourceState state={state} reload={reload}>
@@ -106,8 +133,16 @@ export function ChatView({
                 {items.length === 0 && <p className="small muted center">{t('chat.empty', { name: otherName })}</p>}
                 {items.map((item) =>
                   'message' in item && item.message ? (
-                    <div key={item.key} className={`bubble ${item.message.from === side ? 'me' : ''}`}>
+                    <div key={item.key} className={`bubble ${item.message.from === side ? 'me' : ''} ${item.message.photoId ? 'has-photo' : ''}`}>
                       <span className="visually-hidden">{item.message.from === side ? t('chat.you') : otherName}: </span>
+                      {item.message.photoId && (
+                        <PhotoBubble
+                          photoId={item.message.photoId}
+                          alt={item.message.from === side ? t('chat.yourPhoto') : t('chat.photoFrom', { name: otherName })}
+                          index={photoIds.indexOf(item.message.photoId)}
+                          lightbox={lightbox}
+                        />
+                      )}
                       {item.message.body}
                       <span className="bt">{time(item.message.createdAt, timezone)}</span>
                     </div>
@@ -127,6 +162,20 @@ export function ChatView({
                     ))}
                   </div>
                   <form className="row gap8" onSubmit={(event) => void submit(text, event)}>
+                    <span className="file-button">
+                      <input
+                        id={photoInput}
+                        type="file"
+                        accept={IMAGE_TYPES}
+                        className="visually-hidden"
+                        disabled={send.busy}
+                        onChange={(event) => void sendPhoto(event)}
+                      />
+                      <label htmlFor={photoInput} className={`iconbtn chat-photo ${send.busy ? 'disabled' : ''}`}>
+                        <Icon name="camera" />
+                        <span className="visually-hidden">{t('chat.sendPhoto')}</span>
+                      </label>
+                    </span>
                     <label htmlFor="chat-input" className="visually-hidden">
                       {t('chat.message', { name: otherName })}
                     </label>
@@ -143,11 +192,16 @@ export function ChatView({
                       <Icon name="arrowR" />
                     </button>
                   </form>
+                  {photoTooBig && (
+                    <span className="error-text" role="alert">
+                      {t('errors.file_too_large')}
+                    </span>
+                  )}
                   <ErrorText error={send.error} />
                 </div>
               ) : (
                 <div className="chat-foot stack">
-                  <p className="small muted center">{t('chat.closed')}</p>
+                  <p className="small muted center">{closedText ?? t('chat.closed')}</p>
                   {closedFooter}
                 </div>
               )}
@@ -155,7 +209,29 @@ export function ChatView({
           );
         }}
       </ResourceState>
+      {lightbox.viewer}
     </div>
+  );
+}
+
+/** A photo in a chat bubble; tapping it opens the chat's photos full screen at this one (D83). */
+function PhotoBubble({
+  photoId,
+  alt,
+  index,
+  lightbox,
+}: {
+  photoId: string;
+  alt: string;
+  index: number;
+  lightbox: ReturnType<typeof useLightbox>;
+}) {
+  const { t } = useTranslation();
+  const api = useApi();
+  return (
+    <button ref={lightbox.register(index)} type="button" className="bubble-photo" aria-label={t('chat.openPhoto')} onClick={() => lightbox.openAt(index)}>
+      <img src={api.fileUrl(photoId)} alt={alt} loading="lazy" />
+    </button>
   );
 }
 

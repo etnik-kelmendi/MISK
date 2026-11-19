@@ -22,7 +22,7 @@ async function loadProfile(ctx: AppContext, userId: string) {
     `SELECT p.status, p.home_postcode AS "homePostcode", p.radius_km AS "radiusKm",
        p.working_days AS "workingDays", p.review_note AS "reviewNote", p.payouts_enabled AS "payoutsEnabled",
        p.jobs_paused_at IS NOT NULL AS "jobsPaused", p.suspended_reason AS "suspendedReason",
-       p.stripe_account_id IS NOT NULL AS "hasPayoutAccount", ${RATING_SQL},
+       p.stripe_account_id IS NOT NULL AS "hasPayoutAccount", p.photo_upload_id AS "photoId", ${RATING_SQL},
        COALESCE((SELECT array_agg(category_id) FROM pro_trades WHERE pro_id = p.user_id), '{}') AS trades
      FROM pro_profiles p WHERE p.user_id = $1`,
     [userId],
@@ -181,6 +181,51 @@ export async function proRoutes(app: FastifyInstance, ctx: AppContext) {
       return reply.code(201).send({ profile: await loadProfile(ctx, userId) });
     },
   );
+
+  // The pro's profile photo (D83): customers see it on their booking, the rating page and the chat. A JPEG or
+  // PNG of up to 8 MB; a new photo replaces the old one, whose file is deleted.
+  async function replacePhoto(userId: string, content: Buffer | null) {
+    const oldKey = await withTransaction(pool, async (client) => {
+      const current = await client.query<{ id: string | null; storage_key: string | null }>(
+        `SELECT u.id, u.storage_key FROM pro_profiles p LEFT JOIN uploads u ON u.id = p.photo_upload_id
+         WHERE p.user_id = $1 FOR UPDATE OF p`,
+        [userId],
+      );
+      const row = current.rows[0];
+      if (!row) {
+        throw notFound('profile_not_found');
+      }
+      const upload = content ? await storeUpload(client, ctx.storage, { ownerId: userId, kind: 'photo', content }) : null;
+      await client.query('UPDATE pro_profiles SET photo_upload_id = $2, updated_at = now() WHERE user_id = $1', [userId, upload?.id ?? null]);
+      if (row.id) {
+        await client.query('DELETE FROM uploads WHERE id = $1', [row.id]);
+      }
+      return row.storage_key;
+    });
+    if (oldKey) {
+      try {
+        await ctx.storage.remove(oldKey);
+      } catch (error) {
+        // The photo is already replaced; a file left behind does no harm.
+        app.log.warn({ event: 'pro_photo_file_not_removed', err: error });
+      }
+    }
+  }
+
+  app.post('/pro/photo', { preHandler: guards.pro }, async (request, reply) => {
+    const userId = currentUser(request).id;
+    const { content } = await readNamedFile(request);
+    await replacePhoto(userId, content);
+    request.log.info({ event: 'pro_photo_changed', userId });
+    return reply.code(201).send({ profile: await loadProfile(ctx, userId) });
+  });
+
+  app.delete('/pro/photo', { preHandler: guards.pro }, async (request) => {
+    const userId = currentUser(request).id;
+    await replacePhoto(userId, null);
+    request.log.info({ event: 'pro_photo_removed', userId });
+    return { profile: await loadProfile(ctx, userId) };
+  });
 
   app.post('/pro/submit', { preHandler: guards.pro }, async (request) => {
     const userId = currentUser(request).id;

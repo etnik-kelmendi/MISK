@@ -87,7 +87,12 @@ export interface EnqueueOptions {
   channels?: Record<Channel, boolean>;
   /** A longer email than the SMS text, with its own subject. */
   email?: { subject: string; text: string };
+  /** Where the message leads in the app when tapped, in the inbox and in a push notification (D83). */
+  link?: string;
 }
+
+/** A link inside the app, e.g. /bookings/<id>/chat; the database checks the same. */
+const LINK_FORMAT = /^\/[A-Za-z0-9/_-]{0,200}$/;
 
 export const MAX_ATTEMPTS = 3;
 const BATCH_SIZE = 20;
@@ -120,6 +125,10 @@ export async function enqueue(
   options: EnqueueOptions = {},
 ): Promise<boolean> {
   const { channels, email } = options;
+  const link = options.link ?? null;
+  if (link !== null && !LINK_FORMAT.test(link)) {
+    throw new Error(`Invalid message link: ${link}`);
+  }
   const result = await db.query(
     `WITH person AS (
        SELECT id, phone, email FROM users WHERE id = $1 AND disabled_at IS NULL
@@ -129,12 +138,12 @@ export async function enqueue(
               COALESCE($7::boolean, s.email, (SELECT phone IS NULL FROM person)) AS email
        FROM (SELECT 1) one LEFT JOIN notification_settings s ON s.kind = $2
      )
-     INSERT INTO notifications (user_id, channel, phone, email, subject, push_subscription_id, kind, body)
-     SELECT p.id, 'sms', p.phone, NULL, NULL, NULL::uuid, $2, $3 FROM person p, chosen c WHERE c.sms AND p.phone IS NOT NULL
+     INSERT INTO notifications (user_id, channel, phone, email, subject, push_subscription_id, kind, body, link)
+     SELECT p.id, 'sms', p.phone, NULL, NULL, NULL::uuid, $2, $3, NULL FROM person p, chosen c WHERE c.sms AND p.phone IS NOT NULL
      UNION ALL
-     SELECT p.id, 'email', NULL, p.email, $4, NULL::uuid, $2, COALESCE($8, $3) FROM person p, chosen c WHERE c.email AND p.email IS NOT NULL
+     SELECT p.id, 'email', NULL, p.email, $4, NULL::uuid, $2, COALESCE($8, $3), NULL FROM person p, chosen c WHERE c.email AND p.email IS NOT NULL
      UNION ALL
-     SELECT p.id, 'push', NULL, NULL, NULL, ps.id, $2, $3
+     SELECT p.id, 'push', NULL, NULL, NULL, ps.id, $2, $3, $9::text
      FROM person p JOIN push_subscriptions ps ON ps.user_id = p.id, chosen c WHERE c.push`,
     [
       userId,
@@ -145,14 +154,15 @@ export async function enqueue(
       channels?.sms ?? null,
       channels?.email ?? null,
       email?.text ?? null,
+      link,
     ],
   );
   // Customers and pros also find every message in the app (Messages), whatever the channels did.
   if (kind !== 'admin_test') {
     await db.query(
-      `INSERT INTO inbox (user_id, kind, body)
-       SELECT id, $2, $3 FROM users WHERE id = $1 AND disabled_at IS NULL AND role IS DISTINCT FROM 'admin'`,
-      [userId, kind, fitBody(body)],
+      `INSERT INTO inbox (user_id, kind, body, link)
+       SELECT id, $2, $3, $4 FROM users WHERE id = $1 AND disabled_at IS NULL AND role IS DISTINCT FROM 'admin'`,
+      [userId, kind, fitBody(body), link],
     );
   }
   return Boolean(result.rowCount);
@@ -174,6 +184,7 @@ interface OutboxRow {
   endpoint: string | null;
   p256dh: string | null;
   auth: string | null;
+  link: string | null;
 }
 
 /**
@@ -195,9 +206,9 @@ export async function dispatchOnce(pool: Pool, senders: Senders, log: FastifyBas
          LIMIT $4
          FOR UPDATE SKIP LOCKED
        )
-       RETURNING id, channel, phone, email, subject, body, push_subscription_id
+       RETURNING id, channel, phone, email, subject, body, push_subscription_id, link
      )
-     SELECT c.id, c.channel, c.phone, c.email, c.subject, c.body, ps.endpoint, ps.p256dh, ps.auth
+     SELECT c.id, c.channel, c.phone, c.email, c.subject, c.body, ps.endpoint, ps.p256dh, ps.auth, c.link
      FROM claimed c LEFT JOIN push_subscriptions ps ON ps.id = c.push_subscription_id`,
     [MAX_ATTEMPTS, RETRY_AFTER_SECONDS, STUCK_AFTER_SECONDS, BATCH_SIZE],
   );
@@ -230,7 +241,11 @@ export async function dispatchOnce(pool: Pool, senders: Senders, log: FastifyBas
           await finish(row.id, 'not_configured');
           continue;
         }
-        await senders.push({ endpoint: row.endpoint, p256dh: row.p256dh, auth: row.auth }, { title: 'MISK', body: row.body });
+        await senders.push({ endpoint: row.endpoint, p256dh: row.p256dh, auth: row.auth }, {
+          title: 'MISK',
+          body: row.body,
+          ...(row.link ? { url: row.link } : {}),
+        });
         await finish(row.id, 'sent');
       } else {
         throw new Error(`Message has no ${row.channel} address`);

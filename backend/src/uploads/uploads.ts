@@ -61,7 +61,8 @@ export async function storeUpload(
 
 /**
  * Who may see a file: its owner and admins always; for a job photo also the booking's customer,
- * its assigned pro, and a pro who currently has the job on offer.
+ * its assigned pro, and a pro who currently has the job on offer; a pro's profile photo also their
+ * customers; a chat photo also the booking's customer and pro.
  */
 async function findReadableUpload(db: Queryable, user: User, uploadId: string) {
   const result = await db.query<{ mime: string; storage_key: string }>(
@@ -79,6 +80,16 @@ async function findReadableUpload(db: Queryable, user: User, uploadId: string) {
              OR EXISTS (SELECT 1 FROM booking_offers o WHERE o.booking_id = b.id AND o.pro_id = $2 AND o.status = 'pending')
            ))
          )
+       )
+       -- A pro's profile photo: customers the pro is booked for or has worked for (D83).
+       OR EXISTS (
+         SELECT 1 FROM pro_profiles pp JOIN bookings b ON b.pro_id = pp.user_id
+         WHERE pp.photo_upload_id = u.id AND b.customer_id = $2
+       )
+       -- A photo sent in a booking's chat: that booking's customer and pro (D83).
+       OR EXISTS (
+         SELECT 1 FROM booking_messages m JOIN bookings b ON b.id = m.booking_id
+         WHERE m.photo_id = u.id AND (b.customer_id = $2 OR b.pro_id = $2)
        )
      )`,
     [uploadId, user.id, user.role],

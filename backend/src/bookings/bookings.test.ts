@@ -313,7 +313,7 @@ describe('doing the job', () => {
     await walkToWorking(pro.cookie, bookingId);
 
     const ask = (description: string, priceCents: number) =>
-      call(t, 'POST', `/pro/jobs/${bookingId}/extras`, { cookie: pro.cookie, body: { description, priceCents } });
+      call(t, 'POST', `/pro/jobs/${bookingId}/extras`, { cookie: pro.cookie, body: { description, priceCents, durationMinutes: 30 } });
     expect((await ask('Trim the front hedge', 2000)).statusCode).toBe(201);
     expect(errorOf(await ask('Water the pots', 500))).toBe('extra_already_pending');
 

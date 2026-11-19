@@ -8,13 +8,14 @@ import { useResource } from '../../api/useResource';
 import { ErrorText } from '../../components/ErrorText';
 import { FieldError } from '../../components/FieldError';
 import { Icon } from '../../components/Icon';
+import { Avatar } from '../../components/Photos';
 import { ResourceState } from '../../components/ResourceState';
 import { dateTime, euro, proShare } from '../../lib/format';
 import { useAction } from '../../lib/useAction';
 import { useValidation } from '../../lib/useValidation';
 import { AppHeader } from '../../shells/Shells';
 import { ReceiptSheet, ReportSheet } from './BookingSheets';
-import { proName, ReportCard, ReportedBanner, TipForm } from './BookingPage';
+import { FavouriteButton, proName, ReportCard, ReportedBanner, TipForm } from './BookingPage';
 
 export const RATING_TAGS = ['on_time', 'tidy', 'friendly', 'great_value', 'extra_mile'] as const;
 /** The tips offered next to the review, in cents; 0 is "No tip". */
@@ -64,10 +65,9 @@ function ReviewForm({
   return (
     <form id="review-form" className="stack" onSubmit={submit} noValidate>
       <div className="center">
-        <span className="av av-lg" aria-hidden="true">
-          {name.slice(0, 1).toUpperCase()}
-        </span>
+        <Avatar name={name} photoId={booking.pro?.photoId} size="lg" />
         <h2 className="b rate-title">{t('rating.title', { name })}</h2>
+        {booking.pro?.jobsDone !== undefined && <p className="small muted">{t('booking.jobsDone', { count: booking.pro.jobsDone })}</p>}
         <p className="small muted">
           {booking.serviceName} · {dateTime(booking.startsAt, timezone)}
         </p>
@@ -180,6 +180,8 @@ function ReviewSent({
         <p className="small">
           {t('book.total')} <b>{euro(total)}</b> · {t(`rating.money.${money}`)}
         </p>
+        {/* Save the pro to book them again (D83). */}
+        {booking.pro && <FavouriteButton booking={booking} />}
         <div className="row gap8 wrap center-row">
           {(booking.status === 'completed' || booking.lateCancel) && (
             <button type="button" className="mini-btn green" onClick={onReceipt}>

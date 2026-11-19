@@ -13,7 +13,7 @@ export async function inboxRoutes(app: FastifyInstance, ctx: AppContext) {
     const userId = currentUser(request).id;
     const [messages, unread] = await Promise.all([
       pool.query(
-        `SELECT id, kind, body, read_at IS NOT NULL AS read, created_at AS "createdAt"
+        `SELECT id, kind, body, link, read_at IS NOT NULL AS read, created_at AS "createdAt"
          FROM inbox WHERE user_id = $1 ORDER BY created_at DESC, id LIMIT ${INBOX_SIZE}`,
         [userId],
       ),

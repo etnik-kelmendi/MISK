@@ -164,7 +164,7 @@
     "plan_in_use": "This plan is in use: it has active subscribers or a visit is happening now. Unpublish it to stop new sign-ups.",
     "no_receipt": "There is no receipt for this booking yet.",
     "no_email": "Add an email address to your account to get receipts by email.",
-    "chat_closed": "This chat is closed.",
+    "chat_closed": "This chat is closed: you can write while the pro is booked for the job, until it is done.",
     "services_mixed_trades": "Services of different trades cannot be booked in one visit.",
     "invalid_services": "Choose at least one service.",
     "time_missing": "Choose a time, or that you are flexible.",
@@ -175,7 +175,8 @@
     "day_not_bookable": "That day cannot be booked yet.",
     "time_not_on_day": "That time is not on the day you chose.",
     "flexible_needs_time": "This flexible job has no time yet. Set the time with Change time first, then choose the pro.",
-    "card_not_found": "That card is no longer saved. Choose another way to pay."
+    "card_not_found": "That card is no longer saved. Choose another way to pay.",
+    "not_your_pro": "You can save a pro once they have done a job for you."
   },
   "nav": {
     "customer": "Main menu",
@@ -401,7 +402,22 @@
     "rate": "Rate {{name}}",
     "addTip": "Add a tip for {{name}}",
     "newMessage_one": "{{name}} sent you a message",
-    "newMessage_other": "{{name}} sent you {{count}} messages"
+    "newMessage_other": "{{name}} sent you {{count}} messages",
+    "jobsDone_one": "{{count}} job",
+    "jobsDone_other": "{{count}} jobs",
+    "expectedAround": "Expected around {{time}}",
+    "updatedNow": "updated just now",
+    "updatedAgo_one": "updated {{count}} min ago",
+    "updatedAgo_other": "updated {{count}} min ago",
+    "waitingForLocation": "{{name}}'s location is not shared yet, so this is the booked time.",
+    "runningLate": "Your pro is running about {{minutes}} minutes late. New arrival around {{time}}.",
+    "freeCancel": "Cancel for free",
+    "freeCancelQuestion": "{{name}} is more than 30 minutes late, so cancelling is free and the hold on your card is released. Cancel this booking?",
+    "freeCancelConfirm": "Yes, cancel for free",
+    "mapLabel": "Map: {{name}} is about {{distance}} km from your home at {{address}}.",
+    "mapWaiting": "Map of your home at {{address}}. {{name}}'s position is not known yet.",
+    "mapHome": "Your home",
+    "mapAttribution": "© OpenStreetMap contributors"
   },
   "timeline": {
     "searching": "Booking confirmed",
@@ -427,6 +443,11 @@
       "approved": "Approved",
       "declined": "Declined",
       "cancelled": "Not answered in time"
+    },
+    "about": "About {{duration}}",
+    "answered": {
+      "approved": "Approved by you",
+      "declined": "Declined"
     }
   },
   "problem": {
@@ -436,7 +457,7 @@
     "note": "Tell us more",
     "hint": "The payment is put on hold while we look into it. Support replies within 2 hours, and {{name}} gets the chance to put it right first.",
     "send": "Send report",
-    "received": "The payment is on hold. MISK support will contact you within 2 hours.",
+    "received": "within 2 hours. The payment is on hold.",
     "resolved": "The MISK team has dealt with the problem you reported.",
     "photos": "Photos (optional, up to {{max}})",
     "addPhotos": "Add photos",
@@ -459,7 +480,7 @@
     "notRight": "Something not right?",
     "within24h": "Report it within 24 h and the payment is put on hold.",
     "report": "Report",
-    "reportedTitle": "Problem reported."
+    "reportedTitle": "Problem reported. Support will contact you"
   },
   "rating": {
     "title": "How was {{name}}?",
@@ -624,7 +645,19 @@
     },
     "complete": "Complete the job",
     "photoFirst": "Add a photo to complete",
-    "chat": "Chat"
+    "chat": "Chat",
+    "extraDuration": "How long?",
+    "extraDurationChoose": "Choose",
+    "extraTakes": "About {{duration}}",
+    "location": {
+      "title": "Sharing your location",
+      "sharing": "{{name}} sees where you are on a map and when you will arrive, while you are on the way. Only your latest position is kept, and it is deleted when you arrive.",
+      "sent": "Location shared at {{time}}.",
+      "asking": "Allow location so {{name}} sees when you will arrive.",
+      "denied": "Location is off for MISK, so {{name}} sees the booked time instead. You can allow it in your browser settings.",
+      "unsupported": "This browser cannot share your location, so {{name}} sees the booked time instead.",
+      "unavailable": "Your location could not be found just now. MISK keeps trying."
+    }
   },
   "week": {
     "title": "My week",
@@ -2273,7 +2306,8 @@
     "extraPriceMissing": "Enter the price of the extra work, such as 20 or 19.50.",
     "tradeNameMissing": "Enter a name for the trade, such as \"Moving help\".",
     "taskEmpty": "Type a task first, then add it.",
-    "problemTypeMissing": "Choose what went wrong."
+    "problemTypeMissing": "Choose what went wrong.",
+    "extraDurationMissing": "Choose how long the extra work takes."
   },
   "inbox": {
     "title": "Messages",
@@ -2331,8 +2365,9 @@
     "chargeAt": "Your card is charged on {{date}}, unless you report a problem.",
     "onHold": "The payment is on hold while support looks into your report.",
     "email": "Email",
-    "pdf": "PDF",
-    "sent": "Receipt sent to {{email}}."
+    "pdf": "Download PDF",
+    "sent": "Receipt sent to {{email}}.",
+    "paymentMethod": "Payment method"
   },
   "chat": {
     "conversation": "Conversation with {{name}}",
@@ -2342,7 +2377,7 @@
     "message": "Message to {{name}}",
     "placeholder": "Message {{name}}…",
     "send": "Send",
-    "closed": "You can write here once a pro has accepted the job, and up to 7 days after it is done.",
+    "closed": "You can write here once a pro has accepted the job.",
     "yourCustomer": "Your customer",
     "extraAsked": "You asked for extra work: {{description}}, +{{price}}",
     "status": {
@@ -2376,7 +2411,14 @@
       "onMyWay": "I'm on my way",
       "arrived": "I'm here",
       "done": "All done, have a look!"
-    }
+    },
+    "closedDone": "This job is done, so the chat is read-only.",
+    "closedCancelled": "This booking was cancelled, so the chat is read-only.",
+    "sendPhoto": "Send a photo",
+    "photoFrom": "Photo from {{name}}",
+    "yourPhoto": "Your photo",
+    "photos": "Photos in the chat",
+    "openPhoto": "Open the photo"
   },
   "services": {
     "kind": "One-off job or monthly plan",
@@ -2490,5 +2532,29 @@
     "cancelTitle": "Free cancellation.",
     "cancelText": "Free cancellation up to 24 hours before the visit. After that you pay the full price.",
     "bookAndPay": "Book & pay {{amount}}"
+  },
+  "duration": {
+    "minutes": "{{count}} min",
+    "hours": "{{hours}} h",
+    "hoursMinutes": "{{hours}} h {{minutes}} min"
+  },
+  "photos": {
+    "counter": "Photo {{n}} of {{total}}",
+    "open": "Open photo {{n}} of {{total}}",
+    "close": "Close photo",
+    "previous": "Previous photo",
+    "next": "Next photo"
+  },
+  "favourite": {
+    "save": "Save {{name}}",
+    "saved": "Saved"
+  },
+  "proPhoto": {
+    "title": "Your photo",
+    "hint": "Customers see it on their booking, in the chat and when they rate you. A clear photo of your face works best: JPEG or PNG, up to 8 MB.",
+    "add": "Add a photo",
+    "change": "Change photo",
+    "remove": "Remove photo",
+    "none": "No photo yet: customers see your initial."
   }
 }

@@ -1,5 +1,6 @@
 import { proShareCents } from '../catalogue/pricing.js';
 import type { Queryable } from '../db.js';
+import { FREE_CANCEL_LATE_MINUTES, loadArrival } from './arrival.js';
 import { loadCustomerProfile } from './customer-profile.js';
 import { CHARGE_DELAY_HOURS, CUSTOMER_RESCHEDULABLE, FREE_CANCEL_HOURS } from './lifecycle.js';
 
@@ -67,16 +68,23 @@ export async function loadBooking(db: Queryable, bookingId: string, viewer: View
   const [events, photos, extras, rating, proRating, tip, unread, services] = await Promise.all([
     db.query('SELECT status, created_at AS at FROM booking_events WHERE booking_id = $1 ORDER BY id', [bookingId]),
     db.query('SELECT upload_id AS id, kind FROM booking_photos WHERE booking_id = $1 ORDER BY created_at', [bookingId]),
-    db.query<{ id: string; description: string; priceCents: number; status: string; createdAt: Date }>(
-      `SELECT id, description, price_cents AS "priceCents", status, created_at AS "createdAt"
+    db.query<{ id: string; description: string; priceCents: number; durationMinutes: number | null; status: string; createdAt: Date }>(
+      `SELECT id, description, price_cents AS "priceCents", duration_minutes AS "durationMinutes", status, created_at AS "createdAt"
        FROM extra_requests WHERE booking_id = $1 ORDER BY created_at`,
       [bookingId],
     ),
     db.query('SELECT stars, tags, review, created_at AS "createdAt" FROM ratings WHERE booking_id = $1', [bookingId]),
+    // The pro as the customer sees them (D83): rating, photo, finished jobs and plan visits, and whether this
+    // customer saved them as a favourite.
     b.proId
-      ? db.query<{ average: number | null; count: number }>(
-          'SELECT round(avg(stars)::numeric, 2)::float AS average, count(*)::int AS count FROM ratings WHERE pro_id = $1',
-          [b.proId],
+      ? db.query<{ average: number | null; count: number; photoId: string | null; jobsDone: number; isFavourite: boolean }>(
+          `SELECT (SELECT round(avg(stars)::numeric, 2)::float FROM ratings WHERE pro_id = $1) AS average,
+             (SELECT count(*)::int FROM ratings WHERE pro_id = $1) AS count,
+             (SELECT photo_upload_id FROM pro_profiles WHERE user_id = $1) AS "photoId",
+             (SELECT count(*)::int FROM bookings WHERE pro_id = $1 AND status = 'completed')
+               + (SELECT count(*)::int FROM subscription_visits WHERE pro_id = $1 AND status = 'completed') AS "jobsDone",
+             EXISTS (SELECT 1 FROM customer_favourite_pros WHERE pro_id = $1 AND customer_id = $2) AS "isFavourite"`,
+          [b.proId, b.customerId],
         )
       : Promise.resolve(null),
     db.query<{ amountCents: number; proCents: number; status: string }>(
@@ -137,12 +145,16 @@ export async function loadBooking(db: Queryable, bookingId: string, viewer: View
     };
   }
 
+  const proInfo = proRating?.rows[0];
   const pro = b.proId
     ? {
         id: b.proId,
         firstName: b.proName,
-        ratingAverage: proRating?.rows[0]?.average ?? null,
-        ratingCount: proRating?.rows[0]?.count ?? 0,
+        ratingAverage: proInfo?.average ?? null,
+        ratingCount: proInfo?.count ?? 0,
+        photoId: proInfo?.photoId ?? null,
+        jobsDone: proInfo?.jobsDone ?? 0,
+        ...(viewer === 'customer' ? { isFavourite: proInfo?.isFavourite ?? false } : {}),
         ...(viewer === 'admin' ? { phone: b.proPhone } : {}),
       }
     : null;
@@ -156,16 +168,25 @@ export async function loadBooking(db: Queryable, bookingId: string, viewer: View
   };
 
   if (viewer === 'customer') {
+    // Where the pro is and when they arrive, while they are booked and not there yet (D83).
+    const arrival = b.proId ? await loadArrival(db, bookingId) : null;
+    // A pro more than 30 minutes late lets the customer cancel for free (D83).
+    const proVeryLate = arrival !== null && arrival.lateMinutes > FREE_CANCEL_LATE_MINUTES;
     return {
       ...base,
       ...money,
       pro,
+      arrival,
       canCancel: unassigned || b.status === 'accepted' || b.status === 'on_the_way',
       // Cancelling now costs the full price: a pro is booked and the start is less than 24 hours away (D34).
       lateCancelCents:
-        (b.status === 'accepted' || b.status === 'on_the_way') && b.hoursLeft < FREE_CANCEL_HOURS && b.paymentStatus === 'held'
+        (b.status === 'accepted' || b.status === 'on_the_way') &&
+        b.hoursLeft < FREE_CANCEL_HOURS &&
+        b.paymentStatus === 'held' &&
+        !proVeryLate
           ? b.priceCents + b.feeCents
           : null,
+      freeCancelProLate: proVeryLate,
       lateCancel: b.lateCancel,
       // Free to move until 24 hours before the start, unless the pro has set off (D75).
       canReschedule: CUSTOMER_RESCHEDULABLE.includes(b.status) && b.hoursLeft > FREE_CANCEL_HOURS,

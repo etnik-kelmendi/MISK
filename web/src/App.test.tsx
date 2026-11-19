@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { CustomerBooking, ProProfile } from './api/types';
 import { forgetApprovalLink } from './pages/admin/ApproveRequestPage';
@@ -586,7 +586,7 @@ describe('my bookings', () => {
     expect(await within(sheet).findByText('Receipt #R-1042')).toBeInTheDocument();
     expect(within(sheet).getByText('Trim the front hedge (approved in the app)')).toBeInTheDocument();
     expect(within(sheet).getByText('€68.40')).toBeInTheDocument();
-    expect(within(sheet).getByRole('link', { name: 'PDF' })).toHaveAttribute('href', expect.stringMatching(/\/bookings\/b-0\/receipt\.pdf$/));
+    expect(within(sheet).getByRole('link', { name: 'Download PDF' })).toHaveAttribute('href', expect.stringMatching(/\/bookings\/b-0\/receipt\.pdf$/));
     await user().click(within(sheet).getByRole('button', { name: 'Email' }));
     expect(await within(sheet).findByText('Receipt sent to anna@example.com.')).toBeInTheDocument();
     await user().keyboard('{Escape}');
@@ -941,7 +941,7 @@ describe('a booking', () => {
     });
     renderAt('/bookings/b1');
     await user().click(await screen.findByRole('button', { name: 'Approve +€20' }));
-    expect(await screen.findByText('Approved')).toBeInTheDocument();
+    expect(await screen.findByText('Approved by you')).toBeInTheDocument();
     expect(screen.getByText('€68.40')).toBeInTheDocument();
   });
 
@@ -1074,7 +1074,7 @@ describe('a booking', () => {
     await user().clear(within(sheet).getByLabelText('Tell us more'));
     await user().type(within(sheet).getByLabelText('Tell us more'), '  Back lawn not mowed ');
     await user().click(send);
-    expect(await screen.findByText('The payment is on hold. MISK support will contact you within 2 hours.')).toBeInTheDocument();
+    expect(await screen.findByText('within 2 hours. The payment is on hold.', { exact: false })).toBeInTheDocument();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(api.bodies['POST /bookings/b1/problem']).toEqual({ note: 'Other: Back lawn not mowed' });
   });
@@ -1105,7 +1105,7 @@ describe('a booking', () => {
     expect(within(within(sheet).getByRole('list', { name: 'Photos to send' })).getAllByRole('listitem')).toHaveLength(2);
 
     await user().click(within(sheet).getByRole('button', { name: 'Send report' }));
-    expect(await screen.findByText('The payment is on hold. MISK support will contact you within 2 hours.')).toBeInTheDocument();
+    expect(await screen.findByText('within 2 hours. The payment is on hold.', { exact: false })).toBeInTheDocument();
     expect(api.calls.filter((c) => c === 'POST /bookings/b1/problem/photos')).toHaveLength(2);
     expect(screen.getByText('Something was damaged: Mud on the terrace')).toBeInTheDocument();
     const sent = screen.getByRole('list', { name: 'Your photo of the problem' });
@@ -1148,7 +1148,7 @@ describe('chat with the pro (D67)', () => {
     expect(api.bodies['POST /bookings/b1/messages']).toEqual({ body: 'Thanks!' });
 
     await user().click(within(log).getByRole('button', { name: 'Approve +€20' }));
-    expect(await within(log).findByText('Approved')).toBeInTheDocument();
+    expect(await within(log).findByText('Approved by you')).toBeInTheDocument();
   });
 
   it('is closed after the job, with a way to rate the pro instead', async () => {
@@ -1156,7 +1156,7 @@ describe('chat with the pro (D67)', () => {
     api.on('GET /bookings/b1', { body: { booking: booking({ status: 'completed', canCancel: false, canRate: true }) } });
     api.on('GET /bookings/b1/messages', { body: { messages: [], canWrite: false } });
     renderAt('/bookings/b1/chat');
-    expect(await screen.findByText(/You can write here once a pro has accepted the job/)).toBeInTheDocument();
+    expect(await screen.findByText('This job is done, so the chat is read-only.')).toBeInTheDocument();
     expect(screen.queryByLabelText('Message to Daniel')).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Rate Daniel' })).toHaveAttribute('href', '/bookings/b1/rate');
   });
@@ -3055,5 +3055,401 @@ describe('rescheduling and payment status (D75)', () => {
     expect(await badgeOf('Job paid')).toBe('Paid');
     expect(await badgeOf('Job refunded')).toBe('Refunded');
     expect(await badgeOf('Job cancelled')).toBe('Cancelled');
+  });
+});
+
+describe('booking pages (D83)', () => {
+  const pro = { id: 'u-pro', firstName: 'Daniel', ratingAverage: 4.9, ratingCount: 12, photoId: 'ph-pro', jobsDone: 212, isFavourite: false };
+  const photoOf = (id: string) => document.querySelector(`img[src="http://api.test/files/${id}"]`);
+  const minutesAgo = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
+  const arrival = (overrides: Record<string, unknown> = {}) => ({
+    expectedAt: '2026-11-06T09:42:00.000Z',
+    lateMinutes: 0,
+    source: 'live' as const,
+    proPosition: { lat: 52.52, lng: 13.39, at: minutesAgo(1) },
+    destination: { lat: 52.5323, lng: 13.3846 },
+    ...overrides,
+  });
+
+  it("shows the pro's photo and number of jobs on the booking and in the chat", async () => {
+    const api = fakeApi(users.customer);
+    api.on('GET /bookings/b1', { body: { booking: booking({ pro }) } });
+    api.on('GET /bookings/b1/messages', { body: { messages: [], canWrite: true } });
+    const { unmount } = renderAt('/bookings/b1');
+    const card = await screen.findByRole('region', { name: 'Your pro' });
+    expect(within(card).getByText(/212 jobs/)).toBeInTheDocument();
+    expect(within(card).getByText(/Verified/)).toBeInTheDocument();
+    expect(within(card).getByRole('img', { name: /4\.9/ })).toBeInTheDocument();
+    expect(photoOf('ph-pro')).toBeInTheDocument();
+    unmount();
+
+    renderAt('/bookings/b1/chat');
+    await screen.findByRole('log', { name: 'Conversation with Daniel' });
+    expect(screen.getByText(/212 jobs/)).toBeInTheDocument();
+    expect(photoOf('ph-pro')).toBeInTheDocument();
+  });
+
+  it('shows the photo and jobs above the rating form, and the initial without a photo', async () => {
+    const api = fakeApi(users.customer);
+    api.on('GET /bookings/b1', { body: { booking: booking({ status: 'completed', canCancel: false, canRate: true, pro }) } });
+    const { unmount } = renderAt('/bookings/b1/rate');
+    expect(await screen.findByRole('heading', { name: 'How was Daniel?' })).toBeInTheDocument();
+    expect(screen.getByText('212 jobs')).toBeInTheDocument();
+    expect(screen.getByText(/Lawn mowing · /)).toBeInTheDocument();
+    expect(photoOf('ph-pro')).toBeInTheDocument();
+    unmount();
+
+    api.on('GET /bookings/b1', {
+      body: { booking: booking({ status: 'completed', canCancel: false, canRate: true, pro: { ...pro, photoId: null, jobsDone: 1 } }) },
+    });
+    renderAt('/bookings/b1/rate');
+    expect(await screen.findByText('1 job')).toBeInTheDocument();
+    expect(photoOf('ph-pro')).not.toBeInTheDocument();
+  });
+
+  it('shows a real map with the pro and the expected arrival while the pro is on the way', async () => {
+    const api = fakeApi(users.customer);
+    api.on('GET /bookings/b1', { body: { booking: booking({ status: 'on_the_way', pro, arrival: arrival() }) } });
+    renderAt('/bookings/b1');
+    expect(
+      await screen.findByRole('img', { name: /^Map: Daniel is about 1\.\d km from your home at 12 Linden Street, 10115\.$/ }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Expected around 10:42')).toBeInTheDocument();
+    expect(screen.getByText('updated 1 min ago')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '© OpenStreetMap contributors' })).toBeInTheDocument();
+    expect(document.querySelector('img.live-tile')?.getAttribute('src')).toMatch(/^https:\/\/tile\.openstreetmap\.org\/\d+\/\d+\/\d+\.png$/);
+    expect(screen.queryByText(/running about/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Cancel for free' })).not.toBeInTheDocument();
+  });
+
+  it('keeps the drawing before the pro sets off, and the booked time without a recent position', async () => {
+    const api = fakeApi(users.customer);
+    api.on('GET /bookings/b1', { body: { booking: booking({ pro, arrival: arrival({ source: 'booked', proPosition: undefined }) }) } });
+    const { unmount } = renderAt('/bookings/b1');
+    await screen.findByRole('region', { name: 'Your pro' });
+    expect(screen.queryByRole('img', { name: /^Map/ })).not.toBeInTheDocument();
+    unmount();
+
+    api.on('GET /bookings/b1', {
+      body: {
+        booking: booking({
+          status: 'on_the_way',
+          pro,
+          arrival: arrival({ source: 'booked', proPosition: undefined, expectedAt: '2026-11-06T09:00:00.000Z' }),
+        }),
+      },
+    });
+    renderAt('/bookings/b1');
+    expect(
+      await screen.findByRole('img', { name: "Map of your home at 12 Linden Street, 10115. Daniel's position is not known yet." }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Expected around 10:00')).toBeInTheDocument();
+    expect(screen.getByText("Daniel's location is not shared yet, so this is the booked time.")).toBeInTheDocument();
+  });
+
+  it('says in red when the pro will be more than 10 minutes late, with the new time', async () => {
+    const api = fakeApi(users.customer);
+    api.on('GET /bookings/b1', {
+      body: { booking: booking({ status: 'on_the_way', pro, arrival: arrival({ lateMinutes: 15, expectedAt: '2026-11-06T09:57:00.000Z' }) }) },
+    });
+    renderAt('/bookings/b1');
+    const late = await screen.findByText('Your pro is running about 15 minutes late. New arrival around 10:57.');
+    expect(late.closest('.info')).toHaveClass('red');
+    expect(screen.queryByRole('button', { name: 'Cancel for free' })).not.toBeInTheDocument();
+  });
+
+  it('offers to cancel for free when the pro is more than 30 minutes late, after asking', async () => {
+    const api = fakeApi(users.customer);
+    api.on('GET /bookings/b1', {
+      body: {
+        booking: booking({
+          status: 'on_the_way',
+          pro,
+          arrival: arrival({ lateMinutes: 35, expectedAt: '2026-11-06T09:35:00.000Z' }),
+          freeCancelProLate: true,
+          lateCancelCents: null,
+        }),
+      },
+    });
+    api.on('POST /bookings/b1/cancel', { body: { booking: booking({ status: 'cancelled', canCancel: false, paymentStatus: 'released' }) } });
+    renderAt('/bookings/b1');
+    expect(await screen.findByText(/running about 35 minutes late/)).toBeInTheDocument();
+    // The usual cancel link gives way to the free one.
+    expect(screen.queryByRole('button', { name: 'Cancel this booking' })).not.toBeInTheDocument();
+    await user().click(screen.getByRole('button', { name: 'Cancel for free' }));
+    expect(screen.getByRole('alertdialog')).toHaveTextContent('Daniel is more than 30 minutes late, so cancelling is free');
+    expect(api.calls).not.toContain('POST /bookings/b1/cancel');
+    await user().click(screen.getByRole('button', { name: 'Yes, cancel for free' }));
+    expect(await screen.findByText('Nothing was charged; the hold was released.')).toBeInTheDocument();
+    expect(api.calls).toContain('POST /bookings/b1/cancel');
+    expect(api.bodies['POST /bookings/b1/cancel']).toBeUndefined();
+  });
+
+  it("opens the pro's photos full screen from the booking", async () => {
+    const api = fakeApi(users.customer);
+    const photos = [
+      { id: 'c1', kind: 'completion' as const },
+      { id: 'c2', kind: 'completion' as const },
+    ];
+    api.on('GET /bookings/b1', { body: { booking: booking({ status: 'completed', canCancel: false, photos }) } });
+    renderAt('/bookings/b1');
+    await user().click(await screen.findByRole('button', { name: 'Open photo 2 of 2' }));
+    expect(screen.getByRole('dialog', { name: 'Photo 2 of 2' })).toBeInTheDocument();
+    await user().keyboard('{ArrowLeft}');
+    expect(screen.getByRole('dialog', { name: 'Photo 1 of 2' })).toBeInTheDocument();
+    await user().keyboard('{Escape}');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('sends a photo in the chat and shows photos in the bubbles, full screen on a tap', async () => {
+    const api = fakeApi(users.customer);
+    api.on('GET /bookings/b1', { body: { booking: booking({ status: 'working', pro }) } });
+    const fromPro = { id: '1', from: 'pro', body: null, photoId: 'cp-pro', createdAt: '2026-11-06T09:21:00.000Z', readAt: null };
+    api.on('GET /bookings/b1/messages', { body: { messages: [fromPro], canWrite: true } });
+    api.on('POST /bookings/b1/messages/photo', {
+      status: 201,
+      body: { message: { id: '2', from: 'customer', body: null, photoId: 'cp-me', createdAt: '2026-11-06T09:22:00.000Z', readAt: null } },
+    });
+    renderAt('/bookings/b1/chat');
+    const log = await screen.findByRole('log', { name: 'Conversation with Daniel' });
+    expect(await within(log).findByRole('img', { name: 'Photo from Daniel' })).toHaveAttribute('src', 'http://api.test/files/cp-pro');
+
+    await user().upload(screen.getByLabelText('Send a photo'), new File(['x'], 'gate.jpg', { type: 'image/jpeg' }));
+    expect(await within(log).findByRole('img', { name: 'Your photo' })).toHaveAttribute('src', 'http://api.test/files/cp-me');
+    expect(api.calls).toContain('POST /bookings/b1/messages/photo');
+    expect(api.bodies['POST /bookings/b1/messages/photo']).toBeInstanceOf(FormData);
+
+    await user().click(within(log).getAllByRole('button', { name: 'Open the photo' })[1] as HTMLElement);
+    expect(screen.getByRole('dialog', { name: 'Photo 2 of 2' })).toBeInTheDocument();
+  });
+
+  it('refuses a chat photo over 8 MB before sending it', async () => {
+    const api = fakeApi(users.customer);
+    api.on('GET /bookings/b1', { body: { booking: booking({ status: 'working', pro }) } });
+    api.on('GET /bookings/b1/messages', { body: { messages: [], canWrite: true } });
+    renderAt('/bookings/b1/chat');
+    const big = new File(['x'], 'huge.jpg', { type: 'image/jpeg' });
+    Object.defineProperty(big, 'size', { value: 9 * 1024 * 1024 });
+    await user().upload(await screen.findByLabelText('Send a photo'), big);
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(api.calls).not.toContain('POST /bookings/b1/messages/photo');
+  });
+
+  it('opens the chat from a chat message in Messages, for customers and pros', async () => {
+    const chat = (id: string, link: string | null, body = 'MISK: Daniel about Lawn mowing: I am at the gate') => ({
+      id,
+      kind: 'chat_message',
+      body,
+      link,
+      read: false,
+      createdAt: '2026-11-11T09:00:00.000Z',
+    });
+    const api = fakeApi(users.customer);
+    api.on('GET /inbox', { body: { messages: [chat('m1', '/bookings/b1/chat'), chat('m0', null, 'MISK: your booking is confirmed.')], unread: 2 } });
+    api.on('POST /inbox/read', { status: 204 });
+    const { unmount } = renderAt('/messages');
+    expect(await screen.findByRole('link', { name: 'Daniel about Lawn mowing: I am at the gate' })).toHaveAttribute('href', '/bookings/b1/chat');
+    expect(screen.queryByRole('link', { name: 'Your booking is confirmed.' })).not.toBeInTheDocument();
+    unmount();
+
+    const proApi = fakeApi(users.pro);
+    proApi.on('GET /pro/offers', { body: { offers: [] } });
+    proApi.on('GET /pro/jobs', { body: { jobs: [] } });
+    proApi.on('GET /pro/profile', { body: { profile: { status: 'approved', payoutsEnabled: true } } });
+    proApi.on('GET /inbox', { body: { messages: [chat('m1', '/pro/jobs/b1/chat')], unread: 1 } });
+    proApi.on('POST /inbox/read', { status: 204 });
+    renderAt('/pro/messages');
+    expect(await screen.findByRole('link', { name: 'Daniel about Lawn mowing: I am at the gate' })).toHaveAttribute('href', '/pro/jobs/b1/chat');
+  });
+
+  it('shows how long extra work takes, and the answer as "Declined"', async () => {
+    const api = fakeApi(users.customer);
+    const extra = { id: 'x1', description: 'Trim the front hedge', priceCents: 2000, durationMinutes: 30, status: 'pending' as const, createdAt: '' };
+    const old = { id: 'x0', description: 'Water the pots', priceCents: 500, durationMinutes: null, status: 'approved' as const, createdAt: '' };
+    api.on('GET /bookings/b1', { body: { booking: booking({ status: 'working', extras: [old, extra] }) } });
+    api.on('POST /bookings/b1/extras/x1/decline', { body: { booking: booking({ status: 'working', extras: [old, { ...extra, status: 'declined' }] }) } });
+    renderAt('/bookings/b1');
+    expect(await screen.findByText('About 30 min')).toBeInTheDocument();
+    // An older request without a duration shows none.
+    expect(screen.getAllByText(/^About /)).toHaveLength(1);
+    expect(screen.getByText('Approved by you')).toBeInTheDocument();
+    await user().click(screen.getByRole('button', { name: 'Decline' }));
+    expect(await screen.findByText('Declined')).toBeInTheDocument();
+  });
+
+  it('asks the pro how long extra work takes', async () => {
+    const api = fakeApi(users.pro);
+    const job = { ...booking({ status: 'working' }), customer: { firstName: 'Sara' }, earningsCents: 3731 };
+    api.on('GET /pro/jobs/b1', { body: { job } });
+    api.on('POST /pro/jobs/b1/extras', {
+      status: 201,
+      body: { job: { ...job, extras: [{ id: 'x1', description: 'Trim the hedge', priceCents: 2000, durationMinutes: 90, status: 'pending', createdAt: '' }] } },
+    });
+    renderAt('/pro/jobs/b1');
+    await user().click(await screen.findByRole('button', { name: /Ask for extra work/ }));
+    await user().type(screen.getByLabelText('What extra work?'), 'Trim the hedge');
+    await user().type(screen.getByLabelText('Price in euros'), '20');
+    await user().click(screen.getByRole('button', { name: 'Send to customer' }));
+    expect(screen.getByText('Choose how long the extra work takes.')).toBeInTheDocument();
+    expect(api.calls).not.toContain('POST /pro/jobs/b1/extras');
+    await user().selectOptions(screen.getByLabelText('How long?'), '1 h 30 min');
+    await user().click(screen.getByRole('button', { name: 'Send to customer' }));
+    expect(api.bodies['POST /pro/jobs/b1/extras']).toEqual({ description: 'Trim the hedge', priceCents: 2000, durationMinutes: 90 });
+    expect(await screen.findByText('About 1 h 30 min')).toBeInTheDocument();
+  });
+
+  it("shares the pro's location while on the way, at most every 20 seconds, and explains a refusal", async () => {
+    let onPosition: ((position: GeolocationPosition) => void) | null = null;
+    let onError: ((error: GeolocationPositionError) => void) | null = null;
+    const clearWatch = vi.fn();
+    Object.defineProperty(navigator, 'geolocation', {
+      configurable: true,
+      value: {
+        watchPosition: (success: (position: GeolocationPosition) => void, failure: (error: GeolocationPositionError) => void) => {
+          onPosition = success;
+          onError = failure;
+          return 7;
+        },
+        clearWatch,
+      },
+    });
+    const at = (lat: number, lng: number) => ({ coords: { latitude: lat, longitude: lng, accuracy: 12 }, timestamp: Date.now() }) as GeolocationPosition;
+    try {
+      const api = fakeApi(users.pro);
+      const job = { ...booking({ status: 'on_the_way' }), customer: { firstName: 'Sara' }, earningsCents: 3731 };
+      api.on('GET /pro/jobs/b1', { body: { job } });
+      api.on('POST /pro/jobs/b1/location', { status: 204 });
+      const { unmount } = renderAt('/pro/jobs/b1');
+      expect(await screen.findByText('Sharing your location')).toBeInTheDocument();
+      expect(screen.getByText('Allow location so Sara sees when you will arrive.')).toBeInTheDocument();
+      await waitFor(() => expect(onPosition).not.toBeNull());
+      act(() => onPosition?.(at(52.52, 13.39)));
+      await waitFor(() => expect(api.bodies['POST /pro/jobs/b1/location']).toEqual({ lat: 52.52, lng: 13.39, accuracy: 12 }));
+      expect(await screen.findByText(/Sara sees where you are on a map/)).toBeInTheDocument();
+      await screen.findByText(/Location shared at/);
+      // A new position moments later waits for the next 20 seconds.
+      act(() => onPosition?.(at(52.521, 13.391)));
+      expect(api.calls.filter((c) => c === 'POST /pro/jobs/b1/location')).toHaveLength(1);
+
+      act(() => onError?.({ code: 1, PERMISSION_DENIED: 1, POSITION_UNAVAILABLE: 2, TIMEOUT: 3, message: 'denied' } as GeolocationPositionError));
+      expect(await screen.findByText(/Location is off for MISK, so Sara sees the booked time instead/)).toBeInTheDocument();
+      unmount();
+      expect(clearWatch).toHaveBeenCalledWith(7);
+    } finally {
+      Reflect.deleteProperty(navigator, 'geolocation');
+    }
+  });
+
+  it('saves the pro as a favourite with the heart after the review, and removes them again', async () => {
+    const api = fakeApi(users.customer);
+    api.on('GET /bookings/b1', {
+      body: { booking: booking({ status: 'completed', canCancel: false, rating: { stars: 5, tags: [] }, pro }) },
+    });
+    api.on('PUT /favourites/pros/u-pro', { body: { favourite: true } });
+    api.on('DELETE /favourites/pros/u-pro', { body: { favourite: false } });
+    renderAt('/bookings/b1/rate');
+    const heart = await screen.findByRole('button', { name: 'Save Daniel' });
+    expect(heart).toHaveAttribute('aria-pressed', 'false');
+    await user().click(heart);
+    expect(await screen.findByRole('button', { name: 'Saved' })).toHaveAttribute('aria-pressed', 'true');
+    expect(api.calls).toContain('PUT /favourites/pros/u-pro');
+    await user().click(screen.getByRole('button', { name: 'Saved' }));
+    expect(await screen.findByRole('button', { name: 'Save Daniel' })).toHaveAttribute('aria-pressed', 'false');
+    expect(api.calls).toContain('DELETE /favourites/pros/u-pro');
+  });
+
+  it('shows the heart on the pro card of a finished booking', async () => {
+    const api = fakeApi(users.customer);
+    api.on('GET /bookings/b1', { body: { booking: booking({ status: 'completed', canCancel: false, pro: { ...pro, isFavourite: true } }) } });
+    renderAt('/bookings/b1');
+    const card = await screen.findByRole('region', { name: 'Your pro' });
+    expect(within(card).getByRole('button', { name: 'Saved' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('says "Problem reported. Support will contact you" after a report', async () => {
+    const api = fakeApi(users.customer);
+    api.on('GET /bookings/b1', {
+      body: { booking: booking({ status: 'completed', canCancel: false, problemReportedAt: '2026-11-06T12:00:00.000Z' }) },
+    });
+    renderAt('/bookings/b1');
+    const title = await screen.findByText('Problem reported. Support will contact you');
+    expect(title.closest('p')?.textContent?.startsWith('Problem reported. Support will contact you')).toBe(true);
+    expect(title.closest('p')).toHaveTextContent('Problem reported. Support will contact you within 2 hours. The payment is on hold.');
+  });
+
+  it('keeps the report pop-up saying the payment is put on hold', async () => {
+    const api = fakeApi(users.customer);
+    api.on('GET /bookings/b1', { body: { booking: booking({ status: 'completed', canCancel: false, canReportProblem: true }) } });
+    renderAt('/bookings/b1');
+    await user().click(await screen.findByRole('button', { name: 'Report' }));
+    const sheet = screen.getByRole('dialog', { name: 'Report a problem' });
+    expect(within(sheet).getByText(/^The payment is put on hold while we look into it/)).toBeInTheDocument();
+  });
+
+  it('shows the total and the payment method on the receipt, with Download PDF', async () => {
+    const api = fakeApi(users.customer);
+    api.on('GET /bookings/b1', { body: { booking: booking({ status: 'completed', canCancel: false }) } });
+    api.on('GET /bookings/b1/receipt', {
+      body: {
+        receipt: {
+          number: 'R-1001',
+          bookingNumber: 'B-1001',
+          date: '2026-11-06T10:00:00.000Z',
+          serviceName: 'Lawn mowing',
+          proName: 'Daniel',
+          address: '12 Linden Street, 10115',
+          lines: [
+            { label: 'Lawn mowing, medium job', cents: 4550, kind: 'job' },
+            { label: 'Service fee', cents: 290, kind: 'fee' },
+          ],
+          totalCents: 4840,
+          state: 'paid',
+          chargeAt: null,
+          paymentMethod: { brand: 'visa', last4: '4242', wallet: 'apple_pay', label: 'Apple Pay · Visa •••• 4242' },
+        },
+      },
+    });
+    renderAt('/bookings/b1');
+    await user().click(await screen.findByRole('button', { name: 'Receipt' }));
+    const sheet = screen.getByRole('dialog', { name: 'Receipt' });
+    expect(await within(sheet).findByText('Apple Pay · Visa •••• 4242')).toBeInTheDocument();
+    expect(within(sheet).getByText('Payment method')).toBeInTheDocument();
+    expect(within(sheet).getByText('€48.40')).toBeInTheDocument();
+    const pdf = within(sheet).getByRole('link', { name: 'Download PDF' });
+    expect(pdf).toHaveAttribute('href', 'http://api.test/bookings/b1/receipt.pdf');
+    expect(pdf).toHaveAttribute('download');
+  });
+
+  it('lets a pro add, change and remove their profile photo', async () => {
+    const api = fakeApi(users.pro);
+    const profile: ProProfile = {
+      status: 'draft',
+      homePostcode: null,
+      radiusKm: 12,
+      workingDays: [1, 2, 3, 4, 5],
+      reviewNote: null,
+      payoutsEnabled: false,
+      hasPayoutAccount: false,
+      jobsPaused: false,
+      suspendedReason: null,
+      ratingAverage: null,
+      ratingCount: 0,
+      trades: [],
+      documents: { id: null, certificate: null, insurance: null, background: null },
+      photoId: null,
+    };
+    api.on('GET /pro/profile', { body: { profile } });
+    api.on('GET /postcodes', { body: { postcodes: [] } });
+    api.on('POST /pro/photo', { status: 201, body: { profile: { ...profile, photoId: 'me1' } } });
+    api.on('DELETE /pro/photo', { body: { profile } });
+    renderAt('/pro/profile');
+    const section = await screen.findByRole('region', { name: 'Your photo' });
+    expect(within(section).getByText(/No photo yet/)).toBeInTheDocument();
+    await user().upload(within(section).getByLabelText('Add a photo'), new File(['x'], 'me.jpg', { type: 'image/jpeg' }));
+    expect(await within(section).findByText('Change photo')).toBeInTheDocument();
+    expect(photoOf('me1')).toBeInTheDocument();
+    await user().click(within(section).getByRole('button', { name: 'Remove photo' }));
+    expect(await within(section).findByText('Add a photo')).toBeInTheDocument();
+    expect(api.calls).toEqual(expect.arrayContaining(['POST /pro/photo', 'DELETE /pro/photo']));
   });
 });

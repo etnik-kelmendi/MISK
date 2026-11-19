@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Link } from 'react-router';
 import { useMarket } from '../api/MarketContext';
 import { Icon, type IconKey } from '../components/Icon';
 import { readable, useInbox } from '../inbox/InboxContext';
@@ -16,6 +17,7 @@ const ICON_OF: Partial<Record<string, IconKey>> = {
   payout_sent: 'euro',
   pro_on_the_way: 'pin',
   rating_request: 'star',
+  chat_message: 'chat',
 };
 
 /** Every message MISK sent the person, also when no text message or push reached them. */
@@ -72,7 +74,14 @@ export function MessagesPage() {
                     <Icon name={ICON_OF[message.kind] ?? 'chat'} />
                   </span>
                   <span className="grow">
-                    <span className="block">{readable(message.body)}</span>
+                    {/* A message about a chat opens that chat (D83). */}
+                    {message.link ? (
+                      <Link to={message.link} className="block msg-link">
+                        {readable(message.body)}
+                      </Link>
+                    ) : (
+                      <span className="block">{readable(message.body)}</span>
+                    )}
                     <span className="tiny muted">
                       {dateTime(message.createdAt, timezone)}
                       {isNew && <span className="badge g msg-new">{t('inbox.new')}</span>}

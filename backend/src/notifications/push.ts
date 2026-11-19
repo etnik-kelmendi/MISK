@@ -17,6 +17,8 @@ export interface PushTarget {
 export interface PushMessage {
   title: string;
   body: string;
+  /** The page of the app the notification opens when tapped, e.g. a booking's chat (D83). */
+  url?: string;
 }
 
 /** The browser no longer accepts messages for this subscription; it should be forgotten. */

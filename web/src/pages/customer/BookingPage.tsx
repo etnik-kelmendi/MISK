@@ -1,3 +1,4 @@
+import type { TFunction } from 'i18next';
 import { useCallback, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useParams } from 'react-router';
@@ -8,7 +9,8 @@ import { useResource } from '../../api/useResource';
 import { ErrorText } from '../../components/ErrorText';
 import { FieldError } from '../../components/FieldError';
 import { Icon } from '../../components/Icon';
-import { FileButton, IMAGE_TYPES, PhotoGrid } from '../../components/Photos';
+import { LiveMap } from '../../components/LiveMap';
+import { Avatar, FileButton, IMAGE_TYPES, PhotoGrid } from '../../components/Photos';
 import { ResourceState } from '../../components/ResourceState';
 import { Stars, StatusBadge } from '../../components/StatusBadge';
 import { dateTime, dayName, euro, parseEuroToCents, proShare, time } from '../../lib/format';
@@ -24,6 +26,141 @@ const TIMELINE = ['searching', 'accepted', 'on_the_way', 'working', 'completed']
 export const LIVE = new Set<BookingStatus>(['awaiting_payment', 'searching', 'accepted', 'on_the_way', 'working']);
 /** A pro who has not set off this long after the start time counts as running late. */
 const LATE_AFTER_MS = 10 * 60_000;
+/** A pro on the way this many minutes behind the start gets a red "running late" note (D83). */
+export const LATE_NOTICE_MINUTES = 10;
+/** A pro this many minutes late or more lets the customer cancel for free; the server decides (D83). */
+export const FREE_CANCEL_LATE_MINUTES = 30;
+
+/** "30 min", "1 h", "1 h 30 min" (D83). */
+export function formatDuration(minutes: number, t: TFunction): string {
+  if (minutes < 60) return t('duration.minutes', { count: minutes });
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest ? t('duration.hoursMinutes', { hours, minutes: rest }) : t('duration.hours', { hours });
+}
+
+/** The heart that saves the pro as a favourite (D83); only offered once the pro has done a job. */
+export function FavouriteButton({ booking, compact = false }: { booking: CustomerBooking; compact?: boolean }) {
+  const { t } = useTranslation();
+  const api = useApi();
+  const [saved, setSaved] = useState(booking.pro?.isFavourite ?? false);
+  const { run, busy, error } = useAction();
+  const pro = booking.pro;
+  if (!pro) return null;
+  const name = pro.firstName ?? t('problem.yourPro');
+
+  async function toggle() {
+    if (!pro) return;
+    const path = `/favourites/pros/${encodeURIComponent(pro.id)}`;
+    const result = await run(() => (saved ? api.delete<{ favourite: boolean }>(path) : api.put<{ favourite: boolean }>(path, {})));
+    if (result) setSaved(result.favourite);
+  }
+
+  return (
+    <span className="fav-wrap">
+      <button
+        type="button"
+        className={compact ? `iconbtn soft fav ${saved ? 'on' : ''}` : `mini-btn fav ${saved ? 'on' : ''}`}
+        aria-pressed={saved}
+        aria-label={compact ? (saved ? t('favourite.saved') : t('favourite.save', { name })) : undefined}
+        disabled={busy}
+        onClick={() => void toggle()}
+      >
+        <Icon name="heart" />
+        {!compact && <span>{saved ? t('favourite.saved') : t('favourite.save', { name })}</span>}
+      </button>
+      <ErrorText error={error} />
+    </span>
+  );
+}
+
+/** The pro's photo (or initial), name, Verified, stars and number of jobs (D83). */
+function ProCard({ booking, unread }: { booking: CustomerBooking; unread: number }) {
+  const { t } = useTranslation();
+  const pro = booking.pro;
+  if (!pro) return null;
+  const name = pro.firstName ?? t('problem.yourPro');
+  return (
+    <div className="row">
+      <Avatar name={name} photoId={pro.photoId} />
+      <div className="grow">
+        <p className="b">
+          {pro.firstName}{' '}
+          <span className="verified">
+            <Icon name="shield" /> {t('booking.verified')}
+          </span>
+        </p>
+        <p className="row gap6 pro-meta">
+          <Stars average={pro.ratingAverage} count={pro.ratingCount} />
+          {pro.jobsDone !== undefined && <span className="small muted">· {t('booking.jobsDone', { count: pro.jobsDone })}</span>}
+        </p>
+      </div>
+      {booking.status === 'completed' && <FavouriteButton booking={booking} compact />}
+      <Link to={`/bookings/${booking.id}/chat`} className="iconbtn soft chat-btn" aria-label={t('booking.chatWith', { name })}>
+        <Icon name="chat" />
+        {unread > 0 && <span className="dot-badge" aria-hidden="true" />}
+      </Link>
+    </div>
+  );
+}
+
+/** Minutes since an instant, for "updated 1 min ago". */
+function minutesSince(iso: string, now: number): number {
+  return Math.max(0, Math.floor((now - new Date(iso).getTime()) / 60_000));
+}
+
+/**
+ * While the pro is on the way (D83): a real map with the pro and the home, the expected arrival and how fresh
+ * the position is. Without a recent position the map shows the home and the booked time.
+ */
+function LiveArrival({ booking }: { booking: CustomerBooking }) {
+  const { t } = useTranslation();
+  const { timezone } = useMarket();
+  const now = useNow(15_000);
+  const arrival = booking.arrival;
+  const name = proName(booking, t('problem.yourPro'));
+  if (!arrival) return null;
+  const position = arrival.proPosition ?? null;
+  const address = `${booking.address}, ${booking.postcode}`;
+  const distance = position && arrival.destination ? distanceKm(position, arrival.destination) : null;
+  const ago = position ? minutesSince(position.at, now) : null;
+  return (
+    <section className="stack live-arrival" aria-label={t('booking.yourPro')}>
+      {arrival.destination ? (
+        <LiveMap
+          pro={position}
+          home={arrival.destination}
+          label={
+            distance !== null
+              ? t('booking.mapLabel', { name, distance: distance.toFixed(1), address })
+              : t('booking.mapWaiting', { name, address })
+          }
+          proLabel={name}
+          homeLabel={t('booking.mapHome')}
+          proInitial={name.slice(0, 1).toUpperCase()}
+          attribution={t('booking.mapAttribution')}
+        />
+      ) : (
+        <RouteMap booking={booking} />
+      )}
+      <p className="card row between arrival-line" role="status">
+        <span className="b">
+          <Icon name="clock" /> {t('booking.expectedAround', { time: time(arrival.expectedAt, timezone) })}
+        </span>
+        <span className="small muted">
+          {ago === null ? t('booking.waitingForLocation', { name }) : ago === 0 ? t('booking.updatedNow') : t('booking.updatedAgo', { count: ago })}
+        </span>
+      </p>
+    </section>
+  );
+}
+
+/** Straight-line distance in kilometres, for describing the map. */
+function distanceKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+  const rad = (d: number) => (d * Math.PI) / 180;
+  const h = Math.sin(rad(b.lat - a.lat) / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(rad(b.lng - a.lng) / 2) ** 2;
+  return 2 * 6371 * Math.asin(Math.min(1, Math.sqrt(h)));
+}
 
 /** A flexible booking whose pro has not picked the time yet (D70). */
 export function waitingForTime(booking: Pick<CustomerBooking, 'flexibleWindow' | 'timeConfirmed'>): boolean {
@@ -141,7 +278,10 @@ export function ExtraCard({ booking, extra, onChanged }: { booking: CustomerBook
         <Icon name="plus" /> {t('extra.request')}
       </span>
       <div className="row between">
-        <p className="b">{extra.description}</p>
+        <div>
+          <p className="b">{extra.description}</p>
+          {extra.durationMinutes ? <p className="small muted">{t('extra.about', { duration: formatDuration(extra.durationMinutes, t) })}</p> : null}
+        </div>
         <p className="price">+{euro(extra.priceCents)}</p>
       </div>
       {extra.status === 'pending' ? (
@@ -159,7 +299,10 @@ export function ExtraCard({ booking, extra, onChanged }: { booking: CustomerBook
           </p>
         </>
       ) : (
-        <span className={`badge ${extra.status === 'approved' ? 'g' : 'grey'}`}>{t(`extra.status.${extra.status}`)}</span>
+        <span className={`badge ${extra.status === 'approved' ? 'g' : 'grey'}`}>
+          {/* The customer's own answer, in their words (D83). */}
+          {extra.status === 'approved' || extra.status === 'declined' ? t(`extra.answered.${extra.status}`) : t(`extra.status.${extra.status}`)}
+        </span>
       )}
       <ErrorText error={error} />
     </div>
@@ -318,11 +461,16 @@ function BookingView({
   const now = useNow();
   const late = booking.status === 'accepted' && now > new Date(booking.startsAt).getTime() + LATE_AFTER_MS;
   const tracking = booking.status !== 'cancelled' && booking.status !== 'awaiting_payment';
+  const onTheWay = booking.status === 'on_the_way';
+  const lateMinutes = booking.arrival?.lateMinutes ?? 0;
+  // The server decides whether cancelling is free because the pro is very late (D83).
+  const freeCancel = booking.canCancel && (booking.freeCancelProLate ?? lateMinutes > FREE_CANCEL_LATE_MINUTES);
+  const [confirmFree, setConfirmFree] = useState(false);
 
   return (
     <>
       <div className="body">
-        {tracking && <RouteMap booking={booking} />}
+        {tracking && (onTheWay && booking.arrival ? <LiveArrival booking={booking} /> : <RouteMap booking={booking} />)}
         <div className="card">
           <div className="row between">
             <h2 className="b">{booking.serviceName}</h2>
@@ -351,6 +499,43 @@ function BookingView({
             <span>{t('booking.late', { name, time: time(booking.startsAt, timezone) })}</span>
           </p>
         )}
+        {onTheWay && booking.arrival && lateMinutes > LATE_NOTICE_MINUTES && (
+          <p className="info red" role="alert">
+            <Icon name="clock" />
+            <span>{t('booking.runningLate', { minutes: lateMinutes, time: time(booking.arrival.expectedAt, timezone) })}</span>
+          </p>
+        )}
+        {freeCancel && (
+          <section className="stack">
+            {confirmFree ? (
+              <div className="card" role="alertdialog" aria-labelledby="free-cancel-question">
+                <p id="free-cancel-question">{t('booking.freeCancelQuestion', { name })}</p>
+                <div className="row gap8">
+                  <button type="button" className="btn btn-ghost" onClick={() => setConfirmFree(false)}>
+                    {t('booking.keep')}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-danger"
+                    disabled={cancel.busy}
+                    onClick={() =>
+                      void cancel
+                        .run(() => api.post<{ booking: CustomerBooking }>(`/bookings/${booking.id}/cancel`))
+                        .then((result) => result && onChanged(result.booking))
+                    }
+                  >
+                    {t('booking.freeCancelConfirm')}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button type="button" className="btn btn-danger" onClick={() => setConfirmFree(true)}>
+                {t('booking.freeCancel')}
+              </button>
+            )}
+            <ErrorText error={cancel.error} />
+          </section>
+        )}
         <ReportedBanner booking={booking} />
 
         {booking.status === 'awaiting_payment' && <PaymentSection booking={booking} onConfirmed={reload} />}
@@ -363,24 +548,7 @@ function BookingView({
         {tracking && (
           <section className="card" aria-label={t('booking.yourPro')}>
             {booking.pro ? (
-              <div className="row">
-                <span className="av" aria-hidden="true">
-                  {(booking.pro.firstName ?? '?').slice(0, 1)}
-                </span>
-                <div className="grow">
-                  <p className="b">
-                    {booking.pro.firstName}{' '}
-                    <span className="verified">
-                      <Icon name="shield" /> {t('booking.verified')}
-                    </span>
-                  </p>
-                  <Stars average={booking.pro.ratingAverage} count={booking.pro.ratingCount} />
-                </div>
-                <Link to={`/bookings/${booking.id}/chat`} className="iconbtn soft chat-btn" aria-label={t('booking.chatWith', { name })}>
-                  <Icon name="chat" />
-                  {unread > 0 && <span className="dot-badge" aria-hidden="true" />}
-                </Link>
-              </div>
+              <ProCard booking={booking} unread={unread} />
             ) : (
               <div className="row">
                 <span className="av grey" aria-hidden="true">
@@ -483,7 +651,7 @@ function BookingView({
           </section>
         )}
 
-        {booking.canCancel && (
+        {booking.canCancel && !freeCancel && (
           <section className="stack">
             {confirmCancel ? (
               <div className="card" role="alertdialog" aria-labelledby="cancel-question">

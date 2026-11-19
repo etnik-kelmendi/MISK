@@ -44,6 +44,11 @@ export interface PaymentGateway {
   renewHold(input: HoldInput & { fromIntentId: string }): Promise<HoldResult>;
   /** The browser secret of an unfinished payment, so the customer can finish it after a reload. */
   clientSecretFor(intentId: string): Promise<string | null>;
+  /**
+   * How a payment was made, for the receipt (D83): the card brand and last four digits, and the wallet
+   * (Apple Pay, Google Pay) when a wallet was used. Null when the payment has no payment method yet.
+   */
+  paymentMethodOf(intentId: string): Promise<PaymentMethodInfo | null>;
   /** Takes held money. Returns the charge id that a transfer to the pro can be paid from. */
   capture(intentId: string): Promise<{ chargeId: string }>;
   /** Releases held money that was never taken. */
@@ -129,6 +134,13 @@ export interface SavedCard {
   last4: string;
   expMonth: number;
   expYear: number;
+}
+
+/** The card behind a payment (D83). `wallet` is the provider's wallet name, e.g. "apple_pay" or "google_pay". */
+export interface PaymentMethodInfo {
+  brand: string;
+  last4: string | null;
+  wallet: string | null;
 }
 
 export interface PayoutDetails {

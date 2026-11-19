@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { BalanceInput, GatewayEvent, HoldInput, PaymentGateway, SavedCard } from '../src/payments/gateway.js';
+import type { BalanceInput, GatewayEvent, HoldInput, PaymentGateway, PaymentMethodInfo, SavedCard } from '../src/payments/gateway.js';
 
 /** A change to a customer's balance: a credit off the next bill, or a credit taken back (D78). */
 export interface FakeBalanceChange {
@@ -28,7 +28,13 @@ export interface FakeIntent {
 export function createFakeGateway(options: { instantHolds?: boolean } = {}) {
   const intents = new Map<string, FakeIntent>();
   const transfers: { id: string; accountId: string; amountCents: number; reversed: boolean }[] = [];
-  const failures = new Set<'hold' | 'capture' | 'transfer' | 'subscription' | 'payoutDetails' | 'payoutSchedule' | 'renew' | 'credit'>();
+  const failures = new Set<
+    'hold' | 'capture' | 'transfer' | 'subscription' | 'payoutDetails' | 'payoutSchedule' | 'renew' | 'credit' | 'paymentMethod'
+  >();
+  /** Payment methods set by a test, e.g. Apple Pay, per payment (D83). */
+  const paymentMethods = new Map<string, PaymentMethodInfo>();
+  /** Every payment whose method was asked for, to check the receipt caches it. */
+  const methodLookups: string[] = [];
   const balance: FakeBalanceChange[] = [];
 
   /** Like Stripe: the same idempotency key returns the first result instead of changing the balance twice. */
@@ -87,6 +93,23 @@ export function createFakeGateway(options: { instantHolds?: boolean } = {}) {
     holdOnSavedCard: async (input) => hold(input),
     clientSecretFor: async (intentId) =>
       intents.get(intentId)?.status === 'requires_payment_method' ? `${intentId}_secret` : null,
+    async paymentMethodOf(intentId) {
+      methodLookups.push(intentId);
+      if (failures.has('paymentMethod')) {
+        throw new Error('fake payment method failure');
+      }
+      const intent = intents.get(intentId);
+      if (!intent || intent.status === 'requires_payment_method') {
+        return null;
+      }
+      const override = paymentMethods.get(intentId);
+      if (override) {
+        return override;
+      }
+      // A hold on a saved card is on that card; a card form used the default test card.
+      const card = cards.find((c) => c.id === intent.paymentMethodId) ?? defaultCards()[0];
+      return card ? { brand: card.brand, last4: card.last4, wallet: null } : null;
+    },
     async capture(intentId) {
       const intent = intents.get(intentId);
       if (failures.has('capture') || !intent || (intent.status !== 'held' && intent.status !== 'captured')) {
@@ -219,6 +242,14 @@ export function createFakeGateway(options: { instantHolds?: boolean } = {}) {
       manualPayouts.length = 0;
       instantHolds = options.instantHolds ?? true;
       cards = defaultCards();
+      paymentMethods.clear();
+      methodLookups.length = 0;
+    },
+    /** Payments whose method the app asked for, in order (D83). */
+    methodLookups,
+    /** How one payment was made, e.g. Apple Pay with a Visa card (D83). */
+    setPaymentMethod(intentId: string, method: PaymentMethodInfo) {
+      paymentMethods.set(intentId, method);
     },
     /** The saved cards every customer has, e.g. none for a first-time customer. */
     setCards(next: SavedCard[]) {

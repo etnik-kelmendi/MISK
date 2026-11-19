@@ -1,4 +1,4 @@
-import { useCallback, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useParams } from 'react-router';
 import { useApi } from '../../api/ApiContext';
@@ -10,7 +10,8 @@ import { Icon, type IconKey } from '../../components/Icon';
 import { FileButton, IMAGE_TYPES, PhotoGrid } from '../../components/Photos';
 import { ResourceState } from '../../components/ResourceState';
 import { StatusBadge } from '../../components/StatusBadge';
-import { dateTime, euro, parseEuroToCents } from '../../lib/format';
+import { dateTime, euro, parseEuroToCents, time } from '../../lib/format';
+import { formatDuration } from '../customer/BookingPage';
 import { useAction } from '../../lib/useAction';
 import { useValidation } from '../../lib/useValidation';
 import { FieldError } from '../../components/FieldError';
@@ -18,6 +19,87 @@ import { usePolling } from '../../lib/usePolling';
 import { AppHeader } from '../../shells/Shells';
 
 const STEPS: BookingStatus[] = ['accepted', 'on_the_way', 'working', 'completed'];
+/** How long extra work may take, in 15-minute steps up to 8 hours (D83). */
+export const EXTRA_DURATIONS = Array.from({ length: 32 }, (_, index) => (index + 1) * 15);
+/** The phone's position is sent at most this often while the pro is on the way (D83). */
+export const LOCATION_EVERY_MS = 20_000;
+
+type LocationState = 'asking' | 'sharing' | 'denied' | 'unsupported' | 'unavailable';
+
+/**
+ * While the pro is on the way (D83), shares their phone's position with the customer, at most every 20 seconds,
+ * and says so on the page. Stops when the job moves on or the page closes; a refused permission only
+ * shows an explanation.
+ */
+function LocationShare({ job }: { job: ProJob }) {
+  const { t } = useTranslation();
+  const api = useApi();
+  const { timezone } = useMarket();
+  const [state, setState] = useState<LocationState>(() =>
+    typeof navigator !== 'undefined' && navigator.geolocation ? 'asking' : 'unsupported',
+  );
+  const [sentAt, setSentAt] = useState<string | null>(null);
+  const lastSent = useRef(0);
+  const sending = useRef(false);
+  const name = job.customer.firstName ?? t('chat.yourCustomer');
+
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      return;
+    }
+    let stopped = false;
+    const watch = navigator.geolocation.watchPosition(
+      (position) => {
+        if (stopped) return;
+        setState('sharing');
+        const now = Date.now();
+        if (sending.current || now - lastSent.current < LOCATION_EVERY_MS) return;
+        sending.current = true;
+        lastSent.current = now;
+        const { latitude, longitude, accuracy } = position.coords;
+        api
+          .post(`/pro/jobs/${encodeURIComponent(job.id)}/location`, {
+            lat: latitude,
+            lng: longitude,
+            ...(Number.isFinite(accuracy) && accuracy >= 0 && accuracy <= 100_000 ? { accuracy } : {}),
+          })
+          .then(() => {
+            if (!stopped) setSentAt(new Date().toISOString());
+          })
+          .catch((error: unknown) => {
+            // The next position tries again; the job page shows when the job has moved on.
+            console.warn('Could not share the location', error);
+            lastSent.current = 0;
+          })
+          .finally(() => {
+            sending.current = false;
+          });
+      },
+      (error) => {
+        if (stopped) return;
+        setState(error.code === error.PERMISSION_DENIED ? 'denied' : 'unavailable');
+      },
+      { enableHighAccuracy: true, maximumAge: 10_000, timeout: 30_000 },
+    );
+    return () => {
+      stopped = true;
+      navigator.geolocation.clearWatch(watch);
+    };
+  }, [api, job.id]);
+
+  return (
+    <section className={`info ${state === 'denied' || state === 'unsupported' ? 'amber' : ''} stack-tight`} aria-labelledby="location-heading" role="status">
+      <Icon name="pin" />
+      <span>
+        <b id="location-heading" className="block">
+          {t('job.location.title')}
+        </b>
+        {t(`job.location.${state}`, { name })}
+        {sentAt &&<span className="block tiny muted">{t('job.location.sent', { time: time(sentAt, timezone) })}</span>}
+      </span>
+    </section>
+  );
+}
 const NEXT: Partial<Record<BookingStatus, { status: 'on_the_way' | 'working'; icon: IconKey }>> = {
   accepted: { status: 'on_the_way', icon: 'truck' },
   on_the_way: { status: 'working', icon: 'play' },
@@ -29,6 +111,7 @@ function ExtraForm({ job, onChanged }: { job: ProJob; onChanged: (j: ProJob) => 
   const [open, setOpen] = useState(false);
   const [description, setDescription] = useState('');
   const [price, setPrice] = useState('');
+  const [duration, setDuration] = useState('');
   const { run, busy, error } = useAction();
   const cents = parseEuroToCents(price);
   const form = useValidation(
@@ -37,23 +120,29 @@ function ExtraForm({ job, onChanged }: { job: ProJob; onChanged: (j: ProJob) => 
         ? t('validation.extraWhatMissing')
         : description.trim().length < 3 && t('validation.noteShort', { min: 3 }),
       price: !price.trim() ? t('validation.extraPriceMissing') : cents === null && t('job.extraPriceInvalid'),
+      duration: !duration && t('validation.extraDurationMissing'),
     },
-    { description: 'extra-description', price: 'extra-price' },
+    { description: 'extra-description', price: 'extra-price', duration: 'extra-duration' },
   );
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!form.check() || cents === null) {
+    if (!form.check() || cents === null || !duration) {
       return;
     }
     const result = await run(() =>
-      api.post<{ job: ProJob }>(`/pro/jobs/${job.id}/extras`, { description: description.trim(), priceCents: cents }),
+      api.post<{ job: ProJob }>(`/pro/jobs/${job.id}/extras`, {
+        description: description.trim(),
+        priceCents: cents,
+        durationMinutes: Number(duration),
+      }),
     );
     if (result) {
       onChanged(result.job);
       setOpen(false);
       setDescription('');
       setPrice('');
+      setDuration('');
     }
   }
 
@@ -94,6 +183,18 @@ function ExtraForm({ job, onChanged }: { job: ProJob; onChanged: (j: ProJob) => 
         ) : (
           price && cents === null && <span className="error-text">{t('job.extraPriceInvalid')}</span>
         )}
+      </div>
+      <div className="field">
+        <label htmlFor="extra-duration">{t('job.extraDuration')}</label>
+        <select id="extra-duration" required value={duration} {...form.describe('duration')} onChange={(event) => setDuration(event.target.value)}>
+          <option value="">{t('job.extraDurationChoose')}</option>
+          {EXTRA_DURATIONS.map((minutes) => (
+            <option key={minutes} value={minutes}>
+              {formatDuration(minutes, t)}
+            </option>
+          ))}
+        </select>
+        <FieldError id="extra-duration" message={form.message('duration')} />
       </div>
       <p className="tiny muted">{t('job.extraExplained')}</p>
       <ErrorText error={error} />
@@ -151,12 +252,16 @@ function JobView({ job, onChanged }: { job: ProJob; onChanged: (j: ProJob) => vo
             </ol>
           )}
         </div>
+        {job.status === 'on_the_way' && <LocationShare job={job} />}
         <PhotoGrid ids={customerPhotos} label={t('job.customerPhotos')} />
 
         {job.extras.map((extra) => (
           <div key={extra.id} className="card row between">
             <span>
               <span className="b small block">{extra.description}</span>
+              {extra.durationMinutes ? (
+                <span className="tiny muted block">{t('job.extraTakes', { duration: formatDuration(extra.durationMinutes, t) })}</span>
+              ) : null}
               <span className="tiny muted">{t(`extra.status.${extra.status}`)}</span>
             </span>
             <span className="b">+{euro(extra.priceCents)}</span>

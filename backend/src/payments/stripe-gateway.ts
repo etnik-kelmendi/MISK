@@ -139,6 +139,15 @@ export function createStripeGateway(config: StripeConfig): PaymentGateway {
         : null;
     },
 
+    async paymentMethodOf(intentId) {
+      const intent = await stripe.paymentIntents.retrieve(intentId, { expand: ['payment_method'] });
+      const method = intent.payment_method;
+      if (!method || typeof method === 'string' || !method.card) {
+        return null;
+      }
+      return { brand: method.card.brand, last4: method.card.last4 || null, wallet: method.card.wallet?.type ?? null };
+    },
+
     async reverseTransfer(transferId) {
       await stripe.transfers.createReversal(transferId, {}, { idempotencyKey: `reverse-${transferId}` });
     },

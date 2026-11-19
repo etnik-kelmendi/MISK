@@ -6,10 +6,14 @@ import { ApiError, conflict, notFound } from '../errors.js';
 import { uuidParams } from '../http.js';
 import { recordAttempt } from '../auth/sessions.js';
 import { enqueue } from '../notifications/outbox.js';
+import { readSingleFile, storeUpload } from '../uploads/uploads.js';
 import { loadReceipt, receiptsPdf, receiptText, type Receipt } from './receipt.js';
 
-/** The chat stays open this long after the job is done, for questions about it (D67). */
-export const CHAT_DAYS_AFTER = 7;
+/**
+ * The chat can be written in while the pro is booked and the job is not done yet; afterwards it stays
+ * readable but is read-only (D83, replacing D67's 7 days after the job).
+ */
+export const CHAT_WRITABLE_STATUSES = ['accepted', 'on_the_way', 'working'];
 const MESSAGE_MAX = 1000;
 /** A customer can ask for the same receipt by email this often in the attempts window (15 minutes). */
 const RECEIPT_EMAILS = 3;
@@ -24,9 +28,12 @@ interface ChatBooking {
   open: boolean;
 }
 
+const MESSAGE_COLUMNS = `id::text, sender_role AS "from", body, photo_id AS "photoId", created_at AS "createdAt", read_at AS "readAt"`;
+
 /**
  * Chat between the customer and the pro of one booking, and the customer's receipts (D67). Messages reach
  * the other side in the app and by push, not by text: a conversation would otherwise cost an SMS each.
+ * Either side can send a photo too (D83).
  */
 export async function conversationRoutes(app: FastifyInstance, ctx: AppContext) {
   const { pool, guards, config } = ctx;
@@ -34,11 +41,9 @@ export async function conversationRoutes(app: FastifyInstance, ctx: AppContext) 
   /** The booking when the signed-in person is its customer (or its pro), else 404. */
   async function chatBooking(bookingId: string, userId: string, side: Side): Promise<ChatBooking> {
     const found = await pool.query<ChatBooking>(
-      `SELECT id, customer_id, pro_id, service_name,
-         (pro_id IS NOT NULL AND status IN ('accepted', 'on_the_way', 'working', 'completed')
-          AND (completed_at IS NULL OR completed_at > now() - make_interval(days => $3))) AS open
+      `SELECT id, customer_id, pro_id, service_name, (pro_id IS NOT NULL AND status = ANY($3)) AS open
        FROM bookings WHERE id = $1 AND ${side === 'customer' ? 'customer_id' : 'pro_id'} = $2`,
-      [bookingId, userId, CHAT_DAYS_AFTER],
+      [bookingId, userId, CHAT_WRITABLE_STATUSES],
     );
     const booking = found.rows[0];
     if (!booking) throw notFound();
@@ -51,32 +56,44 @@ export async function conversationRoutes(app: FastifyInstance, ctx: AppContext) 
       booking.id,
       side,
     ]);
-    const rows = await pool.query(
-      `SELECT id::text, sender_role AS "from", body, created_at AS "createdAt", read_at AS "readAt"
-       FROM booking_messages WHERE booking_id = $1 ORDER BY id`,
-      [booking.id],
-    );
+    const rows = await pool.query(`SELECT ${MESSAGE_COLUMNS} FROM booking_messages WHERE booking_id = $1 ORDER BY id`, [booking.id]);
     return { messages: rows.rows, canWrite: booking.open };
   }
 
-  async function send(booking: ChatBooking, side: Side, senderId: string, text: string, senderName: string | null) {
-    if (!booking.open) throw conflict('chat_closed');
-    const body = text.trim();
+  /** Saves a message (text, a photo, or both) and tells the other side, with a link to the chat (D83). */
+  async function send(
+    booking: ChatBooking,
+    side: Side,
+    senderId: string,
+    senderName: string | null,
+    content: { text: string | null; photo: Buffer | null },
+  ) {
+    const body = content.text?.trim() || null;
     const other = side === 'customer' ? booking.pro_id : booking.customer_id;
-    const saved = await withTransaction(pool, async (client) => {
+    return withTransaction(pool, async (client) => {
+      // Checked again under the lock: the job may have been finished a moment ago.
+      const current = await client.query<{ status: string; pro_id: string | null }>('SELECT status, pro_id FROM bookings WHERE id = $1 FOR UPDATE', [
+        booking.id,
+      ]);
+      const row = current.rows[0];
+      if (!row || !row.pro_id || !CHAT_WRITABLE_STATUSES.includes(row.status)) throw conflict('chat_closed');
+      const photo = content.photo ? await storeUpload(client, ctx.storage, { ownerId: senderId, kind: 'photo', content: content.photo }) : null;
       const inserted = await client.query(
-        `INSERT INTO booking_messages (booking_id, sender_id, sender_role, body) VALUES ($1, $2, $3, $4)
-         RETURNING id::text, sender_role AS "from", body, created_at AS "createdAt", read_at AS "readAt"`,
-        [booking.id, senderId, side, body],
+        `INSERT INTO booking_messages (booking_id, sender_id, sender_role, body, photo_id) VALUES ($1, $2, $3, $4, $5)
+         RETURNING ${MESSAGE_COLUMNS}`,
+        [booking.id, senderId, side, body, photo?.id ?? null],
       );
       if (other) {
-        await enqueue(client, other, 'chat_message', `MISK: ${senderName ?? (side === 'customer' ? 'Your customer' : 'Your pro')} about ${booking.service_name}: ${body}`, {
-          channels: { push: true, sms: false, email: false },
-        });
+        const who = senderName ?? (side === 'customer' ? 'Your customer' : 'Your pro');
+        const text = body
+          ? `MISK: ${who} about ${booking.service_name}: ${body}`
+          : `MISK: ${who} sent a photo about ${booking.service_name}.`;
+        // The other side's way into this chat: customers and pros have their own chat pages.
+        const link = side === 'customer' ? `/pro/jobs/${booking.id}/chat` : `/bookings/${booking.id}/chat`;
+        await enqueue(client, other, 'chat_message', text, { channels: { push: true, sms: false, email: false }, link });
       }
       return inserted.rows[0];
     });
-    return saved;
   }
 
   const messageBody = {
@@ -101,17 +118,29 @@ export async function conversationRoutes(app: FastifyInstance, ctx: AppContext) 
       async (request, reply) => {
         const user = currentUser(request);
         const booking = await chatBooking(request.params.id, user.id, side);
-        const message = await send(booking, side, user.id, request.body.body, user.firstName);
+        if (!booking.open) throw conflict('chat_closed');
+        const message = await send(booking, side, user.id, user.firstName, { text: request.body.body, photo: null });
         request.log.info({ event: 'chat_message_sent', bookingId: booking.id, side });
         return reply.code(201).send({ message });
       },
     );
+
+    // A photo in the chat (D83): one JPEG or PNG of up to 8 MB, as multipart form data.
+    app.post<{ Params: { id: string } }>(`${path}/photo`, { preHandler: guard, schema: { params: uuidParams } }, async (request, reply) => {
+      const user = currentUser(request);
+      const booking = await chatBooking(request.params.id, user.id, side);
+      const photo = await readSingleFile(request);
+      if (!booking.open) throw conflict('chat_closed');
+      const message = await send(booking, side, user.id, user.firstName, { text: null, photo });
+      request.log.info({ event: 'chat_photo_sent', bookingId: booking.id, side });
+      return reply.code(201).send({ message });
+    });
   }
 
   // ---------- Receipts ----------
 
   async function receiptOrThrow(bookingId: string, customerId: string): Promise<Receipt> {
-    const receipt = await loadReceipt(pool, bookingId, customerId);
+    const receipt = await loadReceipt(pool, bookingId, customerId, { gateway: ctx.gateway, log: app.log });
     if (!receipt) throw notFound('no_receipt');
     return receipt;
   }
@@ -157,7 +186,7 @@ export async function conversationRoutes(app: FastifyInstance, ctx: AppContext) 
       );
       const receipts: Receipt[] = [];
       for (const row of ids.rows) {
-        const receipt = await loadReceipt(pool, row.id, customerId);
+        const receipt = await loadReceipt(pool, row.id, customerId, { gateway: ctx.gateway, log: app.log });
         if (receipt) receipts.push(receipt);
       }
       if (receipts.length === 0) throw notFound('no_receipt');

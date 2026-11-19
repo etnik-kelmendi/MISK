@@ -48,9 +48,11 @@ async function assignedJob() {
   return { bookingId, pro };
 }
 
-async function completedJob() {
+/** A finished job; `proMessage` is written by the pro while working, before the chat closes. */
+async function completedJob(proMessage?: string) {
   const job = await assignedJob();
   for (const status of ['on_the_way', 'working']) await post(`/pro/jobs/${job.bookingId}/status`, { status }, job.pro.cookie);
+  if (proMessage) expect((await post(`/pro/jobs/${job.bookingId}/messages`, { body: proMessage }, job.pro.cookie)).statusCode).toBe(201);
   await upload(t, `/pro/jobs/${job.bookingId}/photos`, job.pro.cookie, FILES.png);
   expect((await post(`/pro/jobs/${job.bookingId}/complete`, undefined, job.pro.cookie)).statusCode).toBe(200);
   return job;
@@ -152,8 +154,8 @@ describe('receipts (D67)', () => {
 
 describe('the bookings list (D67)', () => {
   it('tells each row what it offers: receipt, report, unread chat, and the category to book again', async () => {
-    const { bookingId, pro } = await completedJob();
-    await post(`/pro/jobs/${bookingId}/messages`, { body: 'All done, have a look!' }, pro.cookie);
+    // The pro writes while working: once the job is done, the chat is read-only (D83).
+    const { bookingId } = await completedJob('All done, have a look!');
     const listed = (await get('/bookings')).json();
     expect(listed.planVisits).toEqual([]);
     expect(listed.bookings[0]).toMatchObject({

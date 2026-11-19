@@ -234,7 +234,7 @@ export function ReceiptSheet({ bookingId, onClose }: { bookingId: string; onClos
               {t('receipt.email')}
             </button>
             <a className="cta" href={`${api.baseUrl}/bookings/${encodeURIComponent(bookingId)}/receipt.pdf`} download>
-              <Icon name="upload" /> {t('receipt.pdf')}
+              <Icon name="download" /> {t('receipt.pdf')}
             </a>
           </>
         )
@@ -276,6 +276,12 @@ export function ReceiptSheet({ bookingId, onClose }: { bookingId: string; onClos
                 <span>{t('book.total')}</span>
                 <span>{euro(receipt.totalCents)}</span>
               </p>
+              {receipt.paymentMethod && (
+                <p className="line">
+                  <span className="muted">{t('receipt.paymentMethod')}</span>
+                  <span>{receipt.paymentMethod.label}</span>
+                </p>
+              )}
               <p className="tiny muted">{t('receipt.vat')}</p>
             </section>
             {(receipt.state === 'charging' || receipt.state === 'on_hold') && (

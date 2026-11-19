@@ -14,6 +14,9 @@ import { setStatus, type BookingDeps } from './events.js';
 import { loadBooking } from './views.js';
 
 export const MAX_COMPLETION_PHOTOS = 6;
+/** How long extra work may take, in minutes (D83). */
+export const MIN_EXTRA_MINUTES = 5;
+export const MAX_EXTRA_MINUTES = 480;
 const NEXT_STEP: Record<string, string> = { accepted: 'on_the_way', on_the_way: 'working' };
 
 export async function proJobRoutes(app: FastifyInstance, ctx: AppContext) {
@@ -239,7 +242,50 @@ export async function proJobRoutes(app: FastifyInstance, ctx: AppContext) {
     },
   );
 
-  app.post<{ Params: { id: string }; Body: { description: string; priceCents: number } }>(
+  // The pro's phone shares where they are while they are on the way, so the customer sees them on a map and
+  // when they will arrive (D83). Only the latest position is kept, and it is cleared when the job moves on.
+  app.post<{ Params: { id: string }; Body: { lat: number; lng: number; accuracy?: number } }>(
+    '/pro/jobs/:id/location',
+    {
+      preHandler: guards.pro,
+      schema: {
+        params: uuidParams,
+        body: {
+          type: 'object',
+          required: ['lat', 'lng'],
+          additionalProperties: false,
+          properties: {
+            lat: { type: 'number', minimum: -90, maximum: 90 },
+            lng: { type: 'number', minimum: -180, maximum: 180 },
+            // Metres, as the phone reports it. Checked, not kept.
+            accuracy: { type: 'number', minimum: 0, maximum: 100_000 },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const proId = currentUser(request).id;
+      const { lat, lng } = request.body;
+      // A point that arrives within 5 seconds of the last one is ignored, so a misbehaving app cannot flood the table.
+      const updated = await pool.query(
+        `UPDATE bookings SET pro_lat = $3, pro_lng = $4, pro_location_at = now()
+         WHERE id = $1 AND pro_id = $2 AND status = 'on_the_way'
+           AND (pro_location_at IS NULL OR pro_location_at < now() - interval '5 seconds')`,
+        [request.params.id, proId, lat, lng],
+      );
+      if (!updated.rowCount) {
+        const owned = await pool.query<{ status: string }>('SELECT status FROM bookings WHERE id = $1 AND pro_id = $2', [
+          request.params.id,
+          proId,
+        ]);
+        if (!owned.rowCount) throw notFound();
+        if (owned.rows[0]?.status !== 'on_the_way') throw conflict('invalid_status');
+      }
+      return reply.code(204).send();
+    },
+  );
+
+  app.post<{ Params: { id: string }; Body: { description: string; priceCents: number; durationMinutes: number } }>(
     '/pro/jobs/:id/extras',
     {
       preHandler: guards.pro,
@@ -247,11 +293,13 @@ export async function proJobRoutes(app: FastifyInstance, ctx: AppContext) {
         params: uuidParams,
         body: {
           type: 'object',
-          required: ['description', 'priceCents'],
+          required: ['description', 'priceCents', 'durationMinutes'],
           additionalProperties: false,
           properties: {
             description: { type: 'string', minLength: 3, maxLength: 200, pattern: '\\S' },
             priceCents: { type: 'integer', minimum: 100, maximum: 100_000 },
+            // How long the extra work takes (D83), from 5 minutes to 8 hours.
+            durationMinutes: { type: 'integer', minimum: MIN_EXTRA_MINUTES, maximum: MAX_EXTRA_MINUTES },
           },
         },
       },
@@ -278,11 +326,10 @@ export async function proJobRoutes(app: FastifyInstance, ctx: AppContext) {
         if (open.rowCount) {
           throw conflict('extra_already_pending');
         }
-        await client.query('INSERT INTO extra_requests (booking_id, description, price_cents) VALUES ($1, $2, $3)', [
-          request.params.id,
-          description,
-          request.body.priceCents,
-        ]);
+        await client.query(
+          'INSERT INTO extra_requests (booking_id, description, price_cents, duration_minutes) VALUES ($1, $2, $3, $4)',
+          [request.params.id, description, request.body.priceCents, request.body.durationMinutes],
+        );
         await enqueue(client, job.customer_id, 'extra_requested', messages.extraRequested(description, request.body.priceCents));
       });
       return reply.code(201).send({ job: await ownJob(proId, request.params.id) });

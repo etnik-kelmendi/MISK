@@ -27,6 +27,13 @@ export function statusEvents(booking: BookingBase, side: 'customer' | 'pro', nam
     }));
 }
 
+/** Why the chat cannot be written in: the job is done or cancelled (read-only, D83), or no pro is booked yet. */
+export function closedText(status: BookingBase['status'], t: TFunction): string {
+  if (status === 'completed') return t('chat.closedDone');
+  if (status === 'cancelled') return t('chat.closedCancelled');
+  return t('chat.closed');
+}
+
 /** Chat with the pro of a booking (D67), with extra work requests to approve right in the conversation. */
 export function ChatPage() {
   const { t } = useTranslation();
@@ -55,6 +62,9 @@ export function ChatPage() {
             side="customer"
             path={`/bookings/${encodeURIComponent(booking.id)}/messages`}
             otherName={name}
+            otherPhotoId={booking.pro?.photoId}
+            otherDetail={booking.pro?.jobsDone !== undefined ? t('booking.jobsDone', { count: booking.pro.jobsDone }) : undefined}
+            closedText={closedText(booking.status, t)}
             statusLine={t(`chat.status.${booking.status}`, { name })}
             subtitle={`${booking.serviceName} · ${dateTime(booking.startsAt, timezone)}`}
             back={`/bookings/${encodeURIComponent(booking.id)}`}

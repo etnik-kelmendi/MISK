@@ -7,9 +7,56 @@ import { longDate } from '../../lib/format';
 import { useResource } from '../../api/useResource';
 import { ErrorText } from '../../components/ErrorText';
 import { Icon } from '../../components/Icon';
+import { Avatar, FileButton, IMAGE_TYPES } from '../../components/Photos';
+import { useUser } from '../../auth/AuthContext';
 import { ResourceState } from '../../components/ResourceState';
 import { useAction } from '../../lib/useAction';
 import { ApplicationForm } from './ApplicationForm';
+
+/** The pro's profile photo (D83): customers see it on their booking, in the chat and when they rate the job. */
+function ProPhoto({ profile, onChange }: { profile: ProProfile; onChange: (p: ProProfile) => void }) {
+  const { t } = useTranslation();
+  const user = useUser();
+  const api = useApi();
+  const upload = useAction();
+  const remove = useAction();
+  const name = user.firstName ?? '';
+  return (
+    <section className="card stack" aria-labelledby="photo-heading">
+      <h2 id="photo-heading" className="h-sm">
+        {t('proPhoto.title')}
+      </h2>
+      <div className="row gap8">
+        <Avatar name={name} photoId={profile.photoId} size="lg" />
+        <p className="small muted grow">{profile.photoId ? t('proPhoto.hint') : `${t('proPhoto.none')} ${t('proPhoto.hint')}`}</p>
+      </div>
+      <div className="row gap8 wrap">
+        <FileButton
+          label={profile.photoId ? t('proPhoto.change') : t('proPhoto.add')}
+          accept={IMAGE_TYPES}
+          icon="camera"
+          onFile={async (file) => {
+            const result = await upload.run(() => api.upload<{ profile: ProProfile }>('/pro/photo', file));
+            if (result) onChange(result.profile);
+          }}
+        />
+        {profile.photoId && (
+          <button
+            type="button"
+            className="mini-btn danger"
+            disabled={remove.busy}
+            onClick={() =>
+              void remove.run(() => api.delete<{ profile: ProProfile }>('/pro/photo')).then((result) => result && onChange(result.profile))
+            }
+          >
+            {t('proPhoto.remove')}
+          </button>
+        )}
+      </div>
+      <ErrorText error={upload.error ?? remove.error} />
+    </section>
+  );
+}
 
 /** The pro's share and next payout day, from the team's Settings, and the bank account it goes to. */
 function PayoutSchedule() {
@@ -108,6 +155,7 @@ export function ProProfilePage() {
         <ResourceState state={state} reload={reload}>
           {({ profile }) => (
             <div className="stack">
+              <ProPhoto profile={profile} onChange={onChange} />
               <Payouts profile={profile} onChange={onChange} />
               <p className="small muted">{t(`apply.statusLine.${profile.status}`)}</p>
               <ApplicationForm profile={profile} onChange={onChange} />

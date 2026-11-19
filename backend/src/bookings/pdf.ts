@@ -24,7 +24,7 @@ const PAGE_HEIGHT = 841.89;
  * Characters not listed count as an average width.
  */
 const WIDTHS: Record<string, number> = {
-  ' ': 278, '.': 278, ',': 278, ':': 278, '-': 333, '#': 556, '(': 333, ')': 333, '/': 278, '·': 278, '€': 556, '%': 889,
+  ' ': 278, '.': 278, ',': 278, ':': 278, '-': 333, '#': 556, '(': 333, ')': 333, '/': 278, '·': 278, '•': 350, '€': 556, '%': 889,
   '0': 556, '1': 556, '2': 556, '3': 556, '4': 556, '5': 556, '6': 556, '7': 556, '8': 556, '9': 556,
 };
 const AVERAGE_WIDTH = 556;
@@ -38,7 +38,7 @@ export function textWidth(text: string, size: number, bold = false): number {
 
 /**
  * The text as WinAnsi bytes inside a PDF string: brackets and backslashes escaped, the euro sign and the
- * middle dot mapped to their WinAnsi codes, anything else outside Latin-1 replaced by "?".
+ * middle dot and the bullet mapped to their WinAnsi codes, anything else outside Latin-1 replaced by "?".
  */
 export function pdfString(text: string): string {
   let out = '';
@@ -46,6 +46,7 @@ export function pdfString(text: string): string {
     if (char === '(' || char === ')' || char === '\\') out += `\\${char}`;
     else if (char === '€') out += '\\200';
     else if (char === '·') out += '\\267';
+    else if (char === '•') out += '\\225';
     else if (char === '–') out += '\\226';
     else if (char === '’') out += '\\222';
     else {
