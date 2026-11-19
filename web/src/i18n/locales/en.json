@@ -805,6 +805,20 @@
       "problem": "Problem reported",
       "open": "Open {{number}}",
       "updated": "Updates by itself every 15 seconds.",
+      "layoutLabel": "Bookings view",
+      "listView": "List View",
+      "kanbanView": "Kanban View",
+      "kanban": {
+        "todo": "To Do",
+        "todoHint": "Waiting for a pro or the start",
+        "progress": "In Progress",
+        "progressHint": "Pro on the way or working",
+        "review": "In Review",
+        "reviewHint": "Being charged or a problem to check",
+        "done": "Done",
+        "doneHint": "Paid, refunded or cancelled",
+        "empty": "Nothing here"
+      },
       "visitStatus": {
         "planned": "Planned",
         "skipped": "Skipped",

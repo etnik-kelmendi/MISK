@@ -360,6 +360,13 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
     setDraft((d) => ({ ...d, [key]: value }));
   };
 
+  // Back goes to the page before this one in the app; a plan opened straight from its address has no such page, so it goes to the list.
+  // It only navigates, so the unsaved-changes blocker still asks before leaving.
+  const goBack = () => {
+    if (location.key !== 'default') navigate(-1);
+    else navigate('/admin/plans');
+  };
+
   const priceCents = parseEuroToCents(draft.price);
   const addonPriceCents = draft.addonName.trim() ? parseEuroToCents(draft.addonPrice) : null;
   const addonInvalid = draft.addonName.trim() !== '' && addonPriceCents === null;
@@ -562,6 +569,9 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
   return (
     // Drafts may be incomplete, so the browser's own required-field check must not block saving.
     <form onSubmit={saveDraft} className="stack" noValidate>
+      <button type="button" className="abtn secondary back-btn" onClick={goBack}>
+        <Icon name="chevL" /> {t('common.back')}
+      </button>
       <div className="row between wrap">
         <div>
           <h1>{live ? t('admin.plans.publishedTitle') : current ? t('admin.plans.editTitle') : t('admin.plans.newTitle')}</h1>

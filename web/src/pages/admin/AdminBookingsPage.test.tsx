@@ -538,3 +538,127 @@ describe('admin booking side panel', () => {
     expect(await within(dialog).findByText('Paid.')).toBeInTheDocument();
   });
 });
+
+describe('admin bookings board (Kanban view)', () => {
+  const PROBLEM = row({ id: '33333333-3333-4333-8333-333333333333', number: 'B-1044', status: 'completed', paymentStatus: 'captured', pro: 'Daniel', problem: true });
+  const WORKING = row({ id: '44444444-4444-4444-8444-444444444444', number: 'B-1045', status: 'working', pro: 'Daniel', tab: 'live', trade: 'Cleaning' });
+  const PAID = row({ id: '55555555-5555-4555-8555-555555555555', number: 'B-1046', status: 'completed', paymentStatus: 'captured', pro: 'Daniel', tab: 'done' });
+  const HELD = row({ id: '66666666-6666-4666-8666-666666666666', number: 'B-1047', status: 'completed', paymentStatus: 'held', pro: 'Daniel', tab: 'done' });
+  const VISIT = row({ kind: 'visit', id: '77777777-7777-4777-8777-777777777777', number: 'V-9', status: 'planned', paymentStatus: 'active', pro: 'Daniel', tab: 'upcoming' });
+  const ALL = [row(), SECOND, WORKING, HELD, PAID, PROBLEM, VISIT];
+
+  function column(name: string) {
+    return screen.getByRole('region', { name: new RegExp(`^${name}`) });
+  }
+
+  it('shows both view buttons, List selected, and switches to the four columns and back', async () => {
+    setUp(ALL);
+    renderAt('/admin/bookings');
+    const group = await screen.findByRole('group', { name: 'Bookings view' });
+    const list = within(group).getByRole('button', { name: 'List View' });
+    const board = within(group).getByRole('button', { name: 'Kanban View' });
+    expect(list).toHaveAttribute('aria-pressed', 'true');
+    expect(board).toHaveAttribute('aria-pressed', 'false');
+    expect(list).toHaveClass('on');
+    await screen.findByRole('table');
+
+    await user().click(board);
+    expect(board).toHaveAttribute('aria-pressed', 'true');
+    expect(board).toHaveClass('on');
+    expect(list).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    expect(screen.getAllByRole('region').map((r) => r.querySelector('h2')?.textContent)).toEqual(['To Do 3', 'In Progress 1', 'In Review 2', 'Done 1']);
+    expect(within(column('To Do')).getByText('Waiting for a pro or the start')).toBeInTheDocument();
+    expect(within(column('In Review')).getByText('Being charged or a problem to check')).toBeInTheDocument();
+    for (const number of ['B-1042', 'B-1043', 'V-9']) {
+      expect(within(column('To Do')).getByText(number)).toBeInTheDocument();
+    }
+    expect(within(column('In Progress')).getByText('B-1045')).toBeInTheDocument();
+    expect(within(column('In Review')).getByText('B-1044')).toBeInTheDocument();
+    expect(within(column('In Review')).getByText('B-1047')).toBeInTheDocument();
+    expect(within(column('Done')).getByText('B-1046')).toBeInTheDocument();
+
+    await user().click(list);
+    expect(await screen.findByRole('table')).toBeInTheDocument();
+    expect(list).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.queryByRole('region')).not.toBeInTheDocument();
+  });
+
+  it('starts on the board when the address says layout=kanban', async () => {
+    setUp(ALL);
+    renderAt('/admin/bookings?layout=kanban');
+    expect(await screen.findByRole('button', { name: /^B-1042, Lawn mowing/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Kanban View' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+  });
+
+  it('shows the key facts on each card, and says "Nothing here" for an empty column', async () => {
+    setUp([row(), PROBLEM]);
+    renderAt('/admin/bookings?layout=kanban');
+    const card = await screen.findByRole('button', { name: 'B-1042, Lawn mowing, Mon 9 Nov, 10:00' });
+    expect(card).toHaveTextContent('B-1042');
+    expect(card).toHaveTextContent('One-off');
+    expect(card).toHaveTextContent('Gardening · Mon 9 Nov, 10:00');
+    expect(card).toHaveTextContent('Sara');
+    expect(within(card).getByText('Unassigned')).toHaveClass('unassigned');
+    expect(card).toHaveTextContent('€48.40');
+    expect(card).toHaveTextContent('No pro yet');
+    expect(within(card).queryByText('Problem reported')).not.toBeInTheDocument();
+    const problem = screen.getByRole('button', { name: /^B-1044/ });
+    expect(within(problem).getByText('Problem reported')).toHaveClass('unassigned');
+    expect(within(problem).getByText('Daniel')).toBeInTheDocument();
+    expect(within(column('In Progress')).getByText('Nothing here')).toBeInTheDocument();
+  });
+
+  it('opens the same panel from a card and Escape returns focus to the card', async () => {
+    setUp();
+    renderAt('/admin/bookings?layout=kanban');
+    const card = await screen.findByRole('button', { name: /^B-1042/ });
+    await user().click(card);
+    await screen.findByRole('dialog', { name: 'B-1042' });
+    await user().keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(card).toHaveFocus();
+    // The board is still there, and the card opens with the keyboard too.
+    await user().keyboard('{Enter}');
+    await screen.findByRole('dialog', { name: 'B-1042' });
+  });
+
+  it('keeps the open panel when switching view', async () => {
+    setUp();
+    renderAt(`/admin/bookings?open=b:${BOOKING_ID}`);
+    await screen.findByRole('dialog', { name: 'B-1042' });
+    await user().click(screen.getByRole('button', { name: 'Kanban View' }));
+    expect(screen.getByRole('dialog', { name: 'B-1042' })).toBeInTheDocument();
+  });
+
+  it('applies search, trade and type to the board like the list, and sends the same request', async () => {
+    setUp(ALL);
+    renderAt('/admin/bookings?layout=kanban&tab=live&q=b-10&trade=cat-garden&type=booking');
+    await screen.findByRole('button', { name: /^B-1042/ });
+    expect(lastListQuery()?.toString()).toBe('tab=live&q=b-10&trade=cat-garden&type=booking');
+    expect(screen.getByLabelText('Search')).toHaveValue('b-10');
+    await user().selectOptions(screen.getByLabelText('Type'), 'Plan visit');
+    await waitFor(() => expect(lastListQuery()?.get('type')).toBe('visit'));
+    expect(screen.getByRole('button', { name: 'Kanban View' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('shows only the 10 most recent on the board, with "View all"', async () => {
+    const many = Array.from({ length: 14 }, (_, i) =>
+      row({ id: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`, number: `B-${2000 + i}`, tab: 'upcoming', status: 'accepted' }),
+    );
+    setUp(many);
+    renderAt('/admin/bookings?layout=kanban');
+    await screen.findByRole('button', { name: /^B-2009/ });
+    expect(screen.queryByRole('button', { name: /^B-2010/ })).not.toBeInTheDocument();
+    await user().click(screen.getByRole('button', { name: 'View all (14)' }));
+    expect(screen.getByRole('button', { name: /^B-2013/ })).toBeInTheDocument();
+  });
+
+  it('says so when nothing matches, in the board too', async () => {
+    setUp([]);
+    renderAt('/admin/bookings?layout=kanban');
+    expect(await screen.findByText('No bookings match these filters')).toBeInTheDocument();
+    expect(screen.queryByRole('region')).not.toBeInTheDocument();
+  });
+});

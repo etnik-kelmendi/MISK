@@ -38,6 +38,7 @@ const PATHS = {
   chevD: 'M6 9l6 6 6-6',
   chart: 'M3 3v18h18 M7 16v-5 M12 16V8 M17 16V7',
   grid: 'M3 3h7v7H3z M14 3h7v7h-7z M14 14h7v7h-7z M3 14h7v7H3z',
+  board: 'M3 4h18v16H3z M9 4v16 M15 4v16',
   plus: 'M12 5v14 M5 12h14',
   x: 'M18 6L6 18 M6 6l12 12',
   play: 'M6 3l14 9-14 9z',

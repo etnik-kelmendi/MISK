@@ -24,6 +24,7 @@ import { toXlsx, XLSX_MIME } from '../../lib/xlsx';
 import { usePolling } from '../../lib/usePolling';
 import { RECENT_BOOKINGS } from '../../lib/recent';
 import { AdminBookingDrawer, REFRESH_MS, type OpenItem } from './AdminBookingDrawer';
+import { KANBAN_COLUMNS, kanbanColumn } from './bookingsKanban';
 
 const SEARCH_DELAY_MS = 250;
 
@@ -66,6 +67,8 @@ export function AdminBookingsPage() {
   const open = parseOpen(params.get('open'));
   // "View all" is kept in the address, so it survives the automatic refresh and a reload.
   const showAll = params.get('view') === 'all';
+  // The board or the list, kept in the address too (no value = the list).
+  const kanban = params.get('layout') === 'kanban';
   const [typed, setTyped] = useState(q);
   const returnFocus = useRef<HTMLElement | null>(null);
 
@@ -202,6 +205,15 @@ export function AdminBookingsPage() {
     <>
       <div className="row between wrap gap8">
         <h1>{t('admin.bookings.title')}</h1>
+        <div className="row gap8 wrap">
+        <div className="seg" role="group" aria-label={t('admin.bookings.layoutLabel')}>
+          <button type="button" className={kanban ? '' : 'on'} aria-pressed={!kanban} onClick={() => change({ layout: '' })}>
+            <Icon name="list" /> {t('admin.bookings.listView')}
+          </button>
+          <button type="button" className={kanban ? 'on' : ''} aria-pressed={kanban} onClick={() => change({ layout: 'kanban' })}>
+            <Icon name="board" /> {t('admin.bookings.kanbanView')}
+          </button>
+        </div>
         <MenuButton
           className="abtn secondary"
           disabled={!ready || ready.bookings.length === 0}
@@ -213,6 +225,7 @@ export function AdminBookingsPage() {
         >
           <Icon name="download" /> {t('admin.bookings.export')} <Icon name="chevD" className="chev" />
         </MenuButton>
+        </div>
       </div>
 
       <div className="seg wrap" role="group" aria-label={t('admin.bookings.tabsLabel')}>
@@ -264,10 +277,88 @@ export function AdminBookingsPage() {
       </div>
 
       <ResourceState state={state} reload={reload}>
-        {({ bookings, truncated }) =>
-          bookings.length === 0 ? (
-            <p className="panel muted">{t('admin.bookings.none')}</p>
-          ) : (
+        {({ bookings, truncated }) => {
+          if (bookings.length === 0) {
+            return <p className="panel muted">{t('admin.bookings.none')}</p>;
+          }
+          const shown = showAll ? bookings : bookings.slice(0, RECENT_BOOKINGS);
+          const footer = (
+            <>
+              {bookings.length > RECENT_BOOKINGS && (
+                <div className="row between wrap gap8 view-all">
+                  <p className="small muted">
+                    {showAll
+                      ? t('admin.bookings.showingAll', { count: bookings.length })
+                      : t('admin.bookings.showingRecent', { shown: RECENT_BOOKINGS, count: bookings.length })}
+                  </p>
+                  {showAll ? (
+                    <button type="button" className="abtn ghost" onClick={() => change({ view: '' })}>
+                      {t('admin.bookings.showRecent', { count: RECENT_BOOKINGS })}
+                    </button>
+                  ) : (
+                    <button type="button" className="abtn" onClick={() => change({ view: 'all' })}>
+                      {t('admin.bookings.viewAll', { count: bookings.length })}
+                    </button>
+                  )}
+                </div>
+              )}
+              {showAll && truncated && <p className="small muted">{t('admin.bookings.truncated', { count: bookings.length })}</p>}
+            </>
+          );
+          if (kanban) {
+            return (
+              <>
+                <div className="kanban">
+                  {KANBAN_COLUMNS.map((column) => {
+                    const cards = shown.filter((item) => kanbanColumn(item) === column);
+                    const headingId = `kanban-${column}`;
+                    return (
+                      <section key={column} className="kcol" aria-labelledby={headingId}>
+                        <header>
+                          <h2 id={headingId}>
+                            {t(`admin.bookings.kanban.${column}`)} <span className="kcount">{cards.length}</span>
+                          </h2>
+                          <p className="small muted">{t(`admin.bookings.kanban.${column}Hint`)}</p>
+                        </header>
+                        <div className="kcards">
+                          {cards.length === 0 && <p className="small muted kempty">{t('admin.bookings.kanban.empty')}</p>}
+                          {cards.map((item) => (
+                            <button
+                              key={`${item.kind}-${item.id}`}
+                              type="button"
+                              className={`kcard${item.tab === 'needs_action' ? ' hl' : ''}`}
+                              aria-label={`${item.number}, ${item.service}, ${dateTime(item.startsAt, timezone)}`}
+                              onClick={(event) => openItem(item, event.currentTarget)}
+                            >
+                              <span className="row between gap8">
+                                <span className="b">{item.number}</span>
+                                <span className="small muted">{typeLabel(item)}</span>
+                              </span>
+                              <span className="b">{item.service}</span>
+                              <span className="small muted">
+                                {item.trade} · {dateTime(item.startsAt, timezone)}
+                              </span>
+                              <span className="small">{item.customer}</span>
+                              <span className="small">
+                                {item.pro ?? <span className="unassigned">{t('admin.bookings.unassigned')}</span>}
+                              </span>
+                              <span className="row between gap8">
+                                <ItemStatus item={item} />
+                                <span className="b">{euro(item.valueCents)}</span>
+                              </span>
+                              {item.problem && <span className="small unassigned">{t('admin.bookings.problem')}</span>}
+                            </button>
+                          ))}
+                        </div>
+                      </section>
+                    );
+                  })}
+                </div>
+                {footer}
+              </>
+            );
+          }
+          return (
             <div className="panel scroll-x">
               <table className="t clickable">
                 <thead>
@@ -282,7 +373,7 @@ export function AdminBookingsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(showAll ? bookings : bookings.slice(0, RECENT_BOOKINGS)).map((item) => (
+                  {shown.map((item) => (
                     <tr
                       key={`${item.kind}-${item.id}`}
                       className={item.tab === 'needs_action' ? 'hl' : ''}
@@ -322,28 +413,10 @@ export function AdminBookingsPage() {
                   ))}
                 </tbody>
               </table>
-              {bookings.length > RECENT_BOOKINGS && (
-                <div className="row between wrap gap8 view-all">
-                  <p className="small muted">
-                    {showAll
-                      ? t('admin.bookings.showingAll', { count: bookings.length })
-                      : t('admin.bookings.showingRecent', { shown: RECENT_BOOKINGS, count: bookings.length })}
-                  </p>
-                  {showAll ? (
-                    <button type="button" className="abtn ghost" onClick={() => change({ view: '' })}>
-                      {t('admin.bookings.showRecent', { count: RECENT_BOOKINGS })}
-                    </button>
-                  ) : (
-                    <button type="button" className="abtn" onClick={() => change({ view: 'all' })}>
-                      {t('admin.bookings.viewAll', { count: bookings.length })}
-                    </button>
-                  )}
-                </div>
-              )}
-              {showAll && truncated && <p className="small muted">{t('admin.bookings.truncated', { count: bookings.length })}</p>}
+              {footer}
             </div>
-          )
-        }
+          );
+        }}
       </ResourceState>
       <p className="small muted">{t('admin.bookings.updated')}</p>
 

@@ -2731,6 +2731,24 @@ describe('plan page', () => {
     await user().click(await screen.findByRole('button', { name: 'Leave without saving' }));
     expect(await screen.findByRole('heading', { level: 1, name: 'Plans' })).toBeInTheDocument();
   });
+
+  it('has a Back button at the top of a plan', async () => {
+    openExistingPlan();
+    expect(await screen.findByRole('button', { name: 'Back' })).toBeVisible();
+  });
+
+  it('goes back to the Plans list when the plan was opened directly', async () => {
+    openExistingPlan();
+    await user().click(await screen.findByRole('button', { name: 'Back' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Plans' })).toBeInTheDocument();
+  });
+
+  it('asks before leaving with the Back button when there are unsaved changes', async () => {
+    openNewPlan();
+    await user().type(await screen.findByLabelText('Plan name'), 'Unsaved');
+    await user().click(screen.getByRole('button', { name: 'Back' }));
+    expect(await screen.findByRole('alertdialog', { name: 'Leave without saving?' })).toBeInTheDocument();
+  });
 });
 
 describe('admin', () => {
