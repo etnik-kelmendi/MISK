@@ -1803,8 +1803,7 @@
       "email": "Email address",
       "password": "Password",
       "repeat": "Repeat password",
-      "passwordHint": "At least {{min}} characters.",
-      "submit": "Join the team",
+      "submit": "Create account",
       "done": "Welcome to the team! Sign in with {{email}} and your new password.",
       "signIn": "Sign in",
       "invalid": "This invitation link has expired, was already used or was withdrawn. Ask the person who invited you for a new one."

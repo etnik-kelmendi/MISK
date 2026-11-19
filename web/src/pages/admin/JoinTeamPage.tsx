@@ -10,7 +10,7 @@ import { Icon } from '../../components/Icon';
 import { isValidEmail } from '../../lib/checks';
 import { useAction } from '../../lib/useAction';
 import { useValidation } from '../../lib/useValidation';
-import { MIN_PASSWORD_LENGTH } from './TeamPage';
+import { PasswordInput, PasswordRules, passwordChecks } from '../SignUpPage';
 
 /** Reads the token from the link's #fragment once, then removes it from the address bar and history. */
 function takeToken(): string {
@@ -34,15 +34,16 @@ export function JoinTeamPage() {
   const [link, setLink] = useState<LinkState>(token ? { status: 'checking' } : { status: 'invalid' });
   const [values, setValues] = useState({ firstName: '', lastName: '', email: '', password: '', repeat: '' });
   const [joined, setJoined] = useState<string | null>(null);
+  const [passwordLeft, setPasswordLeft] = useState(false);
   const { run, busy, error } = useAction();
+  const checks = passwordChecks(values.password);
+  const passwordOk = checks.length && checks.letter && checks.number;
   const form = useValidation(
     {
       firstName: !values.firstName.trim() && t('validation.firstNameMissing'),
       lastName: !values.lastName.trim() && t('validation.lastNameMissing'),
       email: !values.email.trim() ? t('validation.emailMissing') : !isValidEmail(values.email) && t('validation.emailInvalid'),
-      password: !values.password
-        ? t('validation.passwordMissing')
-        : values.password.length < MIN_PASSWORD_LENGTH && t('admin.signUp.passwordShort', { min: MIN_PASSWORD_LENGTH }),
+      password: !values.password ? t('validation.passwordMissing') : !passwordOk && t('validation.passwordWeak'),
       repeat: !values.repeat ? t('validation.confirmMissing') : values.repeat !== values.password && t('admin.team.mismatch'),
     },
     { firstName: 'join-first', lastName: 'join-last', email: 'join-email', password: 'join-password', repeat: 'join-repeat' },
@@ -78,12 +79,11 @@ export function JoinTeamPage() {
     if (result) setJoined(result.email);
   }
 
-  const field = (key: 'firstName' | 'lastName' | 'email' | 'password' | 'repeat', id: string, label: string, type = 'text', autoComplete = 'off') => (
+  const field = (key: 'firstName' | 'lastName' | 'email', id: string, label: string, type = 'text', autoComplete = 'off') => (
     <div className="af">
       <label htmlFor={id}>{label}</label>
       <input id={id} type={type} autoComplete={autoComplete} maxLength={MAX_LENGTH[key]} value={values[key]} {...form.describe(key)} onChange={set(key)} />
       <FieldError id={id} message={form.message(key)} />
-      {key === 'password' && <span className="hint">{t('admin.join.passwordHint', { min: MIN_PASSWORD_LENGTH })}</span>}
     </div>
   );
 
@@ -117,12 +117,39 @@ export function JoinTeamPage() {
               {field('lastName', 'join-last', t('admin.join.lastName'), 'text', 'family-name')}
             </div>
             {field('email', 'join-email', t('admin.join.email'), 'email', 'email')}
-            {field('password', 'join-password', t('admin.join.password'), 'password', 'new-password')}
-            {field('repeat', 'join-repeat', t('admin.join.repeat'), 'password', 'new-password')}
+            <div className="af">
+              <label htmlFor="join-password">{t('admin.join.password')}</label>
+              <PasswordInput
+                id="join-password"
+                value={values.password}
+                onChange={(password) => setValues((v) => ({ ...v, password }))}
+                onBlur={() => setPasswordLeft(true)}
+                describedBy={form.message('password') ? 'join-password-error join-password-rules' : 'join-password-rules'}
+                invalid={Boolean(form.message('password'))}
+              />
+              <FieldError id="join-password" message={form.message('password')} />
+              <PasswordRules id="join-password-rules" password={values.password} showProblems={form.tried || (passwordLeft && values.password !== '')} />
+            </div>
+            <div className="af">
+              <label htmlFor="join-repeat">{t('admin.join.repeat')}</label>
+              <PasswordInput
+                id="join-repeat"
+                value={values.repeat}
+                onChange={(repeat) => setValues((v) => ({ ...v, repeat }))}
+                describedBy={form.message('repeat') ? 'join-repeat-error' : undefined}
+                invalid={Boolean(form.message('repeat'))}
+              />
+              <FieldError id="join-repeat" message={form.message('repeat')} />
+            </div>
             <ErrorText error={error} />
-            <button type="submit" className="abtn big" disabled={busy}>
+            <button type="submit" className="abtn big" disabled={busy || !passwordOk} aria-describedby={passwordOk ? undefined : 'join-password-first'}>
               {t('admin.join.submit')}
             </button>
+            {!passwordOk && (
+              <p id="join-password-first" className="hint">
+                {t('signUp.passwordFirst')}
+              </p>
+            )}
           </form>
         )}
       </div>

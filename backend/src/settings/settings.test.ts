@@ -325,7 +325,7 @@ describe('team and access', () => {
     const tokenOf = (link: string) => link.match(/\/admin\/join#token=([A-Za-z0-9_-]+)$/)?.[1] ?? '';
     const join = (token: string, body: Record<string, unknown> = {}) =>
       call(t, 'POST', '/auth/admin/invite/accept', {
-        body: { token, firstName: 'Nora', lastName: 'Berisha', email: ' Nora@Example.com ', password: 'my own long password', ...body },
+        body: { token, firstName: 'Nora', lastName: 'Berisha', email: ' Nora@Example.com ', password: 'my own password 42', ...body },
       });
 
     it('makes a shareable link for a role; the person signs up with it and signs in with that role', async () => {
@@ -344,7 +344,7 @@ describe('team and access', () => {
       expect(joined.statusCode).toBe(201);
       expect(joined.json()).toEqual({ email: 'nora@example.com', role: 'operations' });
 
-      const login = await call(t, 'POST', '/auth/admin/login', { body: { username: 'nora@example.com', password: 'my own long password' } });
+      const login = await call(t, 'POST', '/auth/admin/login', { body: { username: 'nora@example.com', password: 'my own password 42' } });
       expect(login.json().user).toMatchObject({ adminRole: 'operations', firstName: 'Nora', lastName: 'Berisha' });
       const members = (await get('/admin/team/members')).json().members as { email: string; role: string; pending: boolean }[];
       expect(members.find((m) => m.email === 'nora@example.com')).toMatchObject({ role: 'operations', pending: false });
@@ -375,10 +375,22 @@ describe('team and access', () => {
     it('checks the email and password, and keeps the link for a second try when the email is taken', async () => {
       const token = tokenOf((await post('/admin/team/invites', { role: 'support' })).json().link);
       expect((await join(token, { email: 'not-an-email' })).json()).toEqual({ error: 'invalid_email' });
-      expect((await join(token, { password: 'short' })).json()).toEqual({ error: 'password_too_short' });
+      for (const weak of ['abcdefgh', '12345678', 'abc1', 'short']) {
+        expect((await join(token, { password: weak })).json()).toEqual({ error: 'weak_password' });
+      }
       await t.pool.query("UPDATE users SET email = 'taken@example.com' WHERE username = 'admin'");
       expect((await join(token, { email: 'taken@example.com' })).json()).toEqual({ error: 'email_taken' });
       expect((await join(token)).statusCode).toBe(201);
+    });
+
+    it('uses the customer password rule: 8 characters, a letter and a number, special characters allowed', async () => {
+      const short = tokenOf((await post('/admin/team/invites', { role: 'support' })).json().link);
+      expect((await join(short, { password: 'garden42' })).statusCode).toBe(201);
+      const special = tokenOf((await post('/admin/team/invites', { role: 'support' })).json().link);
+      const joined = await join(special, { email: 'special@example.com', password: 'pässwört!9' });
+      expect(joined.statusCode).toBe(201);
+      const login = await call(t, 'POST', '/auth/admin/login', { body: { username: 'special@example.com', password: 'pässwört!9' } });
+      expect(login.statusCode).toBe(200);
     });
 
     it('lets only admins make or see links', async () => {

@@ -7,8 +7,9 @@ import { isUniqueViolation, uuidParams } from '../http.js';
 import { logActivity } from '../settings/activity.js';
 import { ADMIN_ROLES, type AdminRole } from './access.js';
 import { normalizeEmail } from './admin-accounts.js';
+import { passwordProblems } from './email-accounts.js';
 import { currentUser } from './guard.js';
-import { hashPassword, MIN_PASSWORD_LENGTH } from './passwords.js';
+import { hashPassword } from './passwords.js';
 import { refuseWrongSite } from './routes.js';
 import { hashToken, recordAttempt } from './sessions.js';
 
@@ -139,8 +140,8 @@ export async function teamInviteRoutes(app: FastifyInstance, ctx: AppContext) {
       if (!EMAIL_FORMAT.test(email)) {
         throw badRequest('invalid_email');
       }
-      if (request.body.password.length < MIN_PASSWORD_LENGTH) {
-        throw badRequest('password_too_short');
+      if (passwordProblems(request.body.password).length) {
+        throw badRequest('weak_password');
       }
       if ((await recordAttempt(pool, `invite-ip:${request.ip}`, MAX_INVITE_TRIES_PER_IP)).overLimit) {
         return reply.code(429).send({ error: 'too_many_attempts' });
