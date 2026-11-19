@@ -22,7 +22,7 @@ export function toCsv(rows: (string | number | null | undefined)[][]): string {
 }
 
 /** Hands the browser a file to save. */
-export function downloadFile(name: string, content: string, type = 'text/csv;charset=utf-8') {
+export function downloadFile(name: string, content: BlobPart, type = 'text/csv;charset=utf-8') {
   const url = URL.createObjectURL(new Blob([content], { type }));
   const link = document.createElement('a');
   link.href = url;

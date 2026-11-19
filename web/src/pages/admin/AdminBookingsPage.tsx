@@ -15,10 +15,12 @@ import {
 } from '../../api/types';
 import { useResource } from '../../api/useResource';
 import { Icon } from '../../components/Icon';
+import { MenuButton } from '../../components/MenuButton';
 import { ResourceState } from '../../components/ResourceState';
 import { StatusBadge } from '../../components/StatusBadge';
 import { downloadFile, toCsv } from '../../lib/csv';
 import { dateTime, euro, zonedParts } from '../../lib/format';
+import { toXlsx, XLSX_MIME } from '../../lib/xlsx';
 import { usePolling } from '../../lib/usePolling';
 import { RECENT_BOOKINGS } from '../../lib/recent';
 import { AdminBookingDrawer, REFRESH_MS, type OpenItem } from './AdminBookingDrawer';
@@ -138,7 +140,7 @@ export function AdminBookingsPage() {
   }
 
   /** Every row of the current tab, search and filters, including those beyond the ten shown first. */
-  function exportShown(items: AdminBookingListItem[]) {
+  function exportShown(items: AdminBookingListItem[], format: 'csv' | 'xlsx') {
     const columns = ['number', 'date', 'time', 'service', 'trade', 'type', 'customer', 'address', 'pro', 'status', 'value', 'payment'] as const;
     const rows = items.map((item) => {
       const when = zonedParts(item.startsAt, timezone);
@@ -153,7 +155,7 @@ export function AdminBookingsPage() {
         `${item.address}, ${item.postcode}`,
         item.pro ?? t('admin.bookings.unassigned'),
         statusLabel(item),
-        (item.valueCents / 100).toFixed(2),
+        item.valueCents / 100,
         paymentLabel(item),
       ];
     });
@@ -178,10 +180,20 @@ export function AdminBookingsPage() {
         .replace(/^-|-$/g, '')
         .slice(0, 40);
     const parts = [tab === 'all' ? '' : tab.replace('_', '-'), slug(tradeName), type, q ? `search-${slug(q)}` : ''].filter(Boolean);
-    downloadFile(
-      t('admin.bookings.exportFile', { filters: parts.length ? `-${parts.join('-')}` : '', date: now.date }),
-      toCsv([...applied, [], columns.map((key) => t(`admin.bookings.csv.${key}`)), ...rows]),
-    );
+    const name = { filters: parts.length ? `-${parts.join('-')}` : '', date: now.date };
+    const sheet = [...applied, [], columns.map((key) => t(`admin.bookings.csv.${key}`)), ...rows];
+    if (format === 'xlsx') {
+      // The value stays a real number; the column titles are the row after the header block and the empty row.
+      downloadFile(
+        t('admin.bookings.exportFileXlsx', name),
+        toXlsx(sheet, { sheetName: t('admin.bookings.sheetName'), boldRows: [applied.length + 1] }),
+        XLSX_MIME,
+      );
+      return;
+    }
+    // In the CSV the value keeps two decimals, e.g. 48.40.
+    const csvSheet = sheet.map((row) => row.map((cell) => (typeof cell === 'number' ? cell.toFixed(2) : cell)));
+    downloadFile(t('admin.bookings.exportFile', name), toCsv(csvSheet));
   }
 
   const ready = state.status === 'ready' ? state.data : null;
@@ -190,16 +202,17 @@ export function AdminBookingsPage() {
     <>
       <div className="row between wrap gap8">
         <h1>{t('admin.bookings.title')}</h1>
-        <button
-          type="button"
-          className="abtn ghost"
+        <MenuButton
+          className="abtn secondary"
           disabled={!ready || ready.bookings.length === 0}
-          onClick={() => {
-            if (ready) exportShown(ready.bookings);
-          }}
+          menuLabel={t('admin.bookings.exportMenu')}
+          items={[
+            { key: 'csv', label: t('admin.bookings.exportCsv'), onSelect: () => ready && exportShown(ready.bookings, 'csv') },
+            { key: 'xlsx', label: t('admin.bookings.exportExcel'), onSelect: () => ready && exportShown(ready.bookings, 'xlsx') },
+          ]}
         >
-          <Icon name="file" /> {t('admin.bookings.export')}
-        </button>
+          <Icon name="download" /> {t('admin.bookings.export')} <Icon name="chevD" className="chev" />
+        </MenuButton>
       </div>
 
       <div className="seg wrap" role="group" aria-label={t('admin.bookings.tabsLabel')}>

@@ -205,6 +205,7 @@ describe('admin bookings list', () => {
     renderAt('/admin/bookings');
     await screen.findByRole('table');
     await user().click(screen.getByRole('button', { name: 'Export' }));
+    await user().click(screen.getByRole('menuitem', { name: 'Export as CSV' }));
     expect(click).toHaveBeenCalled();
     const file = saved[0];
     if (!file) throw new Error('No file saved');
@@ -240,6 +241,7 @@ describe('admin bookings list', () => {
     await screen.findByRole('table');
     await waitFor(() => expect(screen.getByLabelText('Trade')).toHaveValue('cat-garden'));
     await user().click(screen.getByRole('button', { name: 'Export' }));
+    await user().click(screen.getByRole('menuitem', { name: 'Export as CSV' }));
     expect(fileName).toMatch(/^misk-bookings-needs-action-gardening-booking-search-b-10-\d{4}-\d{2}-\d{2}\.csv$/);
     const file = saved[0];
     if (!file) throw new Error('No file saved');
@@ -247,6 +249,92 @@ describe('admin bookings list', () => {
     expect(lines.slice(0, 4)).toEqual(['Tab,Needs action', 'Search,b-10', 'Trade filter,Gardening', 'Type filter,One-off']);
     // The rows are the ones the server sent for exactly that tab, search and filters.
     expect(lastListQuery()?.toString()).toBe('tab=needs_action&q=b-10&trade=cat-garden&type=booking');
+    click.mockRestore();
+  });
+
+  it('shows Export as a bordered secondary button with a download icon', async () => {
+    setUp();
+    renderAt('/admin/bookings');
+    await screen.findByRole('table');
+    const button = screen.getByRole('button', { name: 'Export' });
+    expect(button).toHaveClass('abtn', 'secondary');
+    expect(button).not.toHaveClass('ghost');
+    expect(button.querySelector('svg.i')).not.toBeNull();
+    expect(button).toHaveTextContent('Export');
+    expect(button).toHaveAttribute('aria-haspopup', 'menu');
+    expect(button).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('opens a menu with both formats and closes it with Escape, focus back on the button', async () => {
+    setUp();
+    renderAt('/admin/bookings');
+    await screen.findByRole('table');
+    const button = screen.getByRole('button', { name: 'Export' });
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    await user().click(button);
+    const menu = screen.getByRole('menu', { name: 'Export format' });
+    expect(button).toHaveAttribute('aria-expanded', 'true');
+    expect(button).toHaveAttribute('aria-controls', menu.id);
+    const items = within(menu).getAllByRole('menuitem');
+    expect(items.map((item) => item.textContent)).toEqual(['Export as CSV', 'Export as Excel']);
+    expect(items[0]).toHaveFocus();
+    const u = user();
+    await u.keyboard('{ArrowDown}');
+    expect(items[1]).toHaveFocus();
+    await u.keyboard('{ArrowDown}');
+    expect(items[0]).toHaveFocus();
+    await u.keyboard('{ArrowUp}');
+    expect(items[1]).toHaveFocus();
+    await u.keyboard('{Home}');
+    expect(items[0]).toHaveFocus();
+    await u.keyboard('{End}');
+    expect(items[1]).toHaveFocus();
+    await u.keyboard('{Escape}');
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(button).toHaveFocus();
+  });
+
+  it('closes the menu on Tab and on a click outside', async () => {
+    setUp();
+    renderAt('/admin/bookings');
+    await screen.findByRole('table');
+    await user().click(screen.getByRole('button', { name: 'Export' }));
+    await user().tab();
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    await user().click(screen.getByRole('button', { name: 'Export' }));
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+
+  it('exports an Excel file with the right type and name, then closes the menu', async () => {
+    setUp();
+    const saved: Blob[] = [];
+    URL.createObjectURL = vi.fn((blob: Blob) => {
+      saved.push(blob);
+      return 'blob:bookings';
+    });
+    URL.revokeObjectURL = vi.fn();
+    let fileName = '';
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      fileName = this.download;
+    });
+    renderAt('/admin/bookings');
+    await screen.findByRole('table');
+    await user().click(screen.getByRole('button', { name: 'Export' }));
+    await user().click(screen.getByRole('menuitem', { name: 'Export as Excel' }));
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(fileName).toMatch(/^misk-bookings-\d{4}-\d{2}-\d{2}\.xlsx$/);
+    const file = saved[0];
+    if (!file) throw new Error('No file saved');
+    expect(file.type).toBe('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    expect([...bytes.slice(0, 4)]).toEqual([0x50, 0x4b, 0x03, 0x04]);
+    const text = new TextDecoder().decode(bytes);
+    expect(text).toContain('xl/worksheets/sheet1.xml');
+    expect(text).toContain('B-1042');
+    // The value is a real number in the sheet.
+    expect(text).toContain('<v>48.4</v>');
     click.mockRestore();
   });
 });
