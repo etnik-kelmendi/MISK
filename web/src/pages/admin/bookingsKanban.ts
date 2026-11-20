@@ -11,8 +11,9 @@ export type KanbanColumn = (typeof KANBAN_COLUMNS)[number];
  * - Done: paid, released or refunded jobs, cancelled bookings, and visits that are completed, skipped or cancelled.
  * - To Do: everything else that is still waiting (awaiting payment, searching, unassigned, accepted, planned visits).
  */
-export function kanbanColumn(item: Pick<AdminBookingListItem, 'kind' | 'status' | 'paymentStatus' | 'problem'>): KanbanColumn {
-  if (item.problem) {
+export function kanbanColumn(item: Pick<AdminBookingListItem, 'kind' | 'status' | 'paymentStatus' | 'problem' | 'proIssue'>): KanbanColumn {
+  // A problem the customer reported, or an issue the pro reported on site (D86), needs the team to look at it.
+  if (item.problem || item.proIssue) {
     return 'review';
   }
   if (item.kind === 'visit') {

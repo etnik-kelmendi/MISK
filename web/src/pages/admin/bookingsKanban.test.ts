@@ -1,7 +1,7 @@
 import type { AdminBookingListItem } from '../../api/types';
 import { kanbanColumn } from './bookingsKanban';
 
-type Input = Pick<AdminBookingListItem, 'kind' | 'status' | 'paymentStatus' | 'problem'>;
+type Input = Pick<AdminBookingListItem, 'kind' | 'status' | 'paymentStatus' | 'problem' | 'proIssue'>;
 const booking = (status: string, paymentStatus = 'held', problem = false): Input =>
   ({ kind: 'booking', status, paymentStatus, problem }) as Input;
 const visit = (status: string, problem = false): Input => ({ kind: 'visit', status, paymentStatus: 'active', problem }) as Input;
@@ -26,6 +26,10 @@ describe('kanbanColumn', () => {
   it('puts cancelled bookings in Done, whatever the payment', () => {
     expect(kanbanColumn(booking('cancelled', 'held'))).toBe('done');
     expect(kanbanColumn(booking('cancelled', 'refunded'))).toBe('done');
+  });
+
+  it.each(['accepted', 'on_the_way', 'working'])('puts a %s booking with an issue the pro reported in In Review', (status) => {
+    expect(kanbanColumn({ ...booking(status), proIssue: true })).toBe('review');
   });
 
   it('puts every booking with a problem in In Review, whatever its status', () => {
