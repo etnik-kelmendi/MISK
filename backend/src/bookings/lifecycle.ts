@@ -78,7 +78,8 @@ export async function markPaymentFailed(deps: BookingDeps, intentId: string): Pr
   );
 }
 
-async function releaseHolds(deps: BookingDeps, holds: { intentId: string; table: 'bookings' | 'extra_requests' }[]) {
+/** Releases card holds; one that fails lapses by itself and is logged. */
+export async function releaseHolds(deps: BookingDeps, holds: { intentId: string; table: 'bookings' | 'extra_requests' }[]) {
   for (const { intentId, table } of holds) {
     try {
       await deps.gateway.release(intentId);

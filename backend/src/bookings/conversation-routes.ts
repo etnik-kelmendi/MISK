@@ -52,11 +52,19 @@ export async function conversationRoutes(app: FastifyInstance, ctx: AppContext) 
 
   async function messages(booking: ChatBooking, side: Side) {
     // Opening the chat marks what the other side wrote as read.
-    await pool.query('UPDATE booking_messages SET read_at = now() WHERE booking_id = $1 AND sender_role <> $2 AND read_at IS NULL', [
+    // A pro sees only the messages from their own time on the job: an earlier pro's conversation with the
+    // customer stays private after a cancel or reassignment. The customer sees everything.
+    const scope = side === 'pro' ? 'AND pro_id = $3' : '';
+    const scopeParams = side === 'pro' ? [booking.pro_id] : [];
+    await pool.query(`UPDATE booking_messages SET read_at = now() WHERE booking_id = $1 AND sender_role <> $2 AND read_at IS NULL ${scope}`, [
       booking.id,
       side,
+      ...scopeParams,
     ]);
-    const rows = await pool.query(`SELECT ${MESSAGE_COLUMNS} FROM booking_messages WHERE booking_id = $1 ORDER BY id`, [booking.id]);
+    const rows = await pool.query(
+      `SELECT ${MESSAGE_COLUMNS} FROM booking_messages WHERE booking_id = $1 ${side === 'pro' ? 'AND pro_id = $2' : ''} ORDER BY id`,
+      [booking.id, ...scopeParams],
+    );
     return { messages: rows.rows, canWrite: booking.open };
   }
 
@@ -79,9 +87,9 @@ export async function conversationRoutes(app: FastifyInstance, ctx: AppContext) 
       if (!row || !row.pro_id || !CHAT_WRITABLE_STATUSES.includes(row.status)) throw conflict('chat_closed');
       const photo = content.photo ? await storeUpload(client, ctx.storage, { ownerId: senderId, kind: 'photo', content: content.photo }) : null;
       const inserted = await client.query(
-        `INSERT INTO booking_messages (booking_id, sender_id, sender_role, body, photo_id) VALUES ($1, $2, $3, $4, $5)
+        `INSERT INTO booking_messages (booking_id, sender_id, sender_role, body, photo_id, pro_id) VALUES ($1, $2, $3, $4, $5, $6)
          RETURNING ${MESSAGE_COLUMNS}`,
-        [booking.id, senderId, side, body, photo?.id ?? null],
+        [booking.id, senderId, side, body, photo?.id ?? null, row.pro_id],
       );
       if (other) {
         const who = senderName ?? (side === 'customer' ? 'Your customer' : 'Your pro');

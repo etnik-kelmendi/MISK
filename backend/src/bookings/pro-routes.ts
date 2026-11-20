@@ -10,13 +10,14 @@ import { enqueue } from '../notifications/outbox.js';
 import { readSingleFile, storeUpload } from '../uploads/uploads.js';
 import { acceptOffer, declineOffer, flexibleStarts } from './dispatch.js';
 import { eligibleProFilter } from './availability.js';
+import { priceList } from './job-tasks.js';
 import { setStatus, type BookingDeps } from './events.js';
 import { loadBooking } from './views.js';
 
 export const MAX_COMPLETION_PHOTOS = 6;
-/** How long extra work may take, in minutes (D83). */
-export const MIN_EXTRA_MINUTES = 5;
-export const MAX_EXTRA_MINUTES = 480;
+export { MAX_EXTRA_MINUTES, MIN_EXTRA_MINUTES } from './job-tasks.js';
+/** The longest note a pro can add to extra work for the customer (D86). */
+export const EXTRA_NOTE_MAX = 300;
 const NEXT_STEP: Record<string, string> = { accepted: 'on_the_way', on_the_way: 'working' };
 
 export async function proJobRoutes(app: FastifyInstance, ctx: AppContext) {
@@ -47,6 +48,7 @@ export async function proJobRoutes(app: FastifyInstance, ctx: AppContext) {
       postcode: string;
       notes: string;
       customerName: string | null;
+      customerRating: number | null;
       priceCents: number;
       proSharePct: number;
       distanceKm: number | null;
@@ -56,7 +58,10 @@ export async function proJobRoutes(app: FastifyInstance, ctx: AppContext) {
     }>(
       `SELECT o.id, o.booking_id AS "bookingId", o.expires_at AS "expiresAt", b.service_name AS "serviceName", b.size,
          b.starts_at AS "startsAt", b.ends_at AS "endsAt", b.address, b.postcode, b.notes,
-         cu.first_name AS "customerName", b.price_cents AS "priceCents", b.pro_share_pct AS "proSharePct",
+         cu.first_name AS "customerName",
+         -- How pros rated this customer (D86), shown like the pro's own stars.
+         (SELECT round(avg(cr.stars)::numeric, 1)::float FROM customer_ratings cr WHERE cr.customer_id = b.customer_id) AS "customerRating",
+         b.price_cents AS "priceCents", b.pro_share_pct AS "proSharePct",
          (SELECT round(distance_km(home.lat, home.lng, dest.lat, dest.lng)::numeric, 1)::float
           FROM pro_profiles p, postcodes home, postcodes dest
           WHERE p.user_id = o.pro_id AND home.code = p.home_postcode AND dest.code = b.postcode) AS "distanceKm",
@@ -285,7 +290,19 @@ export async function proJobRoutes(app: FastifyInstance, ctx: AppContext) {
     },
   );
 
-  app.post<{ Params: { id: string }; Body: { description: string; priceCents: number; durationMinutes: number } }>(
+  // The MISK price list the pro picks extra work from (D86).
+  app.get<{ Params: { id: string } }>(
+    '/pro/jobs/:id/price-list',
+    { preHandler: guards.pro, schema: { params: uuidParams } },
+    async (request) => {
+      await ownJob(currentUser(request).id, request.params.id);
+      return { items: await priceList(pool, request.params.id) };
+    },
+  );
+
+  // Extra work from the MISK price list (D86, replacing D83's free text): the name, price and length are
+  // the server's, never the app's. The customer approves it before anything is charged.
+  app.post<{ Params: { id: string }; Body: { itemId: string; note?: string } }>(
     '/pro/jobs/:id/extras',
     {
       preHandler: guards.pro,
@@ -293,20 +310,18 @@ export async function proJobRoutes(app: FastifyInstance, ctx: AppContext) {
         params: uuidParams,
         body: {
           type: 'object',
-          required: ['description', 'priceCents', 'durationMinutes'],
+          required: ['itemId'],
           additionalProperties: false,
           properties: {
-            description: { type: 'string', minLength: 3, maxLength: 200, pattern: '\\S' },
-            priceCents: { type: 'integer', minimum: 100, maximum: 100_000 },
-            // How long the extra work takes (D83), from 5 minutes to 8 hours.
-            durationMinutes: { type: 'integer', minimum: MIN_EXTRA_MINUTES, maximum: MAX_EXTRA_MINUTES },
+            itemId: { type: 'string', minLength: 1, maxLength: 60, pattern: '^(service:[0-9a-f-]{36}|time:[0-9]{1,3})$' },
+            note: { type: 'string', maxLength: EXTRA_NOTE_MAX },
           },
         },
       },
     },
     async (request, reply) => {
       const proId = currentUser(request).id;
-      const description = request.body.description.trim();
+      const note = request.body.note?.trim() || null;
       await withTransaction(pool, async (client) => {
         const found = await client.query<{ status: string; customer_id: string }>(
           'SELECT status, customer_id FROM bookings WHERE id = $1 AND pro_id = $2 FOR UPDATE',
@@ -326,12 +341,18 @@ export async function proJobRoutes(app: FastifyInstance, ctx: AppContext) {
         if (open.rowCount) {
           throw conflict('extra_already_pending');
         }
+        const item = (await priceList(client, request.params.id)).find((entry) => entry.id === request.body.itemId);
+        if (!item) {
+          throw badRequest('unknown_price_item');
+        }
         await client.query(
-          'INSERT INTO extra_requests (booking_id, description, price_cents, duration_minutes) VALUES ($1, $2, $3, $4)',
-          [request.params.id, description, request.body.priceCents, request.body.durationMinutes],
+          `INSERT INTO extra_requests (booking_id, description, price_cents, duration_minutes, price_item, note)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [request.params.id, item.name, item.priceCents, item.durationMinutes, item.id, note],
         );
-        await enqueue(client, job.customer_id, 'extra_requested', messages.extraRequested(description, request.body.priceCents));
+        await enqueue(client, job.customer_id, 'extra_requested', messages.extraRequested(item.name, item.priceCents));
       });
+      request.log.info({ event: 'extra_requested', bookingId: request.params.id, item: request.body.itemId });
       return reply.code(201).send({ job: await ownJob(proId, request.params.id) });
     },
   );

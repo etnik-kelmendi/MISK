@@ -121,6 +121,99 @@ function PriceInput({
   );
 }
 
+/** A service lists at most this many tasks for the pro, each this long at most, as the API allows (D86). */
+export const MAX_SERVICE_TASKS = 8;
+export const MAX_TASK_LENGTH = 80;
+
+/** One task per line; empty lines and repeats are left out. */
+export function parseTasks(text: string): string[] {
+  return [...new Set(text.split('\n').map((line) => line.trim()).filter((line) => line.length > 0))];
+}
+
+function tasksValid(tasks: string[]): boolean {
+  return tasks.length <= MAX_SERVICE_TASKS && tasks.every((task) => task.length <= MAX_TASK_LENGTH);
+}
+
+/** The checklist the pro ticks off for a service (D86), shown under its name and edited in place. */
+function ServiceTasks({ service, onChanged }: { service: Service; onChanged: Changed }) {
+  const { t } = useTranslation();
+  const api = useApi();
+  const action = useAction();
+  const tasks = service.tasks ?? [];
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState('');
+  const [saved, setSaved] = useState(false);
+  const parsed = parseTasks(text);
+  const valid = tasksValid(parsed);
+  const id = `tasks-${service.id}`;
+
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    if (!valid) {
+      document.getElementById(id)?.focus();
+      return;
+    }
+    const result = await action.run(() => api.patch(`/admin/services/${service.id}`, { tasks: parsed }));
+    if (result) {
+      setEditing(false);
+      setSaved(true);
+      onChanged();
+    }
+  }
+
+  if (!editing) {
+    return (
+      <div className="small muted">
+        {tasks.length > 0 ? t('admin.catalogue.tasksOf', { tasks: tasks.join(' · ') }) : t('admin.catalogue.noTasks')}{' '}
+        <button
+          type="button"
+          className="link"
+          aria-label={t('admin.catalogue.editTasks', { name: service.name })}
+          onClick={() => {
+            setText(tasks.join('\n'));
+            setSaved(false);
+            setEditing(true);
+          }}
+        >
+          {t('common.edit')}
+        </button>
+        {saved && (
+          <span className="small ok block" role="status">
+            {t('admin.catalogue.tasksSaved')}
+          </span>
+        )}
+      </div>
+    );
+  }
+  return (
+    <form className="stack" onSubmit={save} noValidate>
+      <label htmlFor={id} className="small">
+        {t('admin.catalogue.tasks')}
+      </label>
+      <textarea
+        id={id}
+        rows={4}
+        value={text}
+        aria-invalid={!valid || undefined}
+        aria-describedby={`${id}-hint`}
+        onChange={(event) => setText(event.target.value)}
+      />
+      <span id={`${id}-hint`} className={valid ? 'tiny muted' : 'error-text small'} role={valid ? undefined : 'alert'}>
+        {valid ? t('admin.catalogue.tasksHint') : t('admin.catalogue.tasksInvalid')}
+      </span>
+      <ErrorText error={action.error} />
+      <div className="row gap8">
+        <button type="button" className="abtn ghost" onClick={() => setEditing(false)}>
+          {t('admin.catalogue.cancel')}
+        </button>
+        <button type="submit" className="abtn" disabled={action.busy}>
+          {t('admin.catalogue.saveTasks')}
+        </button>
+      </div>
+    </form>
+  );
+}
+
 function ServiceRow({
   service,
   proSharePct,
@@ -147,6 +240,7 @@ function ServiceRow({
         <span className="b">{service.name}</span> {service.isNew && <span className="badge g">{t('admin.catalogue.new')}</span>}{' '}
         {!service.active && <span className="badge grey">{t('admin.catalogue.hidden')}</span>}
         {service.description && <div className="small muted">{service.description}</div>}
+        <ServiceTasks service={service} onChanged={onChanged} />
       </td>
       <td>{duration(service.durationMinutes)}</td>
       <td>
@@ -223,7 +317,9 @@ function AddServiceRow({ categoryId, onDone }: { categoryId: string; onDone: (ad
   const [price, setPrice] = useState('');
   const [minutes, setMinutes] = useState('60');
   const [hourly, setHourly] = useState(false);
+  const [tasksText, setTasksText] = useState('');
   const [shown, setShown] = useState(false);
+  const tasks = parseTasks(tasksText);
   const cents = parseEuroToCents(price);
   const duration = Number(minutes);
   const problems = {
@@ -231,15 +327,16 @@ function AddServiceRow({ categoryId, onDone }: { categoryId: string; onDone: (ad
     price: validPrice(cents) ? null : t('admin.catalogue.priceInvalid'),
     duration:
       Number.isInteger(duration) && duration >= 15 && duration <= 600 && duration % 15 === 0 ? null : t('admin.catalogue.durationInvalid'),
+    tasks: tasksValid(tasks) ? null : t('admin.catalogue.tasksInvalid'),
   };
-  const ready = !problems.name && !problems.price && !problems.duration;
+  const ready = !problems.name && !problems.price && !problems.duration && !problems.tasks;
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     setShown(true);
     if (!ready || cents === null) {
       // The cursor goes to the first field to fix.
-      const first = (['name', 'price', 'duration'] as const).find((key) => problems[key]);
+      const first = (['name', 'price', 'duration', 'tasks'] as const).find((key) => problems[key]);
       if (first) document.getElementById(`new-${first}`)?.focus();
       return;
     }
@@ -251,6 +348,7 @@ function AddServiceRow({ categoryId, onDone }: { categoryId: string; onDone: (ad
         priceCents: cents,
         durationMinutes: duration,
         pricing: hourly ? 'hourly' : 'fixed',
+        tasks,
       }),
     );
     if (result) onDone(true);
@@ -316,6 +414,26 @@ function AddServiceRow({ categoryId, onDone }: { categoryId: string; onDone: (ad
         <div className="af">
           <label htmlFor="new-description">{t('admin.catalogue.description')}</label>
           <input id="new-description" maxLength={300} value={description} onChange={(e) => setDescription(e.target.value)} />
+        </div>
+        <div className="af full">
+          <label htmlFor="new-tasks">{t('admin.catalogue.tasks')}</label>
+          <textarea
+            id="new-tasks"
+            rows={3}
+            value={tasksText}
+            aria-invalid={shown && Boolean(problems.tasks)}
+            aria-describedby={shown && problems.tasks ? 'new-tasks-error' : 'new-tasks-hint'}
+            onChange={(e) => setTasksText(e.target.value)}
+          />
+          {shown && problems.tasks ? (
+            <span id="new-tasks-error" className="error-text small" role="alert">
+              {problems.tasks}
+            </span>
+          ) : (
+            <span id="new-tasks-hint" className="tiny muted">
+              {t('admin.catalogue.tasksHint')}
+            </span>
+          )}
         </div>
         <label className="row gap8 small full">
           <input type="checkbox" checked={hourly} onChange={(e) => setHourly(e.target.checked)} /> {t('admin.catalogue.paidPerHour')}

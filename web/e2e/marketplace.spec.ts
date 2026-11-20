@@ -83,13 +83,15 @@ test.describe.serial('MISK marketplace', () => {
     await page.getByRole('button', { name: /Start driving/ }).click();
     await page.getByRole('button', { name: /I've arrived/ }).click();
 
-    await page.getByRole('button', { name: /Ask for extra work/ }).click();
-    await page.getByLabel('What extra work?').fill('Trim the front hedge');
-    await page.getByLabel('Price in euros').fill('20');
-    await page.getByRole('button', { name: 'Send to customer' }).click();
-    await expect(page.getByText('Waiting for the customer')).toBeVisible();
+    // Extra work comes from the MISK price list (D86): 30 more minutes at the job's own rate.
+    await page.getByRole('button', { name: 'Add extra work' }).click();
+    const extra = page.getByRole('dialog', { name: 'Add extra work' });
+    await extra.getByText('Extra 30 minutes of work').click();
+    await extra.getByRole('button', { name: 'Send to Sara for approval' }).click();
+    await expect(page.getByText('Waiting for Sara to approve Extra 30 minutes of work +€22.75.')).toBeVisible();
 
-    await page.getByLabel('Add a photo').setInputFiles({ name: 'lawn.png', mimeType: 'image/png', buffer: PHOTO });
+    // The main button asks for the photos of the finished work first.
+    await page.locator('.cta-bar input[type="file"]').setInputFiles({ name: 'lawn.png', mimeType: 'image/png', buffer: PHOTO });
     await expect(page.getByRole('img', { name: /Photos of the finished work 1/ })).toBeVisible();
     await expectAccessible(page);
     await page.context().close();
@@ -98,15 +100,15 @@ test.describe.serial('MISK marketplace', () => {
   test('the customer approves the extra work, the pro completes, and the customer rates', async ({ browser }) => {
     const customer = await signInByPhone(browser, CUSTOMER_PHONE);
     await customer.goto(bookingUrl);
-    await customer.getByRole('button', { name: 'Approve +€20' }).click();
+    await customer.getByRole('button', { name: 'Approve +€22.75' }).click();
     await expect(customer.getByText('Approved', { exact: true })).toBeVisible();
-    await expect(customer.getByText('€68.40')).toBeVisible();
+    await expect(customer.getByText('€71.15')).toBeVisible();
 
     const pro = await signInByPhone(browser, PRO_PHONE);
     await pro.goto(bookingUrl.replace('/bookings/', '/pro/jobs/'));
-    await pro.getByRole('button', { name: /Complete the job/ }).click();
-    await expect(pro.getByText('You earned')).toBeVisible();
-    await expect(pro.getByText('€53.71')).toBeVisible();
+    await pro.getByRole('button', { name: /^Complete/ }).click();
+    await expect(pro.getByText("You'll earn")).toBeVisible();
+    await expect(pro.getByText('€55.96')).toBeVisible();
     await pro.context().close();
 
     await customer.reload();
@@ -186,8 +188,8 @@ test.describe.serial('MISK marketplace', () => {
     await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible();
     const nav = page.getByRole('navigation', { name: 'Control panel' });
     // The money shows in the revenue tile and again on the job's row in the ten most recent bookings.
-    await expect(page.getByText('Revenue (gross)').locator('..')).toContainText('€68.40');
-    await expect(page.getByRole('cell', { name: '€68.40' })).toBeVisible();
+    await expect(page.getByText('Revenue (gross)').locator('..')).toContainText('€71.15');
+    await expect(page.getByRole('cell', { name: '€71.15' })).toBeVisible();
     await expectAccessible(page);
 
     await nav.getByRole('link', { name: 'Bookings', exact: true }).click();

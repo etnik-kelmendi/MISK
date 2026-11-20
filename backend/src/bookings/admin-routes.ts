@@ -18,13 +18,24 @@ const REASSIGNABLE = ['searching', 'unassigned', 'accepted', 'on_the_way'];
 /** The time can be changed until the pro sets off. */
 const RESCHEDULABLE = ['searching', 'unassigned', 'accepted'];
 
-export type AdminAction = 'assigned' | 'restarted_search' | 'rescheduled' | 'cancelled' | 'refunded' | 'charged_after_problem';
+export type AdminAction =
+  | 'assigned'
+  | 'restarted_search'
+  | 'rescheduled'
+  | 'cancelled'
+  | 'refunded'
+  | 'charged_after_problem'
+  // What the pro did on the job (D86); these have no admin.
+  | 'pro_cancelled'
+  | 'issue_reported'
+  | 'issue_resolved';
 
 /** Every change the team makes to a booking is written down, with who made it. */
 export async function logAction(
   db: Queryable,
   bookingId: string,
-  adminId: string,
+  /** Null when the pro, not the team, did it (D86). */
+  adminId: string | null,
   action: AdminAction,
   details: Record<string, unknown> = {},
 ) {
@@ -433,6 +444,37 @@ export async function adminBookingRoutes(app: FastifyInstance, ctx: AppContext) 
       } catch (error) {
         request.log.error({ event: 'settle_failed', bookingId, err: error });
       }
+      return { booking: await adminView(bookingId) };
+    },
+  );
+  // The team has dealt with an issue the pro reported on site (D86): it leaves Needs action.
+  app.post<{ Params: { id: string; issueId: string } }>(
+    '/admin/bookings/:id/issues/:issueId/resolve',
+    {
+      preHandler: guards.admin,
+      schema: {
+        params: {
+          type: 'object',
+          properties: { id: { type: 'string', format: 'uuid' }, issueId: { type: 'string', format: 'uuid' } },
+        },
+      },
+    },
+    async (request) => {
+      const bookingId = request.params.id;
+      const adminId = currentUser(request).id;
+      await withTransaction(pool, async (client) => {
+        const resolved = await client.query<{ reason: string }>(
+          `UPDATE booking_issues SET resolved_at = now(), resolved_by = $3
+           WHERE id = $1 AND booking_id = $2 AND resolved_at IS NULL RETURNING reason`,
+          [request.params.issueId, bookingId, adminId],
+        );
+        const issue = resolved.rows[0];
+        if (!issue) {
+          throw conflict('issue_not_open');
+        }
+        await logAction(client, bookingId, adminId, 'issue_resolved', { reason: issue.reason });
+      });
+      request.log.info({ event: 'pro_issue_resolved', bookingId, by: adminId });
       return { booking: await adminView(bookingId) };
     },
   );

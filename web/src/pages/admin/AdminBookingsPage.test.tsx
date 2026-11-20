@@ -537,6 +537,46 @@ describe('admin booking side panel', () => {
     await user().click(within(dialog).getByRole('button', { name: 'Charge the customer' }));
     expect(await within(dialog).findByText('Paid.')).toBeInTheDocument();
   });
+
+  it("shows the pro's on-site issue, cancellations and customer rating, and resolves the issue (D86)", async () => {
+    const api = setUp([row({ status: 'accepted', pro: 'Daniel', proIssue: true })]);
+    const issue = {
+      id: '22222222-2222-4222-8222-222222222222',
+      proId: 'u-pro',
+      proName: 'Daniel',
+      reason: 'customer_not_home' as const,
+      details: 'Rang twice',
+      createdAt: '2026-11-09T09:10:00.000Z',
+      resolvedAt: null,
+    };
+    const reported = detail({
+      status: 'accepted',
+      pro: { id: 'u-pro', firstName: 'Daniel', ratingAverage: 4.9, ratingCount: 12 },
+      issues: [issue],
+      proCancellations: [{ proName: 'Leon', reason: 'vehicle', note: null, late: true, createdAt: '2026-11-08T09:00:00.000Z' }],
+      customerProfile: { ...(detail().customerProfile as NonNullable<AdminBooking['customerProfile']>), proRatingAverage: 4.5, proRatingCount: 2 },
+      actions: [
+        { id: '1', action: 'issue_reported', details: { proName: 'Daniel', reason: 'customer_not_home', note: 'Rang twice' }, createdAt: issue.createdAt, adminName: null },
+      ],
+    });
+    api.on(`GET /admin/bookings/${BOOKING_ID}`, { body: { booking: reported } });
+    api.on(`POST /admin/bookings/${BOOKING_ID}/issues/${issue.id}/resolve`, {
+      body: { booking: { ...reported, issues: [{ ...issue, resolvedAt: '2026-11-09T09:30:00.000Z' }] } },
+    });
+    renderAt(`/admin/bookings?open=b:${BOOKING_ID}`);
+    expect(await screen.findByText('Pro reported an issue')).toBeInTheDocument();
+    const dialog = await screen.findByRole('dialog', { name: 'B-1042' });
+    const reports = within(dialog).getByRole('region', { name: 'Reported by the pro' });
+    expect(within(reports).getByText('Daniel reported: Customer not home')).toBeInTheDocument();
+    expect(within(reports).getByText('Rang twice')).toBeInTheDocument();
+    expect(within(reports).getByText(/Leon gave the job back on .*less than 24 hours before the start: Vehicle problem/)).toBeInTheDocument();
+    expect(within(dialog).getByText('Daniel reported an issue: Customer not home')).toBeInTheDocument();
+    expect(within(dialog).getByText('2 ratings, 4.5 stars on average')).toBeInTheDocument();
+
+    await user().click(within(reports).getByRole('button', { name: 'Mark as resolved' }));
+    expect(api.calls).toContain(`POST /admin/bookings/${BOOKING_ID}/issues/${issue.id}/resolve`);
+    expect(await within(reports).findByText(/Resolved on/)).toBeInTheDocument();
+  });
 });
 
 describe('admin bookings board (Kanban view)', () => {

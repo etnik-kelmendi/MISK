@@ -53,7 +53,7 @@ export const ICONS = ['leaf', 'hammer', 'drop', 'bolt', 'sparkle', 'brush', 'wre
 
 const SERVICE_COLUMNS = `s.id, s.category_id AS "categoryId", s.name, s.description, s.price_cents AS "priceCents",
   s.duration_minutes AS "durationMinutes", s.size_small_pct AS "sizeSmallPct", s.size_medium_pct AS "sizeMediumPct",
-  s.size_large_pct AS "sizeLargePct", s.sort_order AS "sortOrder", s.active, s.pricing,
+  s.size_large_pct AS "sizeLargePct", s.sort_order AS "sortOrder", s.active, s.pricing, s.tasks,
   s.created_at > now() - make_interval(days => ${NEW_SERVICE_DAYS}) AS "isNew"`;
 
 const categoryProperties = {
@@ -63,6 +63,10 @@ const categoryProperties = {
   sortOrder: { type: 'integer', minimum: 0, maximum: 1000 },
   active: { type: 'boolean' },
 } as const;
+
+/** A service lists at most this many tasks for the pro, each this long at most (D86). */
+export const MAX_SERVICE_TASKS = 8;
+export const MAX_TASK_LENGTH = 80;
 
 const pct = { type: 'integer', minimum: 50, maximum: 500 } as const;
 const serviceProperties = {
@@ -77,6 +81,12 @@ const serviceProperties = {
   sortOrder: { type: 'integer', minimum: 0, maximum: 1000 },
   active: { type: 'boolean' },
   pricing: { type: 'string', enum: ['fixed', 'hourly'] },
+  // The checklist the pro ticks off on the job (D86).
+  tasks: {
+    type: 'array',
+    maxItems: MAX_SERVICE_TASKS,
+    items: { type: 'string', minLength: 1, maxLength: MAX_TASK_LENGTH, pattern: '\\S' },
+  },
 } as const;
 
 type CategoryBody = { slug?: string; name: string; icon: string; sortOrder?: number; active?: boolean };
@@ -92,7 +102,13 @@ type ServiceBody = {
   sortOrder?: number;
   active?: boolean;
   pricing?: 'fixed' | 'hourly';
+  tasks?: string[];
 };
+
+/** Trims each task and drops repeats, keeping the order the team gave. */
+export function normalizeTasks(tasks: string[]): string[] {
+  return [...new Set(tasks.map((task) => task.trim()).filter((task) => task.length > 0))];
+}
 
 const CATEGORY_FIELDS: Record<string, string> = { slug: 'slug', name: 'name', icon: 'icon', sortOrder: 'sort_order', active: 'active' };
 const SERVICE_FIELDS: Record<string, string> = {
@@ -107,6 +123,7 @@ const SERVICE_FIELDS: Record<string, string> = {
   sortOrder: 'sort_order',
   active: 'active',
   pricing: 'pricing',
+  tasks: 'tasks',
 };
 
 /** Builds "col = $n" pairs from a validated body, using only the columns in `fields`. */
@@ -344,8 +361,8 @@ export async function catalogueRoutes(app: FastifyInstance, ctx: AppContext) {
         const service = await withTransaction(pool, async (client) => {
           const result = await client.query<{ id: string }>(
           `INSERT INTO services AS s (category_id, name, description, price_cents, duration_minutes,
-             size_small_pct, size_medium_pct, size_large_pct, sort_order, active, pricing)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING ${SERVICE_COLUMNS}`,
+             size_small_pct, size_medium_pct, size_large_pct, sort_order, active, pricing, tasks)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING ${SERVICE_COLUMNS}`,
           [
             b.categoryId,
             b.name.trim(),
@@ -358,6 +375,7 @@ export async function catalogueRoutes(app: FastifyInstance, ctx: AppContext) {
             b.sortOrder ?? 0,
             b.active ?? true,
             b.pricing ?? 'fixed',
+            normalizeTasks(b.tasks ?? []),
           ],
           );
           const row = onlyRow(result);
@@ -438,7 +456,8 @@ export async function catalogueRoutes(app: FastifyInstance, ctx: AppContext) {
       },
     },
     async (request) => {
-      const set = updateSet(request.body, SERVICE_FIELDS, 2);
+      const body = request.body.tasks ? { ...request.body, tasks: normalizeTasks(request.body.tasks) } : request.body;
+      const set = updateSet(body, SERVICE_FIELDS, 2);
       try {
         // Bookings keep the price they were made at, so a new price only applies to new bookings.
         const service = await withTransaction(pool, async (client) => {

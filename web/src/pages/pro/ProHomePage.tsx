@@ -11,12 +11,11 @@ import { Icon } from '../../components/Icon';
 import { PhotoGrid } from '../../components/Photos';
 import { ResourceState } from '../../components/ResourceState';
 import { Stars, StatusBadge } from '../../components/StatusBadge';
-import { dateTime, dayName, euro, time } from '../../lib/format';
-import { loadSchedule } from '../../lib/proSchedule';
+import { dateTime, dayKey, dayName, euro, time } from '../../lib/format';
+import { loadSchedule, type ScheduleItem } from '../../lib/proSchedule';
 import { useAction } from '../../lib/useAction';
 import { usePolling } from '../../lib/usePolling';
 import { ApplicationForm } from './ApplicationForm';
-import { ProPlansSection } from './ProVisitPage';
 import { VisitMoveRequests } from './VisitMoveRequests';
 
 function useCountdown(until: string): number {
@@ -100,7 +99,11 @@ function OfferCard({ offer, onGone }: { offer: Offer; onGone: () => void }) {
           <dt>
             <Icon name="user" label={t('offer.customer')} />
           </dt>
-          <dd>{offer.customerName}</dd>
+          <dd>
+            {offer.customerRating != null
+              ? t('offer.customerRated', { name: offer.customerName ?? t('chat.yourCustomer'), rating: offer.customerRating.toFixed(1) })
+              : t('offer.customerNew', { name: offer.customerName ?? t('chat.yourCustomer') })}
+          </dd>
           {offer.notes && (
             <>
               <dt>
@@ -150,15 +153,26 @@ function OfferCard({ offer, onGone }: { offer: Offer; onGone: () => void }) {
   );
 }
 
-function ApprovedHome({ profile }: { profile: ProProfile }) {
+/** Jobs and plan visits still to do today, and any job under way, in time order (D86). */
+function laterToday(items: ScheduleItem[], timezone: string): ScheduleItem[] {
+  const today = dayKey(new Date().toISOString(), timezone);
+  return items.filter(
+    (item) => !item.closed && (dayKey(item.startsAt, timezone) === today || item.status === 'on_the_way' || item.status === 'working'),
+  );
+}
+
+/** The approved pro's Jobs page (D86): new offers while online, then the rest of today. */
+function ApprovedHome({ profile, onOnline }: { profile: ProProfile; onOnline: (online: boolean) => Promise<void> }) {
   const { t } = useTranslation();
   const api = useApi();
   const { timezone } = useMarket();
+  const online = profile.online !== false;
   const loadOffers = useCallback(() => api.get<{ offers: Offer[] }>('/pro/offers'), [api]);
   const offers = useResource(loadOffers);
   const loadJobs = useCallback(() => loadSchedule(api), [api]);
   const jobs = useResource(loadJobs);
-  usePolling(offers.reload, 10_000);
+  const switching = useAction();
+  usePolling(offers.reload, 10_000, online);
   usePolling(jobs.reload, 30_000);
 
   return (
@@ -168,37 +182,61 @@ function ApprovedHome({ profile }: { profile: ProProfile }) {
           <Icon name="card" /> {t('pro.payoutsNeeded')}
         </Link>
       )}
-      <ResourceState state={offers.state} reload={offers.reload}>
-        {({ offers: list }) =>
-          list.length === 0 ? (
-            <p className="card muted center">{profile.payoutsEnabled ? t('pro.noOffers') : t('pro.noOffersUntilPayouts')}</p>
-          ) : (
-            <div className="stack">
-              {list.map((offer) => (
-                <OfferCard key={offer.id} offer={offer} onGone={offers.reload} />
-              ))}
-            </div>
-          )
-        }
-      </ResourceState>
+      {profile.offersPausedUntil && (
+        <p className="info amber" role="status">
+          <Icon name="clock" /> <span>{t('pro.offersPaused', { date: dateTime(profile.offersPausedUntil, timezone) })}</span>
+        </p>
+      )}
+      {online ? (
+        <ResourceState state={offers.state} reload={offers.reload}>
+          {({ offers: list }) =>
+            list.length === 0 ? (
+              <p className="card muted center">{profile.payoutsEnabled ? t('pro.noOffers') : t('pro.noOffersUntilPayouts')}</p>
+            ) : (
+              <div className="stack">
+                {list.map((offer) => (
+                  <OfferCard key={offer.id} offer={offer} onGone={offers.reload} />
+                ))}
+              </div>
+            )
+          }
+        </ResourceState>
+      ) : (
+        <div className="stack">
+          <section className="card center" aria-labelledby="offline-heading">
+            <span className="offline-icon" aria-hidden="true">
+              <Icon name="pause" />
+            </span>
+            <h2 id="offline-heading" className="b">
+              {t('pro.offlineTitle')}
+            </h2>
+            <p className="small muted">{t('pro.offlineText')}</p>
+            <button type="button" className="cta dark" disabled={switching.busy} onClick={() => void switching.run(() => onOnline(true))}>
+              {t('pro.goOnline')}
+            </button>
+            <ErrorText error={switching.error} />
+          </section>
+          <p className="info">
+            <Icon name="clock" /> <span>{t('pro.offlineAuto')}</span>
+          </p>
+        </div>
+      )}
       <VisitMoveRequests onAnswered={jobs.reload} />
-      <h2 className="h-sm">{t('pro.upcoming')}</h2>
+      <h2 className="h-sm">{t('pro.laterToday')}</h2>
       <ResourceState state={jobs.state} reload={jobs.reload}>
         {(list) => {
-          const open = list.filter((item) => !item.closed);
-          return open.length === 0 ? (
-            <p className="muted small">{t('pro.noJobs')}</p>
+          const today = laterToday(list, timezone);
+          return today.length === 0 ? (
+            <p className="muted small">{t('pro.nothingToday')}</p>
           ) : (
-            <ul className="stack">
-              {open.map((item) => (
+            <ul className="stack" aria-label={t('pro.laterToday')}>
+              {today.map((item) => (
                 <li key={item.key}>
                   <Link to={item.href} className={`job link-card ${item.kind === 'visit' ? 'rec' : ''}`}>
                     <span className="jt">{time(item.startsAt, timezone)}</span>
                     <span className="grow">
                       <span className="b small block">{item.title}</span>
-                      <span className="tiny muted">
-                        {dateTime(item.startsAt, timezone)} · {item.address}
-                      </span>
+                      <span className="tiny muted">{item.address}</span>
                     </span>
                     {item.kind === 'visit' ? (
                       <span className="badge a">
@@ -214,8 +252,34 @@ function ApprovedHome({ profile }: { profile: ProProfile }) {
           );
         }}
       </ResourceState>
-      <ProPlansSection />
+      <p className="small">
+        <Link to="/pro/week">{t('pro.seeWeek')}</Link>
+      </p>
     </div>
+  );
+}
+
+/** The online switch in the header (D86): a real switch, saved on the server. */
+function OnlineSwitch({ online, onChange }: { online: boolean; onChange: (online: boolean) => Promise<void> }) {
+  const { t } = useTranslation();
+  const { run, busy, error } = useAction();
+  return (
+    <span className="right">
+      <button
+        type="button"
+        role="switch"
+        aria-checked={online}
+        aria-label={t('pro.onlineSwitch')}
+        className={`online ${online ? '' : 'off'}`}
+        disabled={busy}
+        onClick={() => void run(() => onChange(!online))}
+      >
+        {online && <span className="lamp" aria-hidden="true" />}
+        {online ? t('pro.online') : t('pro.offline')}
+        <span className={`toggle sm ${online ? 'on' : ''}`} aria-hidden="true" />
+      </button>
+      <ErrorText error={error} />
+    </span>
   );
 }
 
@@ -271,29 +335,38 @@ export function ProHomePage() {
   const user = useUser();
   const load = useCallback(() => api.get<{ profile: ProProfile }>('/pro/profile'), [api]);
   const { state, reload, update } = useResource(load);
+  const [announce, setAnnounce] = useState('');
 
+  async function setOnline(online: boolean) {
+    const result = await api.put<{ online: boolean }>('/pro/online', { online });
+    update((current) => ({ profile: { ...current.profile, online: result.online } }));
+    setAnnounce(result.online ? t('pro.nowOnline') : t('pro.nowOffline'));
+  }
+
+  const profile = state.status === 'ready' ? state.data.profile : null;
+  const working = profile !== null && ['approved', 'pending_approval'].includes(profile.status);
   return (
     <>
       <header className="prohead">
         <div className="row between">
-          <h1>{state.status === 'ready' && ['approved', 'pending_approval'].includes(state.data.profile.status) ? t('pro.jobsTitle') : t('apply.title')}</h1>
-          {state.status === 'ready' && state.data.profile.status === 'approved' && (
-            <span className="online">
-              <span className="lamp" aria-hidden="true" /> {t('pro.online')}
-            </span>
-          )}
+          <h1>{working ? t('pro.jobsTitle') : t('apply.title')}</h1>
+          {profile?.status === 'approved' && <OnlineSwitch online={profile.online !== false} onChange={setOnline} />}
         </div>
-        {state.status === 'ready' && (
+        {profile && (
           <p className="small subtle">
-            {user.firstName} · <Stars average={state.data.profile.ratingAverage} count={state.data.profile.ratingCount} />
+            {[user.firstName, ...(profile.tradeNames ?? [])].filter(Boolean).join(' · ')} ·{' '}
+            <Stars average={profile.ratingAverage} count={profile.ratingCount} />
           </p>
         )}
+        <span className="visually-hidden" role="status">
+          {announce}
+        </span>
       </header>
       <ResourceState state={state} reload={reload}>
-        {({ profile }) =>
-          profile.status === 'approved' || profile.status === 'pending_approval' ? (
+        {({ profile: current }) =>
+          current.status === 'approved' || current.status === 'pending_approval' ? (
             <>
-              {profile.status === 'pending_approval' && (
+              {current.status === 'pending_approval' && (
                 <div className="body">
                   <div className="info amber" role="alert">
                     <Icon name="file" />
@@ -304,17 +377,17 @@ export function ProHomePage() {
                   </div>
                 </div>
               )}
-              {profile.jobsPaused && (
+              {current.jobsPaused && (
                 <div className="body">
                   <p className="info amber" role="status">
                     {t('apply.jobsPaused')}
                   </p>
                 </div>
               )}
-              <ApprovedHome profile={profile} />
+              <ApprovedHome profile={current} onOnline={setOnline} />
             </>
           ) : (
-            <ApplicationStatus profile={profile} onChange={(next) => update(() => ({ profile: next }))} />
+            <ApplicationStatus profile={current} onChange={(next) => update(() => ({ profile: next }))} />
           )
         }
       </ResourceState>

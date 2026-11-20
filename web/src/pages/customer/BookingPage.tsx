@@ -175,7 +175,16 @@ export function proName(booking: CustomerBooking, fallback: string): string {
 function Timeline({ booking }: { booking: CustomerBooking }) {
   const { t } = useTranslation();
   const { timezone } = useMarket();
-  const reached = new Map(booking.events.map((e) => [e.status, e.at]));
+  // When a pro gave the job back (D86) the search starts again, so the steps after it count from then on.
+  const reached = new Map<BookingStatus, string>();
+  for (const event of booking.events) {
+    if (event.status === 'searching') {
+      for (const later of ['accepted', 'on_the_way', 'working', 'completed'] as const) reached.delete(later);
+      // "Booking confirmed" keeps the time the booking was first confirmed.
+      if (reached.has('searching')) continue;
+    }
+    reached.set(event.status, event.at);
+  }
   const currentIndex = (TIMELINE as readonly BookingStatus[]).indexOf(booking.status);
   return (
     <ol className="tl" aria-label={t('booking.timeline')}>
@@ -559,9 +568,24 @@ function BookingView({
             )}
           </section>
         )}
+        {booking.proIssueOpen && (
+          <p className="info amber" role="status">
+            <Icon name="bell" /> <span>{t('booking.proIssue', { name })}</span>
+          </p>
+        )}
         {tracking && (
           <section className="card" aria-label={t('booking.timeline')}>
             <Timeline booking={booking} />
+            {/* How far the pro is with the checklist (D86). */}
+            {(booking.status === 'working' || booking.status === 'completed') && (booking.tasks?.length ?? 0) > 0 && (
+              <p className="small muted" role="status">
+                <Icon name="check" />{' '}
+                {t('booking.tasksDone', {
+                  done: booking.tasks?.filter((task) => task.done).length ?? 0,
+                  total: booking.tasks?.length ?? 0,
+                })}
+              </p>
+            )}
           </section>
         )}
 

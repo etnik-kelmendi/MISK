@@ -2163,8 +2163,9 @@ describe('monthly plans in the apps', () => {
     const visit = {
       id: 'v1',
       subscriptionId: 'sub-1',
-      startsAt: new Date(Date.now() + 3600 * 1000).toISOString(),
-      endsAt: new Date(Date.now() + 7200 * 1000).toISOString(),
+      // Now, so it is on today's list on any clock.
+      startsAt: new Date().toISOString(),
+      endsAt: new Date(Date.now() + 3600 * 1000).toISOString(),
       status: 'planned',
       tasksDone: [],
       tasks: ['Mow', 'Edge'],
@@ -2179,7 +2180,9 @@ describe('monthly plans in the apps', () => {
     api.on('GET /pro/plans', { body: { plans: [{ ...lawn, mySubscribers: 3, earningsPerMonthCents: 3430, visitsPerMonth: 8.7 }] } });
     api.on('GET /pro/visits/v1', { body: { visit } });
     api.on('POST /pro/visits/v1/complete', { body: { visit: { status: 'completed', tasksDone: ['Mow', 'Edge'] } } });
-    renderAt('/pro');
+    api.on('GET /pro/earnings', { body: { earnings: { sentCents: 0, pendingCents: 0, last30Cents: 0 } } });
+    // The plans list is on My week since D86.
+    renderAt('/pro/week');
 
     const plans = await screen.findByRole('region', { name: 'Monthly plans in your trades' });
     expect(await within(plans).findByText('You earn €34.30/month')).toBeInTheDocument();
@@ -3358,26 +3361,7 @@ describe('booking pages (D83)', () => {
     expect(await screen.findByText('Declined')).toBeInTheDocument();
   });
 
-  it('asks the pro how long extra work takes', async () => {
-    const api = fakeApi(users.pro);
-    const job = { ...booking({ status: 'working' }), customer: { firstName: 'Sara' }, earningsCents: 3731 };
-    api.on('GET /pro/jobs/b1', { body: { job } });
-    api.on('POST /pro/jobs/b1/extras', {
-      status: 201,
-      body: { job: { ...job, extras: [{ id: 'x1', description: 'Trim the hedge', priceCents: 2000, durationMinutes: 90, status: 'pending', createdAt: '' }] } },
-    });
-    renderAt('/pro/jobs/b1');
-    await user().click(await screen.findByRole('button', { name: /Ask for extra work/ }));
-    await user().type(screen.getByLabelText('What extra work?'), 'Trim the hedge');
-    await user().type(screen.getByLabelText('Price in euros'), '20');
-    await user().click(screen.getByRole('button', { name: 'Send to customer' }));
-    expect(screen.getByText('Choose how long the extra work takes.')).toBeInTheDocument();
-    expect(api.calls).not.toContain('POST /pro/jobs/b1/extras');
-    await user().selectOptions(screen.getByLabelText('How long?'), '1 h 30 min');
-    await user().click(screen.getByRole('button', { name: 'Send to customer' }));
-    expect(api.bodies['POST /pro/jobs/b1/extras']).toEqual({ description: 'Trim the hedge', priceCents: 2000, durationMinutes: 90 });
-    expect(await screen.findByText('About 1 h 30 min')).toBeInTheDocument();
-  });
+  // Extra work from the MISK price list (D86) is covered in pages/pro/ProJobs.test.tsx.
 
   it("shares the pro's location while on the way, at most every 20 seconds, and explains a refusal", async () => {
     let onPosition: ((position: GeolocationPosition) => void) | null = null;

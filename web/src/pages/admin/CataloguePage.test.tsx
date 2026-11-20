@@ -189,8 +189,37 @@ describe('catalogue page', () => {
       priceCents: 2900,
       durationMinutes: 90,
       pricing: 'fixed',
+      tasks: [],
     });
     await waitFor(() => expect(screen.queryByRole('form', { name: 'Add service' })).not.toBeInTheDocument());
+  });
+
+  it("sets the tasks the pro ticks off, one per line, on a new service and on an existing one (D86)", async () => {
+    const api = setUp(catalogue({ services: [service({ tasks: ['Mow the lawn', 'Edge the borders'] })] }));
+    api.on('POST /admin/services', { status: 201, body: { service: service({ id: 'svc-new', name: 'Leaf clearing' }) } });
+    api.on('PATCH /admin/services/svc-mow', { body: { service: service() } });
+    renderAt('/admin/catalogue');
+    await screen.findByRole('table');
+    const mowing = rowOf('Lawn mowing');
+    expect(mowing).toHaveTextContent('Tasks: Mow the lawn · Edge the borders');
+    await user().click(within(mowing).getByRole('button', { name: 'Edit tasks of Lawn mowing' }));
+    const tasks = within(mowing).getByLabelText('Tasks the pro ticks off (one per line, optional)');
+    await user().type(tasks, '{Enter}Clear the clippings{Enter}{Enter}Mow the lawn');
+    await user().click(within(mowing).getByRole('button', { name: 'Save tasks' }));
+    expect(api.bodies['PATCH /admin/services/svc-mow']).toEqual({ tasks: ['Mow the lawn', 'Edge the borders', 'Clear the clippings'] });
+    expect(await within(rowOf('Lawn mowing')).findByText('Tasks saved. They apply to new bookings only.')).toBeInTheDocument();
+
+    await user().click(screen.getByRole('button', { name: 'Add service' }));
+    const form = screen.getByRole('form', { name: 'Add service' });
+    await user().type(within(form).getByLabelText('Name'), 'Leaf clearing');
+    await user().type(within(form).getByLabelText('Price (€)'), '29');
+    await user().type(within(form).getByLabelText('Tasks the pro ticks off (one per line, optional)'), Array.from({ length: 9 }, (_, i) => `Task ${i + 1}`).join('{Enter}'));
+    await user().click(within(form).getByRole('button', { name: 'Add' }));
+    expect(within(form).getByText('Enter at most 8 tasks of up to 80 characters each.')).toBeInTheDocument();
+    expect(api.calls).not.toContain('POST /admin/services');
+    await user().type(within(form).getByLabelText('Tasks the pro ticks off (one per line, optional)'), '{Backspace}{Backspace}{Backspace}{Backspace}{Backspace}{Backspace}{Backspace}');
+    await user().click(within(form).getByRole('button', { name: 'Add' }));
+    expect((api.bodies['POST /admin/services'] as { tasks: string[] }).tasks).toHaveLength(8);
   });
 
   it('explains the sizes with their factors and an example price from the trade', async () => {

@@ -39,6 +39,8 @@ export interface Service {
   pricing: 'fixed' | 'hourly';
   /** Added in the last 14 days. */
   isNew: boolean;
+  /** What the pro ticks off on the job (D86); none means the service itself is the one task. */
+  tasks?: string[];
 }
 
 export interface Category {
@@ -111,7 +113,31 @@ export interface BookingBase {
   photos: { id: string; kind: 'customer' | 'completion' | 'problem' }[];
   extras: Extra[];
   rating: { stars: number; tags: string[]; review?: string | null } | null;
+  /** The job's checklist (D86): the booked services' tasks, then approved extra work. */
+  tasks?: JobTask[];
 }
+
+/** One line of a job's checklist (D86). */
+export interface JobTask {
+  key: string;
+  label: string;
+  done: boolean;
+}
+
+/** One item of the MISK price list a pro picks extra work from (D86). */
+export interface PriceItem {
+  id: string;
+  name: string;
+  priceCents: number;
+  durationMinutes: number;
+}
+
+export const ISSUE_REASONS = ['customer_not_home', 'no_access', 'bigger_job', 'unsafe', 'other'] as const;
+export type IssueReason = (typeof ISSUE_REASONS)[number];
+export const PRO_CANCEL_REASONS = ['ill', 'vehicle', 'family', 'double_booked', 'other'] as const;
+export type ProCancelReason = (typeof PRO_CANCEL_REASONS)[number];
+export const CUSTOMER_RATING_TAGS = ['easy_access', 'clear_instructions', 'friendly', 'on_time'] as const;
+export type CustomerRatingTag = (typeof CUSTOMER_RATING_TAGS)[number];
 
 export interface ProSummary {
   id: string;
@@ -170,11 +196,26 @@ export interface CustomerBooking extends BookingBase, Money {
   flexibleWindow?: 'morning' | 'afternoon' | 'any' | null;
   timeConfirmed?: boolean;
   confirmBy?: string | null;
+  /** The pro asked MISK support for help on site (D86). */
+  proIssueOpen?: boolean;
 }
 
 export interface ProJob extends BookingBase {
-  customer: { firstName: string | null };
+  /** The customer's stars from earlier pros (D86); null for a customer nobody has rated yet. */
+  customer: { firstName: string | null; ratingAverage?: number | null; ratingCount?: number };
   earningsCents: number;
+  /** The pro's share of the job and of extra work, in percent (D86). */
+  proSharePct?: number;
+  /** Chat messages from the customer the pro has not opened yet. */
+  unreadMessages?: number;
+  /** An issue this pro reported that MISK support has not resolved yet (D86). */
+  openIssue?: { id: string; reason: IssueReason; createdAt: string } | null;
+  /** The pro can give the job back until work starts; under 24 hours before the start it is late (D86). */
+  canCancel?: boolean;
+  cancelIsLate?: boolean;
+  /** The pro's private rating of the customer (D86). */
+  customerRating?: { stars: number; tags: CustomerRatingTag[] } | null;
+  canRateCustomer?: boolean;
 }
 
 /** What the team sees about a customer in the booking and plan visit panels. */
@@ -195,6 +236,9 @@ export interface CustomerProfile {
   ratingsGiven: number;
   averageStarsGiven: number | null;
   problemsReported: number;
+  /** How pros rated this customer after jobs (D86). */
+  proRatingAverage?: number | null;
+  proRatingCount?: number;
   lateCancellations: number;
   lastBookingAt: string | null;
 }
@@ -209,9 +253,34 @@ export interface AdminBooking extends BookingBase, Money {
   payouts: { amountCents: number; status: string; error: string | null; createdAt: string }[];
   actions: AdminAction[];
   split: { proCents: number; miskCents: number };
+  /** Issues the pro reported on site (D86), newest first. */
+  issues?: AdminIssue[];
+  /** The pro's private rating of the customer (D86). */
+  customerRating?: { stars: number; tags: CustomerRatingTag[]; createdAt: string } | null;
+  /** Pros who gave this job back (D86), newest first. */
+  proCancellations?: { proName: string | null; reason: ProCancelReason; note: string | null; late: boolean; createdAt: string }[];
 }
 
-export type AdminActionKind = 'assigned' | 'restarted_search' | 'rescheduled' | 'cancelled' | 'refunded' | 'charged_after_problem';
+export interface AdminIssue {
+  id: string;
+  proId: string;
+  proName: string | null;
+  reason: IssueReason;
+  details: string | null;
+  createdAt: string;
+  resolvedAt: string | null;
+}
+
+export type AdminActionKind =
+  | 'assigned'
+  | 'restarted_search'
+  | 'rescheduled'
+  | 'cancelled'
+  | 'refunded'
+  | 'charged_after_problem'
+  | 'pro_cancelled'
+  | 'issue_reported'
+  | 'issue_resolved';
 
 /** One change the team made to a booking. */
 export interface AdminAction {
@@ -226,6 +295,9 @@ export interface AdminAction {
     /** Why the team cancelled, and whether the customer was sent it (D63). */
     note?: string;
     sentToCustomer?: boolean;
+    /** Why the pro cancelled or what they reported (D86). */
+    reason?: string;
+    late?: boolean;
   };
   createdAt: string;
   adminName: string | null;
@@ -350,6 +422,8 @@ export interface Offer {
   /** A flexible job (D70): its window, and the starts this pro is free for, one of which they pick. */
   flexibleWindow?: 'morning' | 'afternoon' | 'any' | null;
   startOptions?: string[] | null;
+  /** The customer's stars from earlier pros (D86). */
+  customerRating?: number | null;
 }
 
 export interface JobListItem {
@@ -396,6 +470,10 @@ export interface ProProfile {
   /** The pro's profile photo, shown to their customers (D83). */
   photoId?: string | null;
   trades: string[];
+  /** The Jobs page (D86): the online switch, the trades by name and a pause after late cancellations. */
+  online?: boolean;
+  tradeNames?: string[];
+  offersPausedUntil?: string | null;
   documents: Record<DocumentKind, (ProDocument & { state: CheckState }) | null>;
 }
 
@@ -601,6 +679,8 @@ export interface AdminBookingListItem {
   /** A booking's payment, or a plan visit's subscription status. */
   paymentStatus: string;
   problem: boolean;
+  /** The pro reported an issue on site that the team has not resolved (D86). */
+  proIssue?: boolean;
   tab: Exclude<AdminTab, 'all'>;
 }
 

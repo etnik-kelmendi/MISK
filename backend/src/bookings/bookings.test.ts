@@ -312,20 +312,21 @@ describe('doing the job', () => {
     const bookingId = await acceptFirstOffer(pro.cookie);
     await walkToWorking(pro.cookie, bookingId);
 
-    const ask = (description: string, priceCents: number) =>
-      call(t, 'POST', `/pro/jobs/${bookingId}/extras`, { cookie: pro.cookie, body: { description, priceCents, durationMinutes: 30 } });
-    expect((await ask('Trim the front hedge', 2000)).statusCode).toBe(201);
-    expect(errorOf(await ask('Water the pots', 500))).toBe('extra_already_pending');
+    // Extra work comes from the MISK price list (D86): the hedge at the job's size, or 30 minutes at the job's rate.
+    const ask = (itemId: string) => call(t, 'POST', `/pro/jobs/${bookingId}/extras`, { cookie: pro.cookie, body: { itemId } });
+    expect((await ask(`service:${market.hedge}`)).statusCode).toBe(201);
+    expect(errorOf(await ask('time:30'))).toBe('extra_already_pending');
 
     const [hedge] = (await booking(bookingId)).extras;
+    expect(hedge).toMatchObject({ description: 'Hedge trimming', priceCents: 5850 });
     const approved = await call(t, 'POST', `/bookings/${bookingId}/extras/${hedge.id}/approve`, { cookie: customer });
-    expect(approved.json().booking).toMatchObject({ extrasCents: 2000, totalCents: 4840 + 2000 });
+    expect(approved.json().booking).toMatchObject({ extrasCents: 5850, totalCents: 4840 + 5850 });
     expect(approved.json().payment).toBeNull();
 
-    expect((await ask('Water the pots', 500)).statusCode).toBe(201);
-    const pots = (await booking(bookingId)).extras[1];
-    await call(t, 'POST', `/bookings/${bookingId}/extras/${pots.id}/decline`, { cookie: customer });
-    expect((await ask('Clean the gutter', 1500)).statusCode).toBe(201);
+    expect((await ask('time:30')).statusCode).toBe(201);
+    const time = (await booking(bookingId)).extras[1];
+    await call(t, 'POST', `/bookings/${bookingId}/extras/${time.id}/decline`, { cookie: customer });
+    expect((await ask('time:30')).statusCode).toBe(201);
 
     await upload(t, `/pro/jobs/${bookingId}/photos`, pro.cookie, FILES.png);
     await call(t, 'POST', `/pro/jobs/${bookingId}/complete`, { cookie: pro.cookie });
@@ -333,8 +334,8 @@ describe('doing the job', () => {
 
     const seen = await booking(bookingId);
     expect(seen.extras.map((e: { status: string }) => e.status)).toEqual(['approved', 'declined', 'cancelled']);
-    expect(seen.totalCents).toBe(6840);
-    expect(t.fake.transfers.map((x) => x.amountCents).sort()).toEqual([1640, 3731]);
+    expect(seen.totalCents).toBe(10690);
+    expect(t.fake.transfers.map((x) => x.amountCents).sort()).toEqual([3731, 4797]);
   });
 
   it('tries again later when the payment provider fails at charge time', async () => {

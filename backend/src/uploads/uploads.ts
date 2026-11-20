@@ -89,7 +89,7 @@ async function findReadableUpload(db: Queryable, user: User, uploadId: string) {
        -- A photo sent in a booking's chat: that booking's customer and pro (D83).
        OR EXISTS (
          SELECT 1 FROM booking_messages m JOIN bookings b ON b.id = m.booking_id
-         WHERE m.photo_id = u.id AND (b.customer_id = $2 OR b.pro_id = $2)
+         WHERE m.photo_id = u.id AND (b.customer_id = $2 OR (b.pro_id = $2 AND m.pro_id = $2))
        )
      )`,
     [uploadId, user.id, user.role],

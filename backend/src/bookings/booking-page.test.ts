@@ -313,15 +313,15 @@ describe('chat photos and read-only chat (D83)', () => {
 });
 
 describe('extra work duration (D83)', () => {
-  it('needs how long the extra work takes, from 5 minutes to 8 hours, and shows it to the customer', async () => {
+  it('takes how long the extra work takes from the price list (D86), and shows it to the customer', async () => {
     const { bookingId, pro } = await assignedJob();
     const ask = (body: Record<string, unknown>) => post(`/pro/jobs/${bookingId}/extras`, body, pro.cookie);
-    expect((await ask({ description: 'Trim the hedge', priceCents: 2000 })).statusCode).toBe(400);
-    expect((await ask({ description: 'Trim the hedge', priceCents: 2000, durationMinutes: 4 })).statusCode).toBe(400);
-    expect((await ask({ description: 'Trim the hedge', priceCents: 2000, durationMinutes: 481 })).statusCode).toBe(400);
-    expect((await ask({ description: 'Trim the hedge', priceCents: 2000, durationMinutes: 30.5 })).statusCode).toBe(400);
-    expect((await ask({ description: 'Trim the hedge', priceCents: 2000, durationMinutes: 30 })).statusCode).toBe(201);
-    expect((await view(bookingId)).extras).toEqual([expect.objectContaining({ description: 'Trim the hedge', durationMinutes: 30, status: 'pending' })]);
+    // The app cannot set the length (or the price) itself.
+    expect((await ask({ itemId: 'time:30', durationMinutes: 5 })).statusCode).toBe(400);
+    expect((await ask({ itemId: 'time:30' })).statusCode).toBe(201);
+    expect((await view(bookingId)).extras).toEqual([
+      expect.objectContaining({ description: 'Extra 30 minutes of work', durationMinutes: 30, status: 'pending' }),
+    ]);
 
     // Requests from before have no duration.
     await call(t, 'POST', `/bookings/${bookingId}/extras/${(await view(bookingId)).extras[0].id}/decline`, { cookie: customer });

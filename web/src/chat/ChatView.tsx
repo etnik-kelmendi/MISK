@@ -28,7 +28,7 @@ export interface ChatEvent {
 /**
  * The chat between the customer and the pro of one booking (D67): messages, with the booking's own events
  * (accepted, on the way, extra work requests) in between, quick replies, a message field and a photo button
- * (D83). Photos open full screen.
+ * (D83). Photos open full screen. Inside a pop-up (`inSheet`, D86) the pop-up's own title replaces the header.
  */
 export function ChatView({
   side,
@@ -43,6 +43,7 @@ export function ChatView({
   quickReplies,
   closedFooter,
   closedText,
+  inSheet = false,
 }: {
   side: 'customer' | 'pro';
   /** The API path of the messages, e.g. /bookings/b1/messages. */
@@ -54,13 +55,16 @@ export function ChatView({
   otherDetail?: string;
   statusLine: string;
   subtitle: string;
-  back: string;
+  /** Where the header's back arrow goes; not needed inside a pop-up. */
+  back?: string;
   events: ChatEvent[];
   quickReplies: string[];
   /** Shown instead of the message field when the chat is closed, e.g. "Rate Daniel". */
   closedFooter?: ReactNode;
   /** Why the chat is closed, e.g. "This job is done, so the chat is read-only." */
   closedText?: string;
+  /** Shown in a pop-up (D86): no page header, and the conversation scrolls inside the pop-up. */
+  inSheet?: boolean;
 }) {
   const { t } = useTranslation();
   const api = useApi();
@@ -106,20 +110,24 @@ export function ChatView({
   }
 
   return (
-    <div className="chat">
-      <header className="appbar chat-head">
-        <Link to={back} className="iconbtn" aria-label={t('common.back')}>
-          <Icon name="chevL" />
-        </Link>
-        <Avatar name={otherName} photoId={otherPhotoId} size="sm" />
-        <div className="grow">
-          <h1 className="b chat-name">{otherName}</h1>
-          <p className="tiny brand-text b">
-            {statusLine}
-            {otherDetail && <span className="muted"> · {otherDetail}</span>}
-          </p>
-        </div>
-      </header>
+    <div className={`chat ${inSheet ? 'in-sheet' : ''}`}>
+      {!inSheet && (
+        <header className="appbar chat-head">
+          {back && (
+            <Link to={back} className="iconbtn" aria-label={t('common.back')}>
+              <Icon name="chevL" />
+            </Link>
+          )}
+          <Avatar name={otherName} photoId={otherPhotoId} size="sm" />
+          <div className="grow">
+            <h1 className="b chat-name">{otherName}</h1>
+            <p className="tiny brand-text b">
+              {statusLine}
+              {otherDetail && <span className="muted"> · {otherDetail}</span>}
+            </p>
+          </div>
+        </header>
+      )}
       <ResourceState state={state} reload={reload}>
         {({ messages, canWrite: open }) => {
           const items = [
@@ -129,7 +137,7 @@ export function ChatView({
           return (
             <>
               <div className="chat-body" role="log" aria-label={t('chat.conversation', { name: otherName })} aria-live="polite">
-                <p className="tiny muted center">{subtitle}</p>
+                <p className="tiny muted center">{inSheet ? `${statusLine} · ${subtitle}` : subtitle}</p>
                 {items.length === 0 && <p className="small muted center">{t('chat.empty', { name: otherName })}</p>}
                 {items.map((item) =>
                   'message' in item && item.message ? (

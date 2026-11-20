@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { useApi } from '../../api/ApiContext';
 import { useMarket } from '../../api/MarketContext';
-import type { AdminAction, AdminBooking, AdminVisit, BookingStatus } from '../../api/types';
+import type { AdminAction, AdminBooking, AdminVisit, BookingStatus, IssueReason, ProCancelReason } from '../../api/types';
 import { useResource } from '../../api/useResource';
 import { Drawer } from '../../components/Drawer';
 import { ErrorText } from '../../components/ErrorText';
@@ -151,6 +151,19 @@ function LogLine({ entry }: { entry: AdminAction }) {
         return entry.details.wasCharged
           ? t('admin.booking.logAction.refunded', { amount })
           : t('admin.booking.logAction.refundedHold', { amount });
+      // What the pro did on the job (D86).
+      case 'pro_cancelled':
+        return t(entry.details.late ? 'admin.booking.logAction.pro_cancelled_late' : 'admin.booking.logAction.pro_cancelled', {
+          name: entry.details.proName ?? '',
+          reason: t(`proCancel.reasons.${(entry.details.reason ?? 'other') as ProCancelReason}`),
+        });
+      case 'issue_reported':
+        return t('admin.booking.logAction.issue_reported', {
+          name: entry.details.proName ?? '',
+          reason: t(`issue.reasons.${(entry.details.reason ?? 'other') as IssueReason}`),
+        });
+      case 'issue_resolved':
+        return t('admin.booking.logAction.issue_resolved', { reason: t(`issue.reasons.${(entry.details.reason ?? 'other') as IssueReason}`) });
       default:
         return t(`admin.booking.logAction.${entry.action}`);
     }
@@ -158,6 +171,9 @@ function LogLine({ entry }: { entry: AdminAction }) {
   return (
     <li>
       {text}
+      {(entry.action === 'pro_cancelled' || entry.action === 'issue_reported') && entry.details.note && (
+        <div className="small log-note">{t('admin.booking.proNote', { note: entry.details.note })}</div>
+      )}
       {entry.action === 'cancelled' && entry.details.note && (
         <div className="small log-note">
           {t('admin.booking.cancelNote.logged', { note: entry.details.note })}{' '}
@@ -170,6 +186,60 @@ function LogLine({ entry }: { entry: AdminAction }) {
         {t('admin.booking.logBy', { name: entry.adminName ?? '–', date: dateTime(entry.createdAt, timezone) })}
       </div>
     </li>
+  );
+}
+
+/**
+ * What the pro reported on site and the jobs pros gave back (D86). An open issue keeps the booking under
+ * Needs action until someone in the team marks it resolved.
+ */
+function ProReports({ booking, onChanged }: { booking: AdminBooking; onChanged: (b: AdminBooking) => void }) {
+  const { t } = useTranslation();
+  const api = useApi();
+  const { timezone } = useMarket();
+  const action = useAction();
+  const issues = booking.issues ?? [];
+  const cancellations = booking.proCancellations ?? [];
+  if (issues.length === 0 && cancellations.length === 0) return null;
+
+  async function resolve(issueId: string) {
+    const result = await action.run(() =>
+      api.post<{ booking: AdminBooking }>(`/admin/bookings/${encodeURIComponent(booking.id)}/issues/${encodeURIComponent(issueId)}/resolve`),
+    );
+    if (result) onChanged(result.booking);
+  }
+
+  return (
+    <section className="stack" aria-labelledby="pro-reports-heading">
+      <h3 id="pro-reports-heading">{t('admin.booking.proReports')}</h3>
+      {issues.map((issue) => (
+        <div key={issue.id} className={`note stack ${issue.resolvedAt ? '' : 'warn-note'}`} role={issue.resolvedAt ? undefined : 'status'}>
+          <p>
+            <b>{t('admin.booking.issueBy', { name: issue.proName ?? '', reason: t(`issue.reasons.${issue.reason}`) })}</b>{' '}
+            <span className="small muted">{dateTime(issue.createdAt, timezone)}</span>
+          </p>
+          {issue.details && <blockquote className="small">{issue.details}</blockquote>}
+          {issue.resolvedAt ? (
+            <p className="small muted">{t('admin.booking.issueResolvedAt', { date: dateTime(issue.resolvedAt, timezone) })}</p>
+          ) : (
+            <button type="button" className="abtn" disabled={action.busy} onClick={() => void resolve(issue.id)}>
+              {t('admin.booking.resolveIssue')}
+            </button>
+          )}
+        </div>
+      ))}
+      {cancellations.map((entry) => (
+        <p key={entry.createdAt} className="small">
+          {t(entry.late ? 'admin.booking.proCancelledLate' : 'admin.booking.proCancelled', {
+            name: entry.proName ?? '',
+            reason: t(`proCancel.reasons.${entry.reason}`),
+            date: dateTime(entry.createdAt, timezone),
+          })}
+          {entry.note && <span className="block muted">“{entry.note}”</span>}
+        </p>
+      ))}
+      <ErrorText error={action.error} />
+    </section>
   );
 }
 
@@ -470,6 +540,14 @@ function BookingDetails({ booking, onChanged }: { booking: AdminBooking; onChang
         <dd>{booking.notes || '–'}</dd>
       </dl>
       {booking.customerProfile && <CustomerProfileCard profile={booking.customerProfile} />}
+      {booking.customerRating && (
+        <p className="small">
+          {t('admin.booking.customerRated', { stars: booking.customerRating.stars, name: booking.pro?.firstName ?? '' })}
+          {booking.customerRating.tags.length > 0 &&
+            ` · ${booking.customerRating.tags.map((tag) => t(`customerRating.tags.${tag}`)).join(', ')}`}
+        </p>
+      )}
+      <ProReports booking={booking} onChanged={onChanged} />
 
       <section className="stack" aria-label={t('admin.booking.money')}>
         <h3>{t('admin.booking.money')}</h3>

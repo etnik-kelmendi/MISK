@@ -10,6 +10,7 @@ export function Sheet({
   closeLabel,
   onClose,
   footer,
+  bodyClassName,
   children,
 }: {
   title: string;
@@ -17,6 +18,8 @@ export function Sheet({
   onClose: () => void;
   /** Buttons along the bottom edge. */
   footer?: ReactNode;
+  /** Extra classes for the scrolling body, e.g. "flush" for a chat that brings its own spacing. */
+  bodyClassName?: string;
   children: ReactNode;
 }) {
   const titleId = useId();
@@ -55,7 +58,7 @@ export function Sheet({
             <Icon name="x" />
           </button>
         </div>
-        <div className="sheet-body">{children}</div>
+        <div className={`sheet-body ${bodyClassName ?? ''}`}>{children}</div>
         {footer && <div className="sheet-foot">{footer}</div>}
       </div>
     </div>

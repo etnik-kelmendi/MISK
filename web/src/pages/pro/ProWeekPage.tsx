@@ -10,6 +10,7 @@ import { StatusBadge } from '../../components/StatusBadge';
 import { Icon } from '../../components/Icon';
 import { dayKey, dayParts, euro, time } from '../../lib/format';
 import { loadSchedule, type ScheduleItem } from '../../lib/proSchedule';
+import { ProPlansSection } from './ProVisitPage';
 
 const DAY_MS = 24 * 3600 * 1000;
 
@@ -127,6 +128,8 @@ export function ProWeekPage() {
             );
           }}
         </ResourceState>
+        {/* The plans in the pro's trades moved here from the Jobs page, which follows the design (D86). */}
+        <ProPlansSection />
       </div>
     </>
   );

@@ -20,6 +20,9 @@ export interface CustomerProfile {
   ratingsGiven: number;
   averageStarsGiven: number | null;
   problemsReported: number;
+  /** How the customer's pros rated them after jobs (D86), private to MISK. */
+  proRatingAverage: number | null;
+  proRatingCount: number;
   lateCancellations: number;
   lastBookingAt: Date | null;
 }
@@ -50,6 +53,8 @@ export async function loadCustomerProfile(db: Queryable, customerId: string): Pr
        (SELECT round(avg(r.stars)::numeric, 1)::float FROM ratings r JOIN bookings b ON b.id = r.booking_id
           WHERE b.customer_id = u.id) AS "averageStarsGiven",
        (SELECT count(*)::int FROM bookings b WHERE b.customer_id = u.id AND b.problem_reported_at IS NOT NULL) AS "problemsReported",
+       (SELECT round(avg(cr.stars)::numeric, 1)::float FROM customer_ratings cr WHERE cr.customer_id = u.id) AS "proRatingAverage",
+       (SELECT count(*)::int FROM customer_ratings cr WHERE cr.customer_id = u.id) AS "proRatingCount",
        (SELECT count(*)::int FROM bookings b WHERE b.customer_id = u.id AND b.late_cancel) AS "lateCancellations",
        (SELECT max(b.created_at) FROM bookings b WHERE b.customer_id = u.id AND b.status <> 'awaiting_payment') AS "lastBookingAt"
      FROM users u WHERE u.id = $1`,

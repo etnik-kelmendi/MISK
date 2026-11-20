@@ -5,6 +5,7 @@ import type { AppContext } from '../context.js';
 import { withTransaction } from '../db.js';
 import { badRequest, conflict, notFound } from '../errors.js';
 import { readNamedFile, storeUpload } from '../uploads/uploads.js';
+import { LATE_CANCEL_PAUSE_DAYS, LATE_CANCEL_PAUSED } from '../bookings/dispatch.js';
 import { nextPayoutDate, type PayoutInterval } from '../payments/payouts.js';
 import { DOCUMENT_KINDS, EXPIRING_KINDS, checkOf, marketToday, DOCUMENT_COLUMNS, type DocumentKind, type DocumentRow } from './checks.js';
 
@@ -23,7 +24,14 @@ async function loadProfile(ctx: AppContext, userId: string) {
        p.working_days AS "workingDays", p.review_note AS "reviewNote", p.payouts_enabled AS "payoutsEnabled",
        p.jobs_paused_at IS NOT NULL AS "jobsPaused", p.suspended_reason AS "suspendedReason",
        p.stripe_account_id IS NOT NULL AS "hasPayoutAccount", p.photo_upload_id AS "photoId", ${RATING_SQL},
-       COALESCE((SELECT array_agg(category_id) FROM pro_trades WHERE pro_id = p.user_id), '{}') AS trades
+       COALESCE((SELECT array_agg(category_id) FROM pro_trades WHERE pro_id = p.user_id), '{}') AS trades,
+       -- The Jobs page (D86): the online switch, the trade names, and a pause after late cancellations.
+       p.online,
+       COALESCE((SELECT array_agg(c.name ORDER BY c.sort_order, c.name) FROM pro_trades t JOIN categories c ON c.id = t.category_id
+                 WHERE t.pro_id = p.user_id), '{}') AS "tradeNames",
+       (SELECT max(c.created_at) + make_interval(days => ${LATE_CANCEL_PAUSE_DAYS}) FROM pro_cancellations c
+        WHERE c.pro_id = p.user_id AND c.late AND c.created_at > now() - make_interval(days => ${LATE_CANCEL_PAUSE_DAYS})
+          AND ${LATE_CANCEL_PAUSED}) AS "offersPausedUntil"
      FROM pro_profiles p WHERE p.user_id = $1`,
     [userId],
   );

@@ -52,6 +52,12 @@ export function CustomerProfileCard({ profile }: { profile: CustomerProfile }) {
             ? t('admin.customer.noRatings')
             : t('admin.customer.ratingsLine', { count: profile.ratingsGiven, average: profile.averageStarsGiven?.toFixed(1) ?? '–' })}
         </dd>
+        <dt>{t('admin.customer.ratedByPros')}</dt>
+        <dd>
+          {!profile.proRatingCount
+            ? t('admin.customer.notRatedByPros')
+            : t('admin.customer.ratedByProsLine', { count: profile.proRatingCount, average: profile.proRatingAverage?.toFixed(1) ?? '–' })}
+        </dd>
         <dt>{t('admin.customer.problems')}</dt>
         <dd className={profile.problemsReported > 0 ? 'b' : undefined}>{profile.problemsReported}</dd>
         <dt>{t('admin.customer.lateCancels')}</dt>

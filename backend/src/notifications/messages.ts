@@ -103,6 +103,12 @@ export const messages = {
   jobsPaused: () => 'MISK: the team has paused new jobs for you for now. Your booked jobs stay. We will contact you.',
   jobsResumed: () => 'MISK: new jobs are switched on again for you.',
   coachingCall: (when: string) => `MISK: we booked a short call with you on ${when} to help with your jobs. We will phone you then.`,
+  setOfflineAfterMissedOffers: (missed: number) =>
+    `MISK: you missed ${missed} job offers in a row, so you are now offline and get no new offers. Go online in the app when you are ready.`,
+  proCancelledJob: (service: string, when: string, proName: string) =>
+    `MISK: ${proName} can no longer do your ${service} on ${when}. We are finding you another pro now; you do not need to do anything.`,
+  proWaitingAtDoor: (proName: string, service: string, address: string) =>
+    `MISK: ${proName} is at ${address} for your ${service} but cannot get in. Please reply in the chat in the MISK app.`,
   proReplaced: (service: string, when: string) =>
     `MISK: your pro can no longer do your ${service} on ${when}. We are finding you another pro now.`,
   planProReplaced: (plan: string, proName: string) => `MISK: ${proName} is your new regular pro for ${plan}.`,

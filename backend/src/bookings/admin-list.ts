@@ -11,7 +11,7 @@ export type Tab = (typeof TABS)[number];
 
 /**
  * One-off bookings and plan visits as one list, each in exactly one tab:
- * - needs_action: no pro, a problem the customer reported, still searching under 2 hours before the start,
+ * - needs_action: no pro, a problem the customer reported, an on-site issue the pro reported (D86), still searching under 2 hours before the start,
  *   money still held on a cancelled job, a failed payout, or a plan visit whose time passed without completion
  * - live: a pro is on the way or working, or a plan visit is happening now
  * - upcoming: booked and not yet started
@@ -30,9 +30,11 @@ export const ITEMS = `
         WHERE e.booking_id = b.id AND e.status = 'approved'), 0)::int AS value_cents,
       b.payment_status::text AS payment_status,
       (b.problem_reported_at IS NOT NULL AND b.problem_resolved_at IS NULL) AS problem,
+      EXISTS (SELECT 1 FROM booking_issues i WHERE i.booking_id = b.id AND i.resolved_at IS NULL) AS pro_issue,
       CASE
         WHEN b.status = 'unassigned'
           OR (b.problem_reported_at IS NOT NULL AND b.problem_resolved_at IS NULL)
+          OR EXISTS (SELECT 1 FROM booking_issues i WHERE i.booking_id = b.id AND i.resolved_at IS NULL)
           OR (b.status = 'searching' AND b.starts_at < now() + interval '2 hours')
           OR (b.status = 'cancelled' AND b.payment_status = 'held')
           OR EXISTS (SELECT 1 FROM payouts p WHERE p.booking_id = b.id AND p.status = 'failed') THEN 'needs_action'
@@ -50,7 +52,7 @@ export const ITEMS = `
     SELECT 'visit', v.id, 'V-' || v.number, v.starts_at, v.ends_at, s.plan_name, s.category_id, cat.name,
       cu.first_name, s.address, s.postcode, pu.first_name, v.status::text,
       round(s.price_cents / CASE s.frequency ${PER_MONTH_CASES} END)::int,
-      s.status::text, false,
+      s.status::text, false, false,
       CASE
         WHEN v.status = 'planned' AND v.ends_at <= now() THEN 'needs_action'
         WHEN v.status = 'planned' AND v.starts_at <= now() THEN 'live'
@@ -105,7 +107,7 @@ export async function adminListRoutes(app: FastifyInstance, ctx: AppContext) {
           `${ITEMS}
            SELECT kind, id, number, starts_at AS "startsAt", ends_at AS "endsAt", service, category_id AS "categoryId", trade,
              customer, address, postcode, pro, status, value_cents AS "valueCents", payment_status AS "paymentStatus",
-             problem, tab
+             problem, pro_issue AS "proIssue", tab
            FROM items
            WHERE ${FILTERS} AND ($4::text = 'all' OR tab = $4)
            ORDER BY (tab = 'needs_action') DESC, abs(extract(epoch FROM starts_at - now())) ASC

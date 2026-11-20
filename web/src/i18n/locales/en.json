@@ -126,7 +126,7 @@
     "pause_started": "This pause has already started, so it can no longer be called off.",
     "pause_withdrawn": "This pause was already called off.",
     "visit_not_started": "You can complete a visit on its day.",
-    "unknown_task": "That task is not part of this plan.",
+    "unknown_task": "That task is not on this checklist.",
     "checks_open": "All four checks must be OK before you can approve this pro.",
     "expiry_required": "Enter the date the document is valid until.",
     "document_expired": "This document has expired. Please upload a valid document: the date it is valid until must be today or later.",
@@ -180,7 +180,15 @@
     "time_not_on_day": "That time is not on the day you chose.",
     "flexible_needs_time": "This flexible job has no time yet. Set the time with Change time first, then choose the pro.",
     "card_not_found": "That card is no longer saved. Choose another way to pay.",
-    "not_your_pro": "You can save a pro once they have done a job for you."
+    "not_your_pro": "You can save a pro once they have done a job for you.",
+    "unknown_price_item": "That item is no longer on the price list. Choose another.",
+    "issue_already_open": "You already reported an issue on this job. MISK support is on it.",
+    "too_many_issues": "You have reported several issues on this job. MISK support will contact you.",
+    "details_required": "Describe what's wrong.",
+    "issue_not_open": "This issue was already resolved.",
+    "job_started": "Work has started, so this job can no longer be cancelled. Report an issue instead.",
+    "reason_note_required": "Write a short reason.",
+    "customer_not_ratable": "You can rate the customer for 7 days after the job is done."
   },
   "nav": {
     "customer": "Main menu",
@@ -421,7 +429,12 @@
     "mapLabel": "Map: {{name}} is about {{distance}} km from your home at {{address}}.",
     "mapWaiting": "Map of your home at {{address}}. {{name}}'s position is not known yet.",
     "mapHome": "Your home",
-    "mapAttribution": "© OpenStreetMap contributors"
+    "mapAttribution": "© OpenStreetMap contributors",
+    "checklist": "Checklist",
+    "tasksDone": "{{done}} of {{total}} tasks done",
+    "taskDone": "done",
+    "taskTodo": "not done yet",
+    "proIssue": "{{name}} asked MISK support for help with this job. Support may contact you."
   },
   "timeline": {
     "searching": "Booking confirmed",
@@ -606,8 +619,18 @@
     "payoutsNeeded": "Set up payouts to start getting jobs.",
     "noOffers": "No new job requests right now. New jobs appear here and by text message.",
     "noOffersUntilPayouts": "You get job requests once payouts are set up.",
-    "upcoming": "Your upcoming jobs",
-    "noJobs": "No jobs planned."
+    "offline": "Offline",
+    "onlineSwitch": "Online for new job offers",
+    "nowOnline": "You're online and can get job offers.",
+    "nowOffline": "You're offline, no new job offers.",
+    "offlineTitle": "You're offline",
+    "offlineText": "No new job offers come in. Accepted jobs and plan visits stay in your schedule.",
+    "goOnline": "Go online",
+    "offlineAuto": "Offers only come for your working days, and you go offline automatically after 3 missed offers in a row.",
+    "offersPaused": "New job offers are paused until {{date}}, because you cancelled 3 jobs late within 30 days.",
+    "laterToday": "Later today",
+    "nothingToday": "Nothing else planned for today.",
+    "seeWeek": "See my week"
   },
   "offer": {
     "new": "New job request",
@@ -626,33 +649,23 @@
     "flexibleWhen": "{{day}}, {{window}} · you pick the time",
     "pickStart": "Pick your start time",
     "noStart": "You are not free at any time in this window.",
-    "acceptAt": "Accept, start {{time}}"
+    "acceptAt": "Accept, start {{time}}",
+    "customerRated": "{{name}} · ★ {{rating}} customer",
+    "customerNew": "{{name}} · new customer"
   },
   "job": {
     "title": "Job",
     "customer": "Customer: {{name}}",
     "progress": "Job progress",
     "customerPhotos": "Customer photo",
-    "addExtra": "Ask for extra work",
-    "extraWhat": "What extra work?",
-    "extraPrice": "Price in euros",
-    "extraPriceInvalid": "Enter an amount such as 20 or 19.50.",
-    "extraExplained": "The customer approves or declines in the app. Nothing is charged without their approval.",
-    "sendExtra": "Send to customer",
+    "addExtra": "Add extra work",
     "photos": "Photos of the finished work",
     "addPhoto": "Add a photo",
-    "earned": "You earned",
-    "paidOut": "Paid out with your next weekly payout",
     "go": {
       "on_the_way": "Start driving",
-      "working": "I've arrived, start the job"
+      "working": "I've arrived, start job"
     },
-    "complete": "Complete the job",
-    "photoFirst": "Add a photo to complete",
-    "chat": "Chat",
-    "extraDuration": "How long?",
-    "extraDurationChoose": "Choose",
-    "extraTakes": "About {{duration}}",
+    "complete": "Complete job",
     "location": {
       "title": "Sharing your location",
       "sharing": "{{name}} sees where you are on a map and when you will arrive, while you are on the way. Only your latest position is kept, and it is deleted when you arrive.",
@@ -661,7 +674,46 @@
       "denied": "Location is off for MISK, so {{name}} sees the booked time instead. You can allow it in your browser settings.",
       "unsupported": "This browser cannot share your location, so {{name}} sees the booked time instead.",
       "unavailable": "Your location could not be found just now. MISK keeps trying."
-    }
+    },
+    "stage": {
+      "awaiting_payment": "Waiting for payment",
+      "searching": "Finding a pro",
+      "unassigned": "No pro yet",
+      "accepted": "Accepted",
+      "on_the_way": "On the way",
+      "working": "Working",
+      "completed": "Completed",
+      "cancelled": "Cancelled"
+    },
+    "customerRated": "Customer · ★ {{rating}} · {{street}}",
+    "customerNew": "Customer · new · {{street}}",
+    "chatWith": "Chat with {{name}}",
+    "chatUnread": "Chat with {{name}}, {{count}} new",
+    "checklist": "Checklist",
+    "checklistLater": "You can tick off the tasks once you start the job.",
+    "tasksDone": "{{done}} of {{total}} done",
+    "extraWaiting": "Waiting for {{name}} to approve {{item}} +{{price}}.",
+    "extraApproved": "{{name}} approved {{item}} +{{price}}. It's added to this job.",
+    "extraDeclined": "{{name}} declined {{item}}.",
+    "actions": "Other actions",
+    "reportIssue": "Report an issue",
+    "cancelJob": "Cancel job",
+    "issueOpen": "Issue reported: {{reason}}.",
+    "issueOpenHint": "MISK support has it and will contact you.",
+    "youllEarn": "You'll earn",
+    "earningsPending": "Pending",
+    "earningsOnHold": "On hold",
+    "earningsPaid": "Paid",
+    "earningsPendingHint": "Released 24 h after the job if {{name}} doesn't report a problem, then paid out with your next payout.",
+    "earningsOnHoldHint": "{{name}} reported a problem, so the payment is on hold until MISK support resolves it.",
+    "earningsPaidHint": "Sent to your bank account with your payout.",
+    "addPhotosComplete": "Add photos & complete",
+    "completePartly": "Complete with {{done}} of {{total}} tasks done",
+    "seeWeek": "See my week",
+    "cancelledTitle": "You cancelled this job",
+    "cancelledText": "Reason: {{reason}}. It goes back to other pros nearby, and {{name}} was told automatically.",
+    "cancelledLate": "It was less than 24 hours before the start, so it counts as a late cancellation.",
+    "backToJobs": "Back to jobs"
   },
   "week": {
     "title": "My week",
@@ -892,7 +944,8 @@
       "showingRecent": "Showing the {{shown}} most recent of {{count}}.",
       "showingAll": "Showing all {{count}}.",
       "viewAll": "View all ({{count}})",
-      "showRecent": "Show the {{count}} most recent"
+      "showRecent": "Show the {{count}} most recent",
+      "proIssue": "Pro reported an issue"
     },
     "booking": {
       "close": "Close",
@@ -976,7 +1029,11 @@
         "cancelled": "Cancelled the booking",
         "refunded": "Refunded {{amount}}",
         "refundedHold": "Released the {{amount}} held on the card",
-        "charged_after_problem": "Settled the problem and charged the customer"
+        "charged_after_problem": "Settled the problem and charged the customer",
+        "pro_cancelled": "{{name}} gave the job back ({{reason}}); it was offered to other pros",
+        "pro_cancelled_late": "{{name}} gave the job back late ({{reason}}); it was offered to other pros",
+        "issue_reported": "{{name}} reported an issue: {{reason}}",
+        "issue_resolved": "Marked the pro's issue as resolved: {{reason}}"
       },
       "history": "Status history",
       "offers": "Offers to pros",
@@ -1007,7 +1064,15 @@
         "logged": "Note: {{note}}",
         "sentToCustomer": "(sent to the customer)",
         "teamOnly": "(only the team sees this)"
-      }
+      },
+      "proReports": "Reported by the pro",
+      "issueBy": "{{name}} reported: {{reason}}",
+      "issueResolvedAt": "Resolved on {{date}}.",
+      "resolveIssue": "Mark as resolved",
+      "proCancelled": "{{name}} gave the job back on {{date}}: {{reason}}.",
+      "proCancelledLate": "{{name}} gave the job back on {{date}}, less than 24 hours before the start: {{reason}}.",
+      "customerRated": "{{name}} rated the customer {{stars}} out of 5",
+      "proNote": "Pro's note: {{note}}"
     },
     "pros": {
       "title": "Providers",
@@ -1343,7 +1408,15 @@
         "text": "Customers can no longer book it, and it disappears from this list. Bookings already made with it keep their details. This cannot be undone.",
         "confirm": "Remove service",
         "done": "\"{{name}}\" was removed."
-      }
+      },
+      "tasks": "Tasks the pro ticks off (one per line, optional)",
+      "tasksHint": "Up to 8 tasks of up to 80 characters. Without tasks, the service itself is the one task on the pro's checklist.",
+      "tasksInvalid": "Enter at most 8 tasks of up to 80 characters each.",
+      "editTasks": "Edit tasks of {{name}}",
+      "tasksOf": "Tasks: {{tasks}}",
+      "noTasks": "No tasks: the service is the one task",
+      "saveTasks": "Save tasks",
+      "tasksSaved": "Tasks saved. They apply to new bookings only."
     },
     "areas": {
       "title": "Areas",
@@ -1861,7 +1934,11 @@
       "ratingsLine_one": "{{count}} rating, {{average}} stars",
       "ratingsLine_other": "{{count}} ratings, {{average}} stars on average",
       "problems": "Problems reported",
-      "lateCancels": "Late cancellations"
+      "lateCancels": "Late cancellations",
+      "ratedByPros": "Rated by pros",
+      "notRatedByPros": "Not rated yet",
+      "ratedByProsLine_one": "{{count}} rating, {{average}} stars",
+      "ratedByProsLine_other": "{{count}} ratings, {{average}} stars on average"
     },
     "join": {
       "title": "Join the MISK team",
@@ -2343,12 +2420,9 @@
     "noteMissing": "Write a short note.",
     "noteShort": "Write at least {{min}} characters.",
     "tipMissing": "Enter an amount from €1 to €200.",
-    "extraWhatMissing": "Describe the extra work.",
-    "extraPriceMissing": "Enter the price of the extra work, such as 20 or 19.50.",
     "tradeNameMissing": "Enter a name for the trade, such as \"Moving help\".",
     "taskEmpty": "Type a task first, then add it.",
-    "problemTypeMissing": "Choose what went wrong.",
-    "extraDurationMissing": "Choose how long the extra work takes."
+    "problemTypeMissing": "Choose what went wrong."
   },
   "inbox": {
     "title": "Messages",
@@ -2451,6 +2525,7 @@
       "gate": "The gate is open",
       "onMyWay": "I'm on my way",
       "arrived": "I'm here",
+      "late": "Running 10 min late",
       "done": "All done, have a look!"
     },
     "closedDone": "This job is done, so the chat is read-only.",
@@ -2597,5 +2672,79 @@
     "change": "Change photo",
     "remove": "Remove photo",
     "none": "No photo yet: customers see your initial."
+  },
+  "customerRating": {
+    "title": "How was {{name}} as a customer?",
+    "hint": "Only MISK sees this. It helps match customers and pros.",
+    "stars": "Stars",
+    "star_one": "{{count}} star",
+    "star_other": "{{count}} stars",
+    "tagsLabel": "What was good?",
+    "tags": {
+      "easy_access": "Easy access",
+      "clear_instructions": "Clear instructions",
+      "friendly": "Friendly",
+      "on_time": "Was home on time"
+    },
+    "send": "Send rating",
+    "thanks_one": "You rated {{name}} {{count}} star. Thanks, this helps match good customers with pros.",
+    "thanks_other": "You rated {{name}} {{count}} stars. Thanks, this helps match good customers with pros."
+  },
+  "proExtra": {
+    "intro": "Pick from the MISK price list. {{name}} approves it in their app before you start, and it's added to the job.",
+    "list": "MISK price list",
+    "takes": "About {{duration}}",
+    "note": "Note for {{name}} (optional)",
+    "notePlaceholder": "e.g. The front hedge is overgrown",
+    "share": "You earn {{pct}}% of extra work, the same as the job.",
+    "send": "Send to {{name}} for approval",
+    "pickOne": "Choose an item from the price list.",
+    "waitFirst": "Wait for {{name}} to answer the open request first.",
+    "empty": "The price list has nothing for this job."
+  },
+  "issue": {
+    "title": "Report an on-site issue",
+    "reasonsLabel": "What's wrong?",
+    "reasons": {
+      "customer_not_home": "Customer not home",
+      "no_access": "Can't get in",
+      "bigger_job": "Job bigger than described",
+      "unsafe": "Unsafe to work",
+      "other": "Something else"
+    },
+    "hints": {
+      "customer_not_home": "We text {{name}} that you're at the door, and MISK support follows up with you.",
+      "no_access": "Gate locked or code not working. We text {{name}} straight away, and MISK support follows up with you.",
+      "bigger_job": "Send a priced extra request from the price list, or ask MISK to re-price the job. Nothing extra is charged without {{name}}'s OK.",
+      "unsafe": "Stop work. MISK support sees it at the top of its list and contacts you.",
+      "other": "Describe it and MISK support picks it up."
+    },
+    "details": "Details (optional)",
+    "detailsRequired": "Details",
+    "detailsPlaceholder": "What's going on?",
+    "send": "Send to MISK support",
+    "reasonMissing": "Choose what's wrong.",
+    "detailsMissing": "Describe what's wrong."
+  },
+  "proCancel": {
+    "title": "Cancel this job?",
+    "lead": "The job goes straight back to other pros, and {{name}} is told automatically.",
+    "early": "More than 24 h before: no penalty, but it counts in your acceptance rate.",
+    "late": "Less than 24 h before: a late cancellation. 3 in 30 days pause new jobs for a week.",
+    "nowLate": "This job starts in less than 24 hours, so cancelling now is a late cancellation.",
+    "reason": "Reason",
+    "reasons": {
+      "ill": "I'm ill",
+      "vehicle": "Vehicle problem",
+      "family": "Family emergency",
+      "double_booked": "Double booked",
+      "other": "Other"
+    },
+    "note": "Tell us more",
+    "noteOptional": "Tell us more (optional)",
+    "keep": "Keep job",
+    "confirm": "Cancel job",
+    "reasonMissing": "Choose a reason.",
+    "noteMissing": "Write a short reason."
   }
 }

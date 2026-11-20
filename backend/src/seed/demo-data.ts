@@ -83,6 +83,18 @@ const CATALOGUE: [string, string, Icon, [string, number, number, string][]][] = 
   ]],
 ];
 
+/** What the pro ticks off for each service on the job (D86); services not listed are one task, their name. */
+const SERVICE_TASKS: Record<string, string[]> = {
+  'Lawn mowing': ['Mow the lawn', 'Edge the borders', 'Clear the clippings'],
+  'Hedge trimming': ['Trim the hedges and bushes', 'Shape the tops and sides', 'Take the cuttings away'],
+  'Garden clean-up': ['Weed the beds', 'Rake the leaves', 'Tidy the flower beds', 'Take the green waste away'],
+  Planting: ['Dig the planting holes', 'Plant and water', 'Clear the soil away'],
+  'Leak repair': ['Find the leak', 'Fix the pipe or joint', 'Check for drips'],
+  'Home cleaning': ['Kitchen', 'Bathrooms', 'Floors', 'Dusting'],
+  'Window cleaning': ['Inside the windows', 'Outside the windows', 'Frames and sills'],
+  'Room painting': ['Cover and tape', 'Paint the walls', 'Paint the ceiling', 'Clean up'],
+};
+
 /** Services paid per hour instead of by size (D31). */
 const HOURLY = new Set(['Handyman by the hour']);
 
@@ -236,9 +248,9 @@ async function fill(
     categoryIds.set(slug, categoryId);
     for (const [index, [serviceName, euros, minutes, description]] of items.entries()) {
       const row = await db.query<{ id: string }>(
-        `INSERT INTO services (category_id, name, description, price_cents, duration_minutes, sort_order, pricing, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, now() - interval '120 days') RETURNING id`,
-        [categoryId, serviceName, description, euros * 100, minutes, index, HOURLY.has(serviceName) ? 'hourly' : 'fixed'],
+        `INSERT INTO services (category_id, name, description, price_cents, duration_minutes, sort_order, pricing, tasks, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now() - interval '120 days') RETURNING id`,
+        [categoryId, serviceName, description, euros * 100, minutes, index, HOURLY.has(serviceName) ? 'hourly' : 'fixed', SERVICE_TASKS[serviceName] ?? []],
       );
       services.push({
         id: row.rows[0]?.id ?? '',

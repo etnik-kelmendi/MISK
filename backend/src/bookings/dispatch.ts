@@ -8,6 +8,23 @@ import { eligibleProFilter, SLOT_STEP_MINUTES } from './availability.js';
 import { setStatus, type BookingDeps } from './events.js';
 
 export const OFFER_MINUTES = 15;
+/** An online pro who lets this many offers in a row run out is set to offline (D86). */
+export const MISSED_OFFERS_LIMIT = 3;
+/** This many late cancellations within LATE_CANCEL_WINDOW_DAYS pause new offers for LATE_CANCEL_PAUSE_DAYS (D86). */
+export const LATE_CANCEL_LIMIT = 3;
+export const LATE_CANCEL_WINDOW_DAYS = 30;
+export const LATE_CANCEL_PAUSE_DAYS = 7;
+
+/**
+ * SQL that is true while the pro `p` gets no new offers because of late cancellations (D86): a late
+ * cancellation in the last week that was the third (or later) within 30 days.
+ */
+export const LATE_CANCEL_PAUSED = `EXISTS (
+  SELECT 1 FROM pro_cancellations c
+  WHERE c.pro_id = p.user_id AND c.late AND c.created_at > now() - make_interval(days => ${LATE_CANCEL_PAUSE_DAYS})
+    AND (SELECT count(*) FROM pro_cancellations c2
+         WHERE c2.pro_id = p.user_id AND c2.late AND c2.created_at <= c.created_at
+           AND c2.created_at > c.created_at - make_interval(days => ${LATE_CANCEL_WINDOW_DAYS})) >= ${LATE_CANCEL_LIMIT})`;
 /** Rating assumed for a pro with no ratings yet, so new pros are offered work between good and great pros. */
 export const NEW_PRO_RATING = 4.5;
 
@@ -39,10 +56,12 @@ export function flexibleStarts(starts: string, ends: string, dur: string): strin
 
 /**
  * Offers a searching booking to the best free pro who has not seen it yet: highest rating first, then
- * the fewest jobs this week, then the shortest distance. With nobody left, or once the start time has
- * passed, the booking becomes unassigned for the admins. Safe to call at any time and repeatedly.
+ * the fewest jobs this week, then the shortest distance. Only online pros get offers (D86): when the only
+ * free pros left are offline, the booking keeps searching and the next dispatch pass tries again. With
+ * nobody left, or once the start time has passed, the booking becomes unassigned for the admins. Pros
+ * paused for late cancellations are left out. Safe to call at any time and repeatedly.
  */
-export async function offerNext(deps: BookingDeps, bookingId: string): Promise<'offered' | 'unassigned' | 'skipped'> {
+export async function offerNext(deps: BookingDeps, bookingId: string): Promise<'offered' | 'unassigned' | 'skipped' | 'waiting'> {
   return withTransaction(deps.pool, async (client) => {
     const found = await client.query<DispatchRow>(
       `SELECT id, status, category_id, postcode, starts_at, ends_at, service_name, price_cents, pro_share_pct,
@@ -69,8 +88,8 @@ export async function offerNext(deps: BookingDeps, bookingId: string): Promise<'
 
     const next = booking.started
       ? { rows: [] }
-      : await client.query<{ user_id: string }>(
-          `SELECT p.user_id FROM pro_profiles p
+      : await client.query<{ user_id: string; online: boolean }>(
+          `SELECT p.user_id, p.online FROM pro_profiles p
            WHERE ${
              booking.flexible_window
                ? // A flexible job goes to pros free at one of its possible starts at least.
@@ -79,7 +98,9 @@ export async function offerNext(deps: BookingDeps, bookingId: string): Promise<'
                : eligibleProFilter('$1', '$2', '$3', '$4', '$5', '$8::uuid')
            }
              AND NOT EXISTS (SELECT 1 FROM booking_offers o WHERE o.booking_id = $6 AND o.pro_id = p.user_id)
+             AND NOT ${LATE_CANCEL_PAUSED}
            ORDER BY
+             p.online DESC,
              COALESCE((SELECT avg(stars) FROM ratings r WHERE r.pro_id = p.user_id), $7) DESC,
              (SELECT count(*) FROM bookings d WHERE d.pro_id = p.user_id AND d.status = 'completed'
                 AND d.completed_at > now() - interval '7 days') ASC,
@@ -104,7 +125,13 @@ export async function offerNext(deps: BookingDeps, bookingId: string): Promise<'
     const when = booking.flexible_window
       ? messages.flexibleWhen(formatDay(booking.starts_at, deps.config.timezone), booking.flexible_window)
       : formatSlot(booking.starts_at, deps.config.timezone);
-    const proId = next.rows[0]?.user_id;
+    const chosen = next.rows[0];
+    if (chosen && !chosen.online) {
+      // Free pros exist but are offline: wait for one to go online, or for the start to pass.
+      deps.log.info({ event: 'booking_waiting_for_online_pro', bookingId });
+      return 'waiting';
+    }
+    const proId = chosen?.user_id;
     if (!proId) {
       await setStatus(client, bookingId, 'unassigned');
       await enqueue(client, booking.customer_id, 'booking_unassigned', messages.bookingUnassigned(booking.service_name, when));
@@ -143,6 +170,7 @@ export async function dispatchTick(deps: BookingDeps): Promise<number> {
      WHERE b.id = o.booking_id AND o.status = 'pending' AND (o.expires_at <= now() OR b.starts_at <= now()
        OR (b.flexible_window IS NOT NULL AND b.time_confirmed_at IS NULL AND b.confirm_by <= now()))`,
   );
+  await setOfflineAfterMissedOffers(deps);
   const waiting = await deps.pool.query<{ id: string }>(
     `SELECT b.id FROM bookings b
      WHERE b.status = 'searching'
@@ -153,6 +181,30 @@ export async function dispatchTick(deps: BookingDeps): Promise<number> {
     await offerNext(deps, id);
   }
   return waiting.rows.length;
+}
+
+/**
+ * Sets online pros whose last MISSED_OFFERS_LIMIT offers since they went online all ran out unanswered to
+ * offline, and tells them (D86). Declined and withdrawn offers break the run. Returns how many.
+ */
+export async function setOfflineAfterMissedOffers(deps: BookingDeps): Promise<number> {
+  const result = await deps.pool.query<{ user_id: string }>(
+    `UPDATE pro_profiles p SET online = false, online_changed_at = now(), updated_at = now()
+     WHERE p.online AND (
+       SELECT count(*) FILTER (WHERE last.status = 'expired') FROM (
+         SELECT o.status FROM booking_offers o
+         WHERE o.pro_id = p.user_id AND o.offered_at > p.online_changed_at AND o.status NOT IN ('pending', 'withdrawn')
+         ORDER BY o.offered_at DESC LIMIT $1
+       ) last
+     ) = $1
+     RETURNING p.user_id`,
+    [MISSED_OFFERS_LIMIT],
+  );
+  for (const { user_id } of result.rows) {
+    await enqueue(deps.pool, user_id, 'pro_account', messages.setOfflineAfterMissedOffers(MISSED_OFFERS_LIMIT));
+    deps.log.info({ event: 'pro_set_offline', proId: user_id, reason: 'missed_offers' });
+  }
+  return result.rowCount ?? 0;
 }
 
 export async function acceptOffer(deps: BookingDeps, proId: string, offerId: string, chosenStart?: Date): Promise<string> {

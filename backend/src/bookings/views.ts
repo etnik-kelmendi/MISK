@@ -2,7 +2,13 @@ import { proShareCents } from '../catalogue/pricing.js';
 import type { Queryable } from '../db.js';
 import { FREE_CANCEL_LATE_MINUTES, loadArrival } from './arrival.js';
 import { loadCustomerProfile } from './customer-profile.js';
+import { loadTasks } from './job-tasks.js';
 import { CHARGE_DELAY_HOURS, CUSTOMER_RESCHEDULABLE, FREE_CANCEL_HOURS } from './lifecycle.js';
+
+/** Pros can cancel a job they accepted until they start work (D86). */
+export const PRO_CANCELLABLE = ['accepted', 'on_the_way'];
+/** A pro can rate the customer for this long after the job is done (D86). */
+export const CUSTOMER_RATING_DAYS = 7;
 
 export type Viewer = 'customer' | 'pro' | 'admin';
 
@@ -65,7 +71,7 @@ export async function loadBooking(db: Queryable, bookingId: string, viewer: View
   if (!b) {
     return null;
   }
-  const [events, photos, extras, rating, proRating, tip, unread, services] = await Promise.all([
+  const [events, photos, extras, rating, proRating, tip, unread, services, tasks, issues] = await Promise.all([
     db.query('SELECT status, created_at AS at FROM booking_events WHERE booking_id = $1 ORDER BY id', [bookingId]),
     db.query('SELECT upload_id AS id, kind FROM booking_photos WHERE booking_id = $1 ORDER BY created_at', [bookingId]),
     db.query<{ id: string; description: string; priceCents: number; durationMinutes: number | null; status: string; createdAt: Date }>(
@@ -93,7 +99,9 @@ export async function loadBooking(db: Queryable, bookingId: string, viewer: View
     ),
     // Chat messages the viewer has not seen yet (D67).
     db.query<{ n: number }>(
-      "SELECT count(*)::int AS n FROM booking_messages WHERE booking_id = $1 AND sender_role <> $2 AND read_at IS NULL",
+      // A pro counts only messages from their own time on the job, like the chat shows them (D86).
+      `SELECT count(*)::int AS n FROM booking_messages m WHERE m.booking_id = $1 AND m.sender_role <> $2 AND m.read_at IS NULL
+         AND ($2 <> 'pro' OR m.pro_id = (SELECT pro_id FROM bookings WHERE id = $1))`,
       [bookingId, viewer === 'pro' ? 'pro' : 'customer'],
     ),
     // The services of the visit, more than one for a package (D68).
@@ -102,7 +110,18 @@ export async function loadBooking(db: Queryable, bookingId: string, viewer: View
        FROM booking_services WHERE booking_id = $1 ORDER BY position`,
       [bookingId],
     ),
+    // The job's checklist (D86).
+    loadTasks(db, bookingId),
+    // Problems the pro reported on site (D86), newest first.
+    db.query<{ id: string; proId: string; proName: string | null; reason: string; details: string | null; createdAt: Date; resolvedAt: Date | null }>(
+      `SELECT i.id, i.pro_id AS "proId", u.first_name AS "proName", i.reason, i.details, i.created_at AS "createdAt",
+         i.resolved_at AS "resolvedAt"
+       FROM booking_issues i JOIN users u ON u.id = i.pro_id WHERE i.booking_id = $1 ORDER BY i.created_at DESC`,
+      [bookingId],
+    ),
   ]);
+  // A job handed to another pro does not show them the previous pro's report.
+  const openIssue = issues.rows.find((issue) => issue.resolvedAt === null && issue.proId === b.proId) ?? null;
 
   const approvedExtras = extras.rows.filter((e) => e.status === 'approved').reduce((sum, e) => sum + e.priceCents, 0);
   const unassigned = ['awaiting_payment', 'searching', 'unassigned'].includes(b.status);
@@ -135,13 +154,36 @@ export async function loadBooking(db: Queryable, bookingId: string, viewer: View
     photos: viewer === 'pro' ? photos.rows.filter((photo) => photo.kind !== 'problem') : photos.rows,
     extras: extras.rows,
     rating: rating.rows[0] ?? null,
+    tasks,
   };
 
   if (viewer === 'pro') {
+    const [customerStars, customerRating] = await Promise.all([
+      db.query<{ average: number | null; count: number }>(
+        `SELECT round(avg(stars)::numeric, 1)::float AS average, count(*)::int AS count FROM customer_ratings WHERE customer_id = $1`,
+        [b.customerId],
+      ),
+      db.query<{ stars: number; tags: string[] }>('SELECT stars, tags FROM customer_ratings WHERE booking_id = $1', [bookingId]),
+    ]);
+    const ratingWindowOpen =
+      b.completedAt !== null && b.completedAt.getTime() > Date.now() - CUSTOMER_RATING_DAYS * 24 * 3600 * 1000;
     return {
       ...base,
-      customer: { firstName: b.customerName },
+      customer: {
+        firstName: b.customerName,
+        ratingAverage: customerStars.rows[0]?.average ?? null,
+        ratingCount: customerStars.rows[0]?.count ?? 0,
+      },
       earningsCents: proShareCents(b.priceCents, b.proSharePct) + proShareCents(approvedExtras, b.proSharePct),
+      // The pro's share of the job and of extra work (D86).
+      proSharePct: b.proSharePct,
+      unreadMessages: unread.rows[0]?.n ?? 0,
+      openIssue: openIssue ? { id: openIssue.id, reason: openIssue.reason, createdAt: openIssue.createdAt } : null,
+      // Cancelling under 24 hours before the start is a late cancellation (D86).
+      canCancel: PRO_CANCELLABLE.includes(b.status),
+      cancelIsLate: b.hoursLeft < FREE_CANCEL_HOURS,
+      customerRating: customerRating.rows[0] ?? null,
+      canRateCustomer: b.status === 'completed' && !customerRating.rowCount && ratingWindowOpen,
     };
   }
 
@@ -197,6 +239,8 @@ export async function loadBooking(db: Queryable, bookingId: string, viewer: View
       // Until the card is charged, the customer can tell MISK something went wrong.
       canReportProblem:
         b.status === 'completed' && b.paymentStatus === 'held' && !b.problemReportedAt && b.chargeAt !== null && b.chargeAt > new Date(),
+      // The pro asked MISK support for help on site (D86); the details stay between the pro and the team.
+      proIssueOpen: openIssue !== null && ['accepted', 'on_the_way', 'working'].includes(b.status),
     };
   }
 
@@ -215,6 +259,17 @@ export async function loadBooking(db: Queryable, bookingId: string, viewer: View
      FROM booking_admin_actions a LEFT JOIN users u ON u.id = a.admin_id WHERE a.booking_id = $1 ORDER BY a.id DESC`,
     [bookingId],
   );
+  const [customerRating, proCancellations] = await Promise.all([
+    db.query<{ stars: number; tags: string[]; createdAt: Date }>(
+      'SELECT stars, tags, created_at AS "createdAt" FROM customer_ratings WHERE booking_id = $1',
+      [bookingId],
+    ),
+    db.query<{ proName: string | null; reason: string; note: string | null; late: boolean; createdAt: Date }>(
+      `SELECT u.first_name AS "proName", c.reason, c.note, c.late, c.created_at AS "createdAt"
+       FROM pro_cancellations c JOIN users u ON u.id = c.pro_id WHERE c.booking_id = $1 ORDER BY c.created_at DESC`,
+      [bookingId],
+    ),
+  ]);
   const proCents = proShareCents(b.priceCents, b.proSharePct) + proShareCents(approvedExtras, b.proSharePct);
   return {
     ...base,
@@ -230,5 +285,8 @@ export async function loadBooking(db: Queryable, bookingId: string, viewer: View
     split: { proCents, miskCents: money.totalCents - proCents },
     lateCancel: b.lateCancel,
     tip: tip.rows[0] ?? null,
+    issues: issues.rows,
+    customerRating: customerRating.rows[0] ?? null,
+    proCancellations: proCancellations.rows,
   };
 }

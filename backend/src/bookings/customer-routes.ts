@@ -317,8 +317,10 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
         // Booking in a trade ends the customer's holds there, so others can have those times again (D74).
         await client.query('DELETE FROM slot_holds WHERE customer_id = $1 AND category_id = $2', [customer.id, service.categoryId]);
         await client.query(
-          `INSERT INTO booking_services (booking_id, position, service_id, name, price_cents, duration_minutes)
-           SELECT $1, ord - 1, x.service_id, x.name, x.price_cents, x.duration_minutes
+          `INSERT INTO booking_services (booking_id, position, service_id, name, price_cents, duration_minutes, tasks)
+           SELECT $1, ord - 1, x.service_id, x.name, x.price_cents, x.duration_minutes,
+             -- The pro's checklist is copied with the service (D86).
+             (SELECT s.tasks FROM services s WHERE s.id = x.service_id)
            FROM unnest($2::uuid[], $3::text[], $4::int[], $5::int[]) WITH ORDINALITY
              AS x(service_id, name, price_cents, duration_minutes, ord)`,
           [id, services.map((s) => s.id), services.map((s) => s.name), price.lines, services.map((s) => s.durationMinutes)],
