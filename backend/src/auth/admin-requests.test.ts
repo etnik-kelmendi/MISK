@@ -64,6 +64,18 @@ describe('asking for an admin account', () => {
     });
   });
 
+  it('lets the approving admin choose the role, and refuses a request that is not there', async () => {
+    await request();
+    const owner = await ownerCookie();
+    const id = (await t.pool.query<{ id: string }>("SELECT id FROM users WHERE email = 'lina@misk.test'")).rows[0]?.id;
+    const approved = await call(t, 'POST', `/admin/team/${id}/approve`, { cookie: owner, origin: ADMIN, body: { role: 'finance' } });
+    expect(approved.statusCode).toBe(200);
+    expect((await login('lina@misk.test')).json().user).toMatchObject({ adminRole: 'finance' });
+    const missing = '00000000-0000-4000-8000-000000000000';
+    expect((await call(t, 'POST', `/admin/team/${missing}/approve`, { cookie: owner, origin: ADMIN })).statusCode).toBe(404);
+    expect((await call(t, 'POST', `/admin/team/${missing}/decline`, { cookie: owner, origin: ADMIN })).statusCode).toBe(404);
+  });
+
   it('lets an admin decline it, removing the account', async () => {
     await request();
     const owner = await ownerCookie();

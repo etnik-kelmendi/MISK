@@ -481,13 +481,18 @@ export async function catalogueRoutes(app: FastifyInstance, ctx: AppContext) {
 }
 
 /**
- * A German postcode (MISK serves Berlin): exactly five digits. No German postcode starts with 00. Zones and
- * the waitlist accept only these; bookings, plans and pros can only pick postcodes that are zones already.
+ * A postcode from any country (D84, replacing the German five digits of D52), checked after
+ * normalizePostcode: 2 to 10 letters, digits, single spaces and hyphens, starting and ending with a letter
+ * or digit and holding at least one digit. So 10115, SW1A 1AA, 1010, 00-950, 1000-001, K1A 0B1 and
+ * D02 X285 pass, and "---", "A" or "HELLO" do not. The postcodes table checks the same characters. Zones
+ * and the waitlist accept these; bookings, plans and pros can only pick postcodes that are zones already.
  */
-export const POSTCODE_FORMAT = /^(?!00)\d{5}$/;
+export const POSTCODE_FORMAT = /^(?=[A-Z -]*\d)[A-Z0-9](?:[ -]?[A-Z0-9]){1,9}$/;
+/** Raw postcode input may carry spaces around it; normalizePostcode removes them before the real check. */
+export const POSTCODE_INPUT_MAX_LENGTH = 20;
 
 export function isValidPostcode(code: string): boolean {
-  return POSTCODE_FORMAT.test(code);
+  return code.length <= 10 && POSTCODE_FORMAT.test(code);
 }
 
 /** Postcodes are stored upper-case with single spaces, so "ab1 2cd" and "AB1  2CD" are the same. */

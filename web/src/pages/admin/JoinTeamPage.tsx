@@ -26,7 +26,10 @@ const MAX_LENGTH = { firstName: 60, lastName: 60, email: 254, password: 1024, re
 
 type LinkState = { status: 'checking' } | { status: 'valid'; role: AdminRole } | { status: 'invalid' };
 
-/** The page an invitation link opens: the person creates their account and joins the team (D51). */
+/**
+ * The page an invitation link opens: the person creates their account (D51), which then waits for an admin's
+ * approval before it can sign in (D84).
+ */
 export function JoinTeamPage() {
   const { t } = useTranslation();
   const api = useApi();
@@ -97,12 +100,15 @@ export function JoinTeamPage() {
           <h1>{t('admin.join.title')}</h1>
         </div>
         {joined ? (
-          <>
-            <p role="status">{t('admin.join.done', { email: joined })}</p>
-            <Link to="/admin/login" className="abtn big">
+          // An admin approves every new account before it can sign in (D84).
+          <div className="stack" role="status" aria-labelledby="join-waiting-heading">
+            <h2 id="join-waiting-heading">{t('admin.join.waitingTitle')}</h2>
+            <p>{t('admin.join.waiting', { email: joined })}</p>
+            <p className="muted">{t('admin.join.waitingNext')}</p>
+            <Link to="/admin/login" className="abtn ghost">
               {t('admin.join.signIn')}
             </Link>
-          </>
+          </div>
         ) : linkDead ? (
           <p role="alert">{t('admin.join.invalid')}</p>
         ) : link.status === 'checking' ? (

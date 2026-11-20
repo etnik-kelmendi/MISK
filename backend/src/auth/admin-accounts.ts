@@ -20,6 +20,7 @@ export const RESET_LINK_MINUTES = 30;
 export const MAX_RESETS_PER_ACCOUNT = 3;
 export const MAX_RESETS_PER_IP = 10;
 const TEAM_COLUMNS = `id, username, email, first_name AS "firstName", last_name AS "lastName", created_at AS "createdAt",
+  admin_role AS "adminRole", invited_at AS "invitedAt",
   disabled_at IS NOT NULL AS disabled, (admin_requested_at IS NOT NULL AND admin_approved_at IS NULL) AS pending`;
 
 export const normalizeEmail = (email: string) => email.trim().toLowerCase();

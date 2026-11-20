@@ -11,10 +11,8 @@ import { ResourceState } from '../../components/ResourceState';
 import { Waitlist } from '../../components/Waitlist';
 import { euro, packagePrice, PACKAGE_DISCOUNT_PCT } from '../../lib/format';
 import { planSizePrice } from '../../lib/plans';
+import { isValidPostcode, MAX_POSTCODE_LENGTH, normalizePostcode, tidyPostcodeInput } from '../../lib/checks';
 import { useValidation } from '../../lib/useValidation';
-
-/** Postcodes in MISK are 5 digits (D52). */
-const POSTCODE_FORMAT = /^\d{5}$/;
 
 export const SIZES: JobSize[] = ['S', 'M', 'L'];
 /** Photos a customer can send with a booking, as the API allows. */
@@ -117,8 +115,10 @@ export function JobDetailsStep({
   const sized = services.some((service) => service.pricing !== 'hourly');
   const [single] = services;
   const servedList = postcodes.state.status === 'ready' ? postcodes.state.data.postcodes : null;
-  const wellFormed = POSTCODE_FORMAT.test(details.postcode);
-  const servedArea = wellFormed ? servedList?.find((p) => p.code === details.postcode) : undefined;
+  // Postcodes from any country (D84), compared the way the API stores them: upper-case with single spaces.
+  const code = normalizePostcode(details.postcode);
+  const wellFormed = isValidPostcode(code);
+  const servedArea = wellFormed ? servedList?.find((p) => p.code === code) : undefined;
   // Only known once the list of served postcodes has loaded.
   const unserved = wellFormed && servedList !== null && !servedArea;
   const form = useValidation(
@@ -126,7 +126,7 @@ export function JobDetailsStep({
       address: !details.address.trim() ? t('validation.addressMissing') : details.address.trim().length < 3 && t('validation.addressShort'),
       postcode: !details.postcode
         ? t('validation.postcodeMissing')
-        : !POSTCODE_FORMAT.test(details.postcode)
+        : !wellFormed
           ? t('validation.postcodeFormat')
           : unserved && t('validation.postcodeUnserved'),
     },
@@ -164,7 +164,10 @@ export function JobDetailsStep({
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    if (form.check()) onNext();
+    if (!form.check()) return;
+    // A space typed at the end is dropped before the postcode is used for times and the booking.
+    if (details.postcode !== code) onChange({ ...details, postcode: code });
+    onNext();
   }
 
   return (
@@ -195,20 +198,22 @@ export function JobDetailsStep({
               <label htmlFor="postcode">{t('book.postcode')}</label>
               <input
                 id="postcode"
-                inputMode="numeric"
                 autoComplete="postal-code"
-                maxLength={5}
+                autoCapitalize="characters"
+                spellCheck={false}
+                maxLength={MAX_POSTCODE_LENGTH + 1}
                 required
                 value={details.postcode}
                 {...form.describe('postcode')}
-                onChange={(event) => onChange({ ...details, postcode: event.target.value.trim() })}
+                onChange={(event) => onChange({ ...details, postcode: tidyPostcodeInput(event.target.value) })}
+                onBlur={() => code !== details.postcode && onChange({ ...details, postcode: code })}
               />
               <FieldError id="postcode" message={form.message('postcode')} />
               {servedArea && <span className="hint">{servedArea.name}</span>}
             </div>
           )}
         </ResourceState>
-        {unserved && <Waitlist key={details.postcode} postcode={details.postcode} />}
+        {unserved && <Waitlist key={code} postcode={code} />}
 
         {!sized && single && services.length === 1 ? (
           <p className="info">

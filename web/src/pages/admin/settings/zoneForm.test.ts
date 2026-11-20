@@ -56,25 +56,32 @@ describe('zoneProblems', () => {
     expect(keys({ lat: '0', lng: '0' }, [])).toEqual(['sameAsLat']);
   });
 
-  it.each(['AB', '99', '1-2-3', '1011', '101155', '00123', 'AB123', '10 115'])('refuses %j as a postcode', (code) => {
-    expect(keys({ code })).toEqual(['codeInvalid']);
-  });
+  it.each(['---', 'A', '1', 'AB', 'HELLO', '12345678901', '-1234', '1234-', '12--34', '12 - 34', '12_34', '12.34'])(
+    'refuses %j as a postcode',
+    (code) => {
+      expect(keys({ code })).toEqual(['codeInvalid']);
+    },
+  );
 
-  it('accepts five-digit postcodes', () => {
-    expect(keys({ code: '01067' })).toEqual([]);
-    expect(keys({ code: ' 10179 ' })).toEqual([]);
-  });
+  it.each(['10115', '01067', ' 10179 ', 'SW1A 1AA', 'sw1a  1aa', '75008', '1010', '00-950', '1000-001', 'K1A 0B1', '100-0001', 'D02 X285'])(
+    'accepts %j, a postcode from any country',
+    (code) => {
+      expect(keys({ code })).toEqual([]);
+    },
+  );
 
   it('refuses the coordinates of another zone, but lets a zone keep its own', () => {
     const [problem] = zoneProblems({ code: '10997', name: 'Copy', lat: '52.5323', lng: '13.3846' }, berlin);
     expect(problem).toEqual({ field: 'lng', key: 'sameAsZone', nearest: '10115' });
     expect(keys({ code: '10115', lat: '52.5323', lng: '13.3846' })).toEqual([]);
+    // The same zone written in lower case is still the same zone.
+    expect(keys({ code: 'sw1a 1aa', lat: '51.501', lng: '-0.1419' }, [{ code: 'SW1A 1AA', lat: 51.501, lng: -0.1419 }])).toEqual([]);
   });
 
-  it('catches swapped coordinates by their distance from the nearest other zone', () => {
-    const [problem] = zoneProblems({ code: '10178', name: 'Alexanderplatz', lat: '13.4132', lng: '52.5219' }, berlin);
-    expect(problem).toMatchObject({ field: 'lng', key: 'tooFar', nearest: '14167' });
-    expect(problem && 'km' in problem && problem.km).toBeGreaterThan(4000);
+  it('accepts points far away from the other zones, anywhere in the world (D84)', () => {
+    expect(keys({ code: 'SW1A 1AA', lat: '51.501', lng: '-0.1419' })).toEqual([]);
+    expect(keys({ code: '2000', lat: '-33.8688', lng: '151.2093' })).toEqual([]);
+    expect(keys({ lat: '13.4132', lng: '52.5219' })).toEqual([]);
   });
 
   it('does not measure a zone against its own earlier point, and accepts the first zone anywhere', () => {

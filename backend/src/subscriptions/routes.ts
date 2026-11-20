@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { currentUser } from '../auth/guard.js';
 import type { BookingDeps } from '../bookings/events.js';
 import { proShareCents } from '../catalogue/pricing.js';
-import { normalizePostcode } from '../catalogue/routes.js';
+import { normalizePostcode, POSTCODE_INPUT_MAX_LENGTH } from '../catalogue/routes.js';
 import type { AppContext } from '../context.js';
 import { withTransaction } from '../db.js';
 import { ApiError, badRequest, conflict, notFound } from '../errors.js';
@@ -117,7 +117,7 @@ export async function subscriptionRoutes(app: FastifyInstance, ctx: AppContext) 
             days: { type: 'array', minItems: 1, maxItems: 3, uniqueItems: true, items: { type: 'integer', minimum: 1, maximum: 7 } },
             timeWindow: { type: 'string', enum: ['morning', 'afternoon'] },
             address: { type: 'string', minLength: 3, maxLength: 200, pattern: '\\S' },
-            postcode: { type: 'string', minLength: 2, maxLength: 10 },
+            postcode: { type: 'string', minLength: 2, maxLength: POSTCODE_INPUT_MAX_LENGTH },
             notes: { type: 'string', maxLength: 1000 },
             withAddon: { type: 'boolean' },
           },

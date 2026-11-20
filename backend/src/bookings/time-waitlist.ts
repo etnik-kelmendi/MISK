@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { currentUser } from '../auth/guard.js';
-import { normalizePostcode } from '../catalogue/routes.js';
+import { normalizePostcode, POSTCODE_INPUT_MAX_LENGTH } from '../catalogue/routes.js';
 import type { AppContext } from '../context.js';
 import { isUniqueViolation, uuidParams } from '../http.js';
 import { badRequest, conflict, notFound } from '../errors.js';
@@ -65,7 +65,7 @@ export async function timeWaitlistRoutes(app: FastifyInstance, ctx: AppContext) 
           additionalProperties: false,
           properties: {
             serviceIds: { type: 'array', minItems: 1, maxItems: 10, uniqueItems: true, items: { type: 'string', format: 'uuid' } },
-            postcode: { type: 'string', minLength: 2, maxLength: 10 },
+            postcode: { type: 'string', minLength: 2, maxLength: POSTCODE_INPUT_MAX_LENGTH },
             day: { type: 'string', format: 'date' },
             startsAt: { type: 'string', format: 'date-time' },
           },

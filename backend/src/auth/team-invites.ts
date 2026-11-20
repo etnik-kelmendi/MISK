@@ -7,6 +7,7 @@ import { isUniqueViolation, uuidParams } from '../http.js';
 import { logActivity } from '../settings/activity.js';
 import { ADMIN_ROLES, type AdminRole } from './access.js';
 import { normalizeEmail } from './admin-accounts.js';
+import { createApprovalLink, emailAdminsAboutRequest } from './admin-requests.js';
 import { passwordProblems } from './email-accounts.js';
 import { currentUser } from './guard.js';
 import { hashPassword } from './passwords.js';
@@ -27,8 +28,10 @@ const OPEN = 'used_at IS NULL AND revoked_at IS NULL AND expires_at > now()';
 
 /**
  * Invitation links for the team (D51). An admin makes a link for a role and shares it by any channel; the
- * person who opens it signs up and joins the team with that role, without waiting for approval, because
- * an admin chose to invite them. Every link works once and for INVITE_LINK_DAYS days, and can be withdrawn.
+ * person who opens it signs up for that role. Since D84 the new account then waits for an admin's approval,
+ * through the same approval as access requests (admin-requests.ts): a link can be forwarded, so holding one
+ * is not enough to get into the control panel. Every link works once and for INVITE_LINK_DAYS days, and can
+ * be withdrawn until it is used.
  */
 export async function teamInviteRoutes(app: FastifyInstance, ctx: AppContext) {
   const { pool, guards, config } = ctx;
@@ -160,9 +163,11 @@ export async function teamInviteRoutes(app: FastifyInstance, ctx: AppContext) {
           if (!invite) {
             return null;
           }
+          // The account waits for an admin's approval like an access request (D84): admin_requested_at is set
+          // and admin_approved_at is not, so sign-in answers pending_approval and no session works.
           const created = await client.query<{ id: string }>(
-            `INSERT INTO users (username, email, password_hash, role, admin_role, first_name, last_name, invited_at)
-             VALUES ($1, $1, $2, 'admin', $3, $4, $5, now()) RETURNING id`,
+            `INSERT INTO users (username, email, password_hash, role, admin_role, first_name, last_name, invited_at, admin_requested_at)
+             VALUES ($1, $1, $2, 'admin', $3, $4, $5, now(), now()) RETURNING id`,
             [email, passwordHash, invite.role, firstName, lastName],
           );
           const userId = onlyRow(created).id;
@@ -170,16 +175,17 @@ export async function teamInviteRoutes(app: FastifyInstance, ctx: AppContext) {
           await logActivity(client, {
             adminId: userId,
             area: 'team',
-            action: 'joined_by_invite',
+            action: 'invite_signed_up',
             details: { name: `${firstName} ${lastName}`, role: invite.role },
           });
-          return { userId, role: invite.role };
+          return { userId, role: invite.role, token: await createApprovalLink(client, userId) };
         });
         if (!joined) {
           return reply.code(400).send({ error: 'invalid_invite_link' });
         }
         request.log.info({ event: 'team_invite_accepted', userId: joined.userId, role: joined.role });
-        return reply.code(201).send({ email, role: joined.role });
+        await emailAdminsAboutRequest(ctx, request.log, { name: `${firstName} ${lastName}`, email, token: joined.token, invitedRole: joined.role });
+        return reply.code(201).send({ email, role: joined.role, status: 'pending_approval' });
       } catch (error) {
         if (isUniqueViolation(error)) {
           // The transaction was undone, so the link still works with another email.

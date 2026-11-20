@@ -1,13 +1,9 @@
 /**
- * Checks for the "Add a zone" form (D47). The API repeats the important ones, so these exist to tell the
- * admin what to fix, under the right field, before anything is sent.
+ * Checks for the "Add a zone" form (D47, D84). The API repeats the important ones, so these exist to tell the
+ * admin what to fix, under the right field, before anything is sent. Zones may lie anywhere in the world.
  */
+import { isValidPostcode, normalizePostcode } from '../../../lib/checks';
 
-/** Must match ZONE_MAX_DISTANCE_KM in the API. */
-export const ZONE_MAX_DISTANCE_KM = 100;
-
-/** A German postcode (MISK serves Berlin): five digits, never starting with 00. Must match the API. */
-const POSTCODE = /^(?!00)\d{5}$/;
 /** Two zones never share a centre; closer than this means one zone's coordinates were reused. Must match the API. */
 export const ZONE_MIN_DISTANCE_KM = 0.1;
 /** A plain decimal number: optional sign, up to three digits, then a dot or comma and decimals. */
@@ -22,7 +18,6 @@ export type ZoneProblem =
   | { field: 'name'; key: 'nameRequired' }
   | { field: 'lat'; key: 'latRequired' | 'latFormat' | 'latRange' }
   | { field: 'lng'; key: 'lngRequired' | 'lngFormat' | 'lngRange' | 'sameAsLat' }
-  | { field: 'lng'; key: 'tooFar'; km: number; nearest: string }
   | { field: 'lng'; key: 'sameAsZone'; nearest: string };
 
 export interface ZoneInput {
@@ -62,7 +57,8 @@ export function distanceKm(lat1: number, lng1: number, lat2: number, lng2: numbe
 function nearestZone(lat: number, lng: number, code: string, zones: KnownZone[]): { code: string; km: number } | null {
   let best: { code: string; km: number } | null = null;
   for (const zone of zones) {
-    if (zone.code.toUpperCase() === code.toUpperCase()) continue;
+    // Editing a zone may keep its own point.
+    if (normalizePostcode(zone.code) === code) continue;
     const km = distanceKm(zone.lat, zone.lng, lat, lng);
     if (!best || km < best.km) best = { code: zone.code, km };
   }
@@ -72,9 +68,9 @@ function nearestZone(lat: number, lng: number, code: string, zones: KnownZone[])
 /** Everything wrong with the form, at most one problem per field, in field order. */
 export function zoneProblems(input: ZoneInput, zones: KnownZone[]): ZoneProblem[] {
   const problems: ZoneProblem[] = [];
-  const code = input.code.trim();
+  const code = normalizePostcode(input.code);
   if (code === '') problems.push({ field: 'code', key: 'codeRequired' });
-  else if (!POSTCODE.test(code)) problems.push({ field: 'code', key: 'codeInvalid' });
+  else if (!isValidPostcode(code)) problems.push({ field: 'code', key: 'codeInvalid' });
 
   if (input.name.trim() === '') problems.push({ field: 'name', key: 'nameRequired' });
 
@@ -96,8 +92,6 @@ export function zoneProblems(input: ZoneInput, zones: KnownZone[]): ZoneProblem[
       const nearest = nearestZone(lat, lng, code, zones);
       if (nearest && nearest.km < ZONE_MIN_DISTANCE_KM) {
         problems.push({ field: 'lng', key: 'sameAsZone', nearest: nearest.code });
-      } else if (nearest && nearest.km > ZONE_MAX_DISTANCE_KM) {
-        problems.push({ field: 'lng', key: 'tooFar', km: Math.round(nearest.km), nearest: nearest.code });
       }
     }
   }

@@ -1,9 +1,11 @@
-import { useCallback, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useApi } from '../../api/ApiContext';
 import type { Channel, MessageKind, NotificationSettings } from '../../api/types';
 import { useResource } from '../../api/useResource';
 import { ErrorText } from '../../components/ErrorText';
+import { FieldError } from '../../components/FieldError';
+import { isValidEmail, MAX_EMAIL_LENGTH } from '../../lib/checks';
 import { PushToggle } from '../../components/PushToggle';
 import { ResourceState } from '../../components/ResourceState';
 import { useAction } from '../../lib/useAction';
@@ -76,33 +78,204 @@ function TestMessage({ messages }: { messages: { kind: MessageKind; label: strin
   }
 
   return (
-    <div className="stack tight">
-      <div className="test-row">
-        <select aria-label={t('admin.settings.notifications.testWhich')} value={kind} onChange={(e) => setKind(e.target.value as MessageKind)}>
-          {messages.map((m) => (
-            <option key={m.kind} value={m.kind}>
-              {m.label}
-            </option>
-          ))}
-        </select>
-        <button
-          type="button"
-          className="abtn ghost"
-          disabled={action.busy}
-          aria-label={t('admin.settings.notifications.testLabel', { message: label })}
-          onClick={() => void send()}
-        >
-          {t('admin.settings.notifications.test')}
-        </button>
-        <span className="small muted">{t('admin.settings.notifications.smsCost')}</span>
+    <div className="stack">
+      <div className="stack tight">
+        <div className="test-row">
+          <select aria-label={t('admin.settings.notifications.testWhich')} value={kind} onChange={(e) => setKind(e.target.value as MessageKind)}>
+            {messages.map((m) => (
+              <option key={m.kind} value={m.kind}>
+                {m.label}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className="abtn ghost"
+            disabled={action.busy}
+            aria-label={t('admin.settings.notifications.testLabel', { message: label })}
+            onClick={() => void send()}
+          >
+            {t('admin.settings.notifications.test')}
+          </button>
+          <span className="small muted">{t('admin.settings.notifications.smsCost')}</span>
+        </div>
+        {result && (
+          <p className="small" role="status">
+            {result}
+          </p>
+        )}
+        <ErrorText error={action.error} />
       </div>
-      {result && (
-        <p className="small" role="status">
-          {result}
-        </p>
-      )}
-      <ErrorText error={action.error} />
+      <TestEmail kind={kind} label={label} />
     </div>
+  );
+}
+
+/** Where a test email stands in the outbox, as the API reports it. */
+export interface TestEmailStatus {
+  id: string;
+  to: string;
+  status: 'queued' | 'sending' | 'sent' | 'failed' | 'not_configured';
+  /** Sent, or failed for good: nothing changes any more. */
+  done: boolean;
+  error: string | null;
+}
+
+/** How often and how long the page asks about a test email on its own, before offering "Check status". */
+const STATUS_POLL_MS = 2_000;
+const STATUS_POLL_TRIES = 15;
+
+/**
+ * "Send a test email" (D84): the chosen message goes to any address the admin types, through the normal
+ * outbox and email sender. The page then follows the email until it is sent or has failed, so the admin
+ * can see that email delivery really works.
+ */
+function TestEmail({ kind, label }: { kind: MessageKind; label: string }) {
+  const { t } = useTranslation();
+  const api = useApi();
+  const action = useAction();
+  const check = useAction();
+  const [email, setEmail] = useState('');
+  const [problem, setProblem] = useState<string | null>(null);
+  const [sent, setSent] = useState<TestEmailStatus | null>(null);
+  const [polling, setPolling] = useState(false);
+  const tries = useRef(0);
+
+  // Asks again every few seconds while the email waits in the outbox, for half a minute at most.
+  const pollingId = polling && sent && !sent.done ? sent.id : null;
+  useEffect(() => {
+    if (!pollingId) return;
+    let live = true;
+    const timer = window.setInterval(() => {
+      tries.current += 1;
+      if (tries.current > STATUS_POLL_TRIES) {
+        setPolling(false);
+        return;
+      }
+      api.get<{ email: TestEmailStatus }>(`/admin/notifications/test-email/${pollingId}`).then(
+        (r) => {
+          if (!live) return;
+          setSent(r.email);
+          if (r.email.done) setPolling(false);
+        },
+        // A failed check is not a failed email; the admin can still press "Check status".
+        (error: unknown) => {
+          console.warn('Could not check the test email', error);
+          if (live) setPolling(false);
+        },
+      );
+    }, STATUS_POLL_MS);
+    return () => {
+      live = false;
+      window.clearInterval(timer);
+    };
+  }, [api, pollingId]);
+
+  function validate(value: string): string | null {
+    const trimmed = value.trim();
+    if (!trimmed) return t('admin.settings.notifications.testEmail.missing');
+    if (trimmed.length > MAX_EMAIL_LENGTH || !isValidEmail(trimmed)) return t('admin.settings.notifications.testEmail.invalid');
+    return null;
+  }
+
+  async function send(event: FormEvent) {
+    event.preventDefault();
+    const found = validate(email);
+    setProblem(found);
+    if (found) {
+      document.getElementById('test-email')?.focus();
+      return;
+    }
+    setSent(null);
+    const response = await action.run(() =>
+      api.post<{ email: TestEmailStatus }>(`/admin/notifications/${kind}/test-email`, { email: email.trim() }),
+    );
+    if (!response) return;
+    tries.current = 0;
+    setSent(response.email);
+    setPolling(!response.email.done);
+  }
+
+  async function checkNow() {
+    if (!sent) return;
+    const response = await check.run(() => api.get<{ email: TestEmailStatus }>(`/admin/notifications/test-email/${sent.id}`));
+    if (response) setSent(response.email);
+  }
+
+  const reason = (status: TestEmailStatus) => status.error || t('admin.settings.notifications.testEmail.unknownError');
+  const outcome = (status: TestEmailStatus): { text: string; tone: 'ok' | 'bad' | 'wait' } => {
+    const to = status.to;
+    switch (status.status) {
+      case 'sent':
+        return { text: t('admin.settings.notifications.testEmail.sent', { email: to }), tone: 'ok' };
+      case 'not_configured':
+        return { text: t('admin.settings.notifications.testEmail.notConfigured', { email: to }), tone: 'bad' };
+      case 'failed':
+        return status.done
+          ? { text: t('admin.settings.notifications.testEmail.failed', { email: to, error: reason(status) }), tone: 'bad' }
+          : { text: t('admin.settings.notifications.testEmail.retrying', { email: to, error: reason(status) }), tone: 'wait' };
+      default:
+        return polling
+          ? { text: t('admin.settings.notifications.testEmail.queued', { email: to }), tone: 'wait' }
+          : { text: t('admin.settings.notifications.testEmail.stillWaiting', { email: to }), tone: 'wait' };
+    }
+  };
+  const shown = sent ? outcome(sent) : null;
+
+  return (
+    <form className="stack tight test-email" onSubmit={(e) => void send(e)} noValidate aria-labelledby="test-email-heading">
+      <h3 id="test-email-heading" className="b small">
+        {t('admin.settings.notifications.testEmail.title')}
+      </h3>
+      <p id="test-email-intro" className="small muted">
+        {t('admin.settings.notifications.testEmail.intro')}
+      </p>
+      <div className="test-email-row">
+        <div className="af">
+          <label htmlFor="test-email">{t('admin.settings.notifications.testEmail.label')}</label>
+          <input
+            id="test-email"
+            type="email"
+            inputMode="email"
+            autoComplete="email"
+            spellCheck={false}
+            maxLength={MAX_EMAIL_LENGTH}
+            placeholder={t('admin.settings.notifications.testEmail.placeholder')}
+            value={email}
+            aria-invalid={problem ? true : undefined}
+            aria-describedby={problem ? 'test-email-error test-email-intro' : 'test-email-intro'}
+            onChange={(e) => {
+              setEmail(e.target.value);
+              if (problem) setProblem(validate(e.target.value));
+            }}
+          />
+        </div>
+        <button type="submit" className="abtn ghost" disabled={action.busy} aria-label={t('admin.settings.notifications.testEmail.sendLabel', { message: label })}>
+          {action.busy ? t('admin.settings.notifications.testEmail.sending') : t('admin.settings.notifications.testEmail.send')}
+        </button>
+      </div>
+      <FieldError id="test-email" message={problem} />
+      <ErrorText error={action.error} />
+      {shown && sent && (
+        <div className="row gap8 wrap">
+          <p className={`small ${shown.tone === 'bad' ? 'error-text' : shown.tone === 'ok' ? 'brand-text' : ''}`} role="status">
+            {shown.text}
+          </p>
+          {!sent.done && !polling && (
+            <button
+              type="button"
+              className="abtn ghost sm"
+              disabled={check.busy}
+              aria-label={t('admin.settings.notifications.testEmail.checkLabel', { email: sent.to })}
+              onClick={() => void checkNow()}
+            >
+              {t('admin.settings.notifications.testEmail.check')}
+            </button>
+          )}
+        </div>
+      )}
+      <ErrorText error={check.error} />
+    </form>
   );
 }
 

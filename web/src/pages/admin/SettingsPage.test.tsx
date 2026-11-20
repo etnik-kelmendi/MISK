@@ -131,17 +131,21 @@ describe('settings: service area', () => {
     expect(api.calls.filter((c) => c.startsWith('PUT'))).toEqual([]);
   });
 
-  it('warns that swapped coordinates are far from the other zones', async () => {
+  it('no longer blocks a point far from the other zones (D84)', async () => {
     const api = adminApi();
     api.on('GET /admin/zones', { body: { zones, elsewhere: [] } });
+    api.on('PUT /admin/zones/10179', ({ body }) => ({
+      body: { zone: { code: '10179', ...(body as object), live: false, pros: 0, bookingsPerWeek: 0, waiting: 0 } },
+    }));
     renderAt('/admin/settings/area');
     await user().type(await screen.findByLabelText('Postcode'), '10179');
-    await user().type(screen.getByLabelText('Area name'), 'Mitte East');
+    await user().type(screen.getByLabelText('Area name'), 'Far away');
     await user().type(screen.getByLabelText('Latitude'), '13.4167');
     await user().type(screen.getByLabelText('Longitude'), '52.5115');
     await user().click(screen.getByRole('button', { name: 'Add zone' }));
-    expect(await screen.findByText(/km from your nearest zone \(10178\)\. Check that latitude and longitude are not swapped\./)).toBeInTheDocument();
-    expect(api.calls.filter((c) => c.startsWith('PUT'))).toEqual([]);
+    expect(await screen.findByText('Zone 10179 added to the waitlist.')).toBeInTheDocument();
+    expect(screen.queryByText(/km from your nearest zone/)).not.toBeInTheDocument();
+    expect(api.bodies['PUT /admin/zones/10179']).toEqual({ name: 'Far away', lat: 13.4167, lng: 52.5115 });
   });
 
   it('fills both fields from coordinates pasted from a map, then saves the zone', async () => {
@@ -160,6 +164,22 @@ describe('settings: service area', () => {
     await user().click(screen.getByRole('button', { name: 'Add zone' }));
     expect(await screen.findByText('Zone 10179 added to the waitlist.')).toBeInTheDocument();
     expect(api.bodies['PUT /admin/zones/10179']).toEqual({ name: 'Mitte East', lat: 52.5115, lng: 13.4167 });
+  });
+
+  it('adds a zone outside Germany, far from the other zones, with its postcode tidied', async () => {
+    const api = adminApi();
+    api.on('GET /admin/zones', { body: { zones: [], elsewhere: [] } });
+    api.on('PUT /admin/zones/SW1A%201AA', ({ body }) => ({
+      body: { zone: { code: 'SW1A 1AA', ...(body as object), live: false, pros: 0, bookingsPerWeek: 0, waiting: 0 } },
+    }));
+    renderAt('/admin/settings/area');
+    await user().type(await screen.findByLabelText('Postcode'), ' sw1a  1aa');
+    await user().type(screen.getByLabelText('Area name'), 'Westminster');
+    await user().type(screen.getByLabelText('Latitude'), '51.501');
+    await user().type(screen.getByLabelText('Longitude'), '-0.1419');
+    await user().click(screen.getByRole('button', { name: 'Add zone' }));
+    expect(await screen.findByText('Zone SW1A 1AA added to the waitlist.')).toBeInTheDocument();
+    expect(api.bodies['PUT /admin/zones/SW1A%201AA']).toEqual({ name: 'Westminster', lat: 51.501, lng: -0.1419 });
   });
 });
 
@@ -221,6 +241,62 @@ describe('settings: notifications', () => {
     await user().type(phone, '+49 151 23456789');
     fireEvent.blur(phone);
     await waitFor(() => expect(api.bodies['PATCH /admin/me/phone']).toEqual({ phone: '+49 151 23456789' }));
+  });
+
+  const queued = { id: 'n-1', to: 'tester@example.com', status: 'queued', done: false, error: null };
+
+  it('sends the chosen message as a test email to a typed address and follows it until it is sent', async () => {
+    const api = adminApi();
+    api.on('GET /admin/notifications', { body: data });
+    api.on('GET /push/key', { body: { publicKey: null } });
+    api.on('POST /admin/notifications/job_offer/test-email', { status: 202, body: { email: queued } });
+    api.on('GET /admin/notifications/test-email/n-1', { body: { email: { ...queued, status: 'sent', done: true } } });
+    renderAt('/admin/settings/notifications');
+    await user().selectOptions(await screen.findByRole('combobox', { name: 'Message to test' }), 'New job offer');
+    const field = screen.getByLabelText('Email address for the test');
+    const send = screen.getByRole('button', { name: 'Send test email of New job offer' });
+
+    // Checked before anything is sent.
+    await user().click(send);
+    expect(screen.getByText('Enter the email address to send the test to.')).toBeInTheDocument();
+    expect(field).toHaveAttribute('aria-invalid', 'true');
+    expect(field).toHaveFocus();
+    await user().type(field, 'tester@example');
+    await user().click(send);
+    expect(screen.getByText('Enter a valid email address, for example name@example.com.')).toBeInTheDocument();
+    expect(api.calls).not.toContain('POST /admin/notifications/job_offer/test-email');
+
+    await user().type(field, '.com');
+    await user().click(send);
+    expect(api.bodies['POST /admin/notifications/job_offer/test-email']).toEqual({ email: 'tester@example.com' });
+    expect(await screen.findByText(/Test email queued to tester@example.com/)).toBeInTheDocument();
+    // The page asks again on its own and then says it went out.
+    expect(await screen.findByText(/Test email sent to tester@example.com\. Check the inbox and the spam folder/, {}, { timeout: 5000 })).toBeInTheDocument();
+  });
+
+  it('says honestly when the test email could not be sent', async () => {
+    const api = adminApi();
+    api.on('GET /admin/notifications', { body: data });
+    api.on('GET /push/key', { body: { publicKey: null } });
+    api.on('POST /admin/notifications/booking_confirmed/test-email', {
+      status: 202,
+      body: { email: { ...queued, status: 'failed', done: true, error: '550 mailbox unavailable' } },
+    });
+    renderAt('/admin/settings/notifications');
+    await user().type(await screen.findByLabelText('Email address for the test'), 'tester@example.com');
+    await user().click(screen.getByRole('button', { name: 'Send test email of Booking confirmed' }));
+    expect(await screen.findByText('The test email to tester@example.com could not be sent: 550 mailbox unavailable')).toBeInTheDocument();
+  });
+
+  it('shows the server’s answer when the address is refused or too many tests were sent', async () => {
+    const api = adminApi();
+    api.on('GET /admin/notifications', { body: data });
+    api.on('GET /push/key', { body: { publicKey: null } });
+    api.on('POST /admin/notifications/booking_confirmed/test-email', { status: 429, body: { error: 'too_many_attempts' } });
+    renderAt('/admin/settings/notifications');
+    await user().type(await screen.findByLabelText('Email address for the test'), 'tester@example.com');
+    await user().click(screen.getByRole('button', { name: 'Send test email of Booking confirmed' }));
+    expect(await screen.findByText(/Too many tries/)).toBeInTheDocument();
   });
 });
 
@@ -333,10 +409,55 @@ describe('settings: team and access', () => {
     expect(api.calls).toContain('DELETE /admin/team/invites/inv-1');
   });
 
-  it('shows who did what and when, newest first', async () => {
+  /** The activity log starts closed; its whole header is a button that opens it. */
+  async function openLog() {
+    const log = await screen.findByRole('region', { name: 'Activity log' });
+    await user().click(within(log).getByRole('button', { name: /Activity log/ }));
+    return log;
+  }
+
+  it('keeps the activity log closed until its header is clicked, loads it once, and closes it again', async () => {
+    const api = teamApi();
+    renderAt('/admin/settings/team');
+    const log = await screen.findByRole('region', { name: 'Activity log' });
+    const toggle = within(log).getByRole('button', { name: /Activity log/ });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(toggle).not.toHaveAttribute('aria-controls');
+    expect(within(log).queryByRole('listitem')).not.toBeInTheDocument();
+    expect(api.calls).not.toContain('GET /admin/activity');
+
+    await user().click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(toggle).toHaveAttribute('aria-controls', 'activity-body');
+    expect(await within(log).findAllByRole('listitem')).toHaveLength(2);
+    expect(window.localStorage.getItem('misk.admin.team.activityOpen')).toBe('open');
+
+    // The keyboard works too, and closing keeps what was loaded.
+    toggle.focus();
+    await user().keyboard('{Enter}');
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(within(log).queryByRole('listitem')).not.toBeInTheDocument();
+    await user().keyboard(' ');
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(within(log).getAllByRole('listitem')).toHaveLength(2);
+    expect(api.calls.filter((c) => c === 'GET /admin/activity')).toHaveLength(1);
+    window.localStorage.removeItem('misk.admin.team.activityOpen');
+  });
+
+  it('remembers in this browser that the activity log was left open', async () => {
+    window.localStorage.setItem('misk.admin.team.activityOpen', 'open');
     teamApi();
     renderAt('/admin/settings/team');
     const log = await screen.findByRole('region', { name: 'Activity log' });
+    expect(within(log).getByRole('button', { name: /Activity log/ })).toHaveAttribute('aria-expanded', 'true');
+    expect(await within(log).findAllByRole('listitem')).toHaveLength(2);
+    window.localStorage.removeItem('misk.admin.team.activityOpen');
+  });
+
+  it('shows who did what and when, newest first', async () => {
+    teamApi();
+    renderAt('/admin/settings/team');
+    const log = await openLog();
     const items = await within(log).findAllByRole('listitem');
     expect(items[0]).toHaveTextContent('Changed the commission from 18% to 20%');
     expect(items[0]).toHaveTextContent('Elion Thaqi');
@@ -365,11 +486,16 @@ describe('settings: team and access', () => {
           line('settings-3', 'account_created', 'drita'),
           line('settings-2', 'password_reset', 'drita'),
           line('settings-1', 'email_changed', 'drita@misk.app'),
+          { ...line('settings-0', 'invite_signed_up', 'Nora Berisha'), details: { name: 'Nora Berisha', role: 'operations' } },
+          { ...line('settings-a', 'invite_approved', 'Nora Berisha'), details: { name: 'Nora Berisha', role: 'support' } },
+          { ...line('settings-b', 'invite_approved_by_link', 'Ina Krasniqi'), details: { name: 'Ina Krasniqi', role: 'finance' } },
+          { ...line('settings-c', 'invite_declined', 'Dren Morina'), details: { name: 'Dren Morina', role: 'admin' } },
+          { ...line('settings-d', 'test_email_sent', ''), area: 'notifications', details: { message: 'job_offer', email: 'tester@example.com' } },
         ],
       },
     });
     renderAt('/admin/settings/team');
-    const log = await screen.findByRole('region', { name: 'Activity log' });
+    const log = await openLog();
     const items = await within(log).findAllByRole('listitem');
     [
       'Declined the account request from Arta Berisha',
@@ -378,6 +504,90 @@ describe('settings: team and access', () => {
       'Created an admin account for drita',
       'Set a new password for drita',
       'Changed the email of drita@misk.app',
+      'Nora Berisha signed up as Operations with an invitation link and is waiting for approval',
+      'Approved Nora Berisha, who joined with an invitation link, as Support',
+      'Approved Ina Krasniqi, who joined with an invitation link, as Finance with the email link',
+      'Declined Dren Morina, who signed up as Admin with an invitation link',
+      'Sent a test email of New job offer to tester@example.com',
     ].forEach((text, index) => expect(items[index]).toHaveTextContent(text));
+  });
+
+  it('opens the invite form right under its button, with the cursor in the role field', async () => {
+    const api = teamApi();
+    api.on('GET /admin/team/invites', { body: { invites: [] } });
+    renderAt('/admin/settings/team');
+    const button = await screen.findByRole('button', { name: 'Invite teammate' });
+    expect(button).toHaveAttribute('aria-expanded', 'false');
+    await user().click(button);
+    expect(button).toHaveAttribute('aria-expanded', 'true');
+    const form = screen.getByRole('form', { name: 'Invite a teammate' });
+    // Inside the Team panel, between its header and the table, not further down the page.
+    const panel = screen.getByRole('region', { name: 'Team' });
+    expect(panel).toContainElement(form);
+    const table = within(panel).getByRole('table');
+    expect(form.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(button.compareDocumentPosition(form) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(form).getByLabelText('Role')).toHaveFocus();
+
+    await user().click(within(form).getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('form', { name: 'Invite a teammate' })).not.toBeInTheDocument();
+    expect(button).toHaveFocus();
+    expect(button).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('lists people waiting for approval, with the invited role chosen, and approves with the role picked', async () => {
+    const api = teamApi();
+    const nora = {
+      id: 'u-nora',
+      username: 'nora@example.com',
+      email: 'nora@example.com',
+      firstName: 'Nora',
+      lastName: 'Berisha',
+      pending: true,
+      adminRole: 'operations' as const,
+      invitedAt: '2026-11-19T10:00:00.000Z',
+      createdAt: '2026-11-19T10:00:00.000Z',
+      disabled: false,
+    };
+    api.on('GET /admin/team', { body: { admins: [nora] } });
+    api.on('POST /admin/team/u-nora/approve', { body: { approved: true } });
+    renderAt('/admin/settings/team');
+    const requests = await screen.findByRole('region', { name: '1 account request' });
+    expect(requests).toHaveTextContent('Nora Berisha');
+    expect(requests).toHaveTextContent('Signed up with an invitation link');
+    const role = within(requests).getByRole('combobox', { name: 'Role for Nora Berisha' });
+    expect(role).toHaveValue('operations');
+    await user().selectOptions(role, 'Support');
+    await user().click(within(requests).getByRole('button', { name: 'Approve' }));
+    await waitFor(() => expect(api.bodies['POST /admin/team/u-nora/approve']).toEqual({ role: 'support' }));
+    expect(await screen.findByText('nora@example.com can sign in now.')).toBeInTheDocument();
+  });
+
+  it('declines a person who signed up with an invitation link', async () => {
+    const api = teamApi();
+    api.on('GET /admin/team', {
+      body: {
+        admins: [
+          {
+            id: 'u-dren',
+            username: 'dren@example.com',
+            email: 'dren@example.com',
+            firstName: 'Dren',
+            lastName: 'Morina',
+            pending: true,
+            adminRole: 'admin',
+            invitedAt: '2026-11-19T10:00:00.000Z',
+            createdAt: '2026-11-19T10:00:00.000Z',
+            disabled: false,
+          },
+        ],
+      },
+    });
+    api.on('POST /admin/team/u-dren/decline', { status: 204 });
+    renderAt('/admin/settings/team');
+    const requests = await screen.findByRole('region', { name: '1 account request' });
+    await user().click(within(requests).getByRole('button', { name: 'Decline' }));
+    expect(await screen.findByText('Request from dren@example.com declined.')).toBeInTheDocument();
+    expect(api.calls).toContain('POST /admin/team/u-dren/decline');
   });
 });

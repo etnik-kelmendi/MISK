@@ -84,6 +84,8 @@ export async function findSessionUser(pool: Queryable, token: string): Promise<U
        AND sessions.user_id = users.id
        AND users.disabled_at IS NULL
        AND users.suspended_at IS NULL
+       -- An admin account waiting for approval never has a working session, even one made by other means (D84).
+       AND (users.admin_requested_at IS NULL OR users.admin_approved_at IS NOT NULL)
        AND sessions.expires_at > now()
        AND sessions.last_seen_at > now() - make_interval(secs => CASE WHEN users.role = 'admin' THEN $2::int ELSE $3::int END)
      RETURNING ${USER_COLUMNS}`,

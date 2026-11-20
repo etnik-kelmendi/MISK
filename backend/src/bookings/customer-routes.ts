@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { currentUser } from '../auth/guard.js';
 import { MAX_PACKAGE_SERVICES, packagePrice, proShareCents, type JobSize } from '../catalogue/pricing.js';
-import { normalizePostcode } from '../catalogue/routes.js';
+import { normalizePostcode, POSTCODE_INPUT_MAX_LENGTH } from '../catalogue/routes.js';
 import type { AppContext } from '../context.js';
 import { onlyRow, withTransaction } from '../db.js';
 import { ApiError, badRequest, conflict, notFound } from '../errors.js';
@@ -146,7 +146,7 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
             serviceId: { type: 'string', format: 'uuid' },
             // Several services of one visit, comma-separated (D68).
             serviceIds: { type: 'string', pattern: UUID_LIST, maxLength: 400 },
-            postcode: { type: 'string', minLength: 2, maxLength: 10 },
+            postcode: { type: 'string', minLength: 2, maxLength: POSTCODE_INPUT_MAX_LENGTH },
             // The customer's own booking being moved: it does not count against its new time (D75).
             bookingId: { type: 'string', format: 'uuid' },
           },
@@ -196,7 +196,7 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
             },
             size: { type: 'string', enum: ['S', 'M', 'L'] },
             address: { type: 'string', minLength: 3, maxLength: 200, pattern: '\\S' },
-            postcode: { type: 'string', minLength: 2, maxLength: 10 },
+            postcode: { type: 'string', minLength: 2, maxLength: POSTCODE_INPUT_MAX_LENGTH },
             notes: { type: 'string', maxLength: 1000 },
             startsAt: { type: 'string', format: 'date-time' },
             flexibleWindow: { type: 'string', enum: FLEXIBLE_WINDOWS },

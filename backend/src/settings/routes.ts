@@ -1,15 +1,16 @@
 import type { FastifyInstance } from 'fastify';
 import { ADMIN_ROLES, ACCESS, type AdminRole } from '../auth/access.js';
+import { normalizeEmail } from '../auth/admin-accounts.js';
 import { currentUser } from '../auth/guard.js';
 import { recordAttempt } from '../auth/sessions.js';
 import { FREE_CANCEL_HOURS, CHARGE_DELAY_HOURS } from '../bookings/lifecycle.js';
-import { isValidPostcode, normalizePostcode } from '../catalogue/routes.js';
+import { isValidPostcode, normalizePostcode, POSTCODE_INPUT_MAX_LENGTH } from '../catalogue/routes.js';
 import type { AppContext } from '../context.js';
 import { onlyRow, withTransaction } from '../db.js';
 import { ApiError, badRequest, conflict, notFound } from '../errors.js';
 import { uuidParams } from '../http.js';
 import { formatSlot, messages } from '../notifications/messages.js';
-import { CHANNELS, CONFIGURABLE, enqueue, fitBody, subjectOf, type ConfigurableKind } from '../notifications/outbox.js';
+import { CHANNELS, CONFIGURABLE, enqueue, fitBody, MAX_ATTEMPTS, subjectOf, type ConfigurableKind } from '../notifications/outbox.js';
 import { normalizePhone } from '../notifications/phone.js';
 import { nextPayoutDate, PAYOUT_INTERVALS, type PayoutInterval } from '../payments/payouts.js';
 import { marketToday } from '../pros/checks.js';
@@ -21,19 +22,21 @@ export const COMMISSION_MAX = 30;
 /** An invite link lets the new teammate choose a password within this many days. */
 export const INVITE_DAYS = 7;
 /**
- * A zone's centre may lie at most this far from the nearest other zone. MISK serves one city, so a point
- * further away is almost always a typo or latitude and longitude swapped (D47).
+ * Two zones' centres are at least this far apart; closer means one zone's coordinates were reused. Zones may
+ * otherwise lie anywhere in the world (D84 removed the 100 km limit of D47).
  */
-export const ZONE_MAX_DISTANCE_KM = 100;
-/** Two zones' centres are at least this far apart; closer means one zone's coordinates were reused. */
 export const ZONE_MIN_DISTANCE_KM = 0.1;
-/** Test messages per admin per 15 minutes, so a stuck button cannot flood a phone. */
+/** Test messages per admin per 15 minutes, so a stuck button cannot flood a phone or an inbox. */
 const MAX_TESTS = 20;
+/** The email check used across the API. */
+const EMAIL_FORMAT = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+const MAX_EMAIL_LENGTH = 254;
 
+// Checked again with isValidPostcode after normalizing, so this only keeps out very long input.
 const postcodeParams = {
   type: 'object',
   required: ['code'],
-  properties: { code: { type: 'string', pattern: '^[A-Za-z0-9][A-Za-z0-9 -]{1,9}$' } },
+  properties: { code: { type: 'string', minLength: 1, maxLength: POSTCODE_INPUT_MAX_LENGTH } },
 } as const;
 
 /** One sample text per message, for "Send me a test". */
@@ -190,10 +193,6 @@ export async function settingsRoutes(app: FastifyInstance, ctx: AppContext) {
         if (km !== undefined && km < ZONE_MIN_DISTANCE_KM) {
           throw badRequest('coordinates_taken');
         }
-        if (km !== undefined && km > ZONE_MAX_DISTANCE_KM) {
-          request.log.info({ event: 'zone_rejected_far', code, km: Math.round(km) });
-          throw badRequest('zone_too_far');
-        }
         const result = await client.query<{ inserted: boolean }>(
           `INSERT INTO postcodes (code, name, lat, lng, active) VALUES ($1, $2, $3, $4, COALESCE($5, false))
            ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name, lat = EXCLUDED.lat, lng = EXCLUDED.lng
@@ -274,7 +273,7 @@ export async function settingsRoutes(app: FastifyInstance, ctx: AppContext) {
           type: 'object',
           required: ['postcode'],
           additionalProperties: false,
-          properties: { postcode: { type: 'string', pattern: '^\\s*[A-Za-z0-9][A-Za-z0-9 -]{1,9}\\s*$' } },
+          properties: { postcode: { type: 'string', minLength: 2, maxLength: POSTCODE_INPUT_MAX_LENGTH } },
         },
       },
     },
@@ -425,6 +424,83 @@ export async function settingsRoutes(app: FastifyInstance, ctx: AppContext) {
     },
   );
 
+  /** Where a test email stands, as the outbox records it, for the admin who sent it. */
+  async function testEmailStatus(id: string, adminId: string) {
+    const found = await pool.query<{ id: string; to: string; status: string; attempts: number; error: string | null; updatedAt: Date }>(
+      `SELECT id, email AS "to", status, attempts, error, updated_at AS "updatedAt" FROM notifications
+       WHERE id = $1 AND user_id = $2 AND kind = 'admin_test' AND channel = 'email'`,
+      [id, adminId],
+    );
+    const row = found.rows[0];
+    if (!row) {
+      throw notFound('test_email_not_found');
+    }
+    // A failed email is tried again a few times; only after the last try has it really failed.
+    const finalFailure = row.status === 'not_configured' || (row.status === 'failed' && row.attempts >= MAX_ATTEMPTS);
+    return {
+      id: row.id,
+      to: row.to,
+      status: row.status as 'queued' | 'sending' | 'sent' | 'failed' | 'not_configured',
+      done: row.status === 'sent' || finalFailure,
+      error: row.status === 'failed' ? (row.error ?? '').slice(0, 300) : null,
+      updatedAt: row.updatedAt,
+    };
+  }
+
+  // Sends one message as a test email to any address the admin types, through the normal outbox, so the
+  // email really goes out with the email sender and its result can be followed (D84).
+  app.post<{ Params: { kind: ConfigurableKind }; Body: { email: string } }>(
+    '/admin/notifications/:kind/test-email',
+    {
+      preHandler: guards.admin,
+      schema: {
+        params: { type: 'object', required: ['kind'], properties: { kind: { type: 'string', enum: CONFIGURABLE.map((c) => c.kind) } } },
+        body: {
+          type: 'object',
+          required: ['email'],
+          additionalProperties: false,
+          // A little room for spaces around the address, which are removed before the check.
+          properties: { email: { type: 'string', minLength: 3, maxLength: MAX_EMAIL_LENGTH + 20 } },
+        },
+      },
+    },
+    async (request, reply) => {
+      const adminId = currentUser(request).id;
+      const { kind } = request.params;
+      const to = normalizeEmail(request.body.email);
+      if (to.length > MAX_EMAIL_LENGTH || !EMAIL_FORMAT.test(to)) {
+        throw badRequest('invalid_email');
+      }
+      if (!ctx.deliverEmail) {
+        // Saying so now is more honest than queueing an email that can never leave.
+        throw new ApiError(503, 'email_not_set_up');
+      }
+      // The same limit as the other tests, so typing many addresses cannot be used to send mail in bulk.
+      if ((await recordAttempt(pool, `test-message:${adminId}`, MAX_TESTS)).overLimit) {
+        throw new ApiError(429, 'too_many_attempts');
+      }
+      const text = fitBody(sampleText(kind, ctx.config.timezone));
+      const id = await withTransaction(pool, async (client) => {
+        const queued = await client.query<{ id: string }>(
+          `INSERT INTO notifications (user_id, channel, email, subject, kind, body) VALUES ($1, 'email', $2, $3, 'admin_test', $4)
+           RETURNING id`,
+          [adminId, to, `[Test] ${subjectOf(kind)}`, text],
+        );
+        // The activity log already shows teammates' emails (email_changed), and only admins can read it.
+        await logActivity(client, { adminId, area: 'notifications', action: 'test_email_sent', details: { message: kind, email: to } });
+        return onlyRow(queued).id;
+      });
+      request.log.info({ event: 'test_email_queued', notificationId: id, kind, by: adminId });
+      return reply.code(202).send({ email: await testEmailStatus(id, adminId) });
+    },
+  );
+
+  app.get<{ Params: { id: string } }>(
+    '/admin/notifications/test-email/:id',
+    { preHandler: guards.admin, schema: { params: uuidParams } },
+    async (request) => ({ email: await testEmailStatus(request.params.id, currentUser(request).id) }),
+  );
+
   // ---------- Push on this device (anyone signed in) ----------
 
   app.get('/push/key', async () => ({ publicKey: ctx.config.push?.publicKey ?? null }));
@@ -507,14 +583,16 @@ export async function settingsRoutes(app: FastifyInstance, ctx: AppContext) {
       const adminId = currentUser(request).id;
       await withTransaction(pool, async (client) => {
         // Lock the admins so two people cannot each take away the other's last admin role.
-        const admins = await client.query<{ id: string; admin_role: AdminRole }>(
-          "SELECT id, admin_role FROM users WHERE role = 'admin' AND disabled_at IS NULL ORDER BY id FOR UPDATE",
+        const admins = await client.query<{ id: string; admin_role: AdminRole; pending: boolean }>(
+          `SELECT id, admin_role, (admin_requested_at IS NOT NULL AND admin_approved_at IS NULL) AS pending
+           FROM users WHERE role = 'admin' AND disabled_at IS NULL ORDER BY id FOR UPDATE`,
         );
         const member = admins.rows.find((a) => a.id === request.params.id);
         if (!member) {
           throw notFound();
         }
-        const fullAdmins = admins.rows.filter((a) => a.admin_role === 'admin');
+        // Someone still waiting for approval cannot sign in, so they never count as the remaining admin.
+        const fullAdmins = admins.rows.filter((a) => a.admin_role === 'admin' && !a.pending);
         if (member.admin_role === 'admin' && request.body.role !== 'admin' && fullAdmins.length <= 1) {
           throw conflict('last_admin');
         }

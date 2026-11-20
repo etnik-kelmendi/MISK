@@ -22,11 +22,14 @@ export const MEMBER_NAME = `COALESCE(NULLIF(concat_ws(' ', first_name, last_name
  * Logs a change to a teammate's account, naming them as they are now. Call it in the same transaction as
  * the change, and before a delete, so the name is still there to read.
  */
-export async function logTeamActivity(db: Queryable, input: { adminId: string | null; memberId: string; action: string }) {
+export async function logTeamActivity(
+  db: Queryable,
+  input: { adminId: string | null; memberId: string; action: string; details?: Record<string, unknown> },
+) {
   await db.query(
     `INSERT INTO admin_activity (admin_id, area, action, details)
-     SELECT $1::uuid, 'team', $3::text, jsonb_build_object('memberId', id, 'name', ${MEMBER_NAME}) FROM users WHERE id = $2`,
-    [input.adminId, input.memberId, input.action],
+     SELECT $1::uuid, 'team', $3::text, $4::jsonb || jsonb_build_object('memberId', id, 'name', ${MEMBER_NAME}) FROM users WHERE id = $2`,
+    [input.adminId, input.memberId, input.action, JSON.stringify(input.details ?? {})],
   );
 }
 

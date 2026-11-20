@@ -593,6 +593,28 @@ input.check { width: 18px; height: 18px; accent-color: var(--brand); }
 .t td select.role { min-height: 32px; border-radius: 8px; border: 1.5px solid var(--line); padding: 0 8px; background: #fff; font-weight: 700; font-size: 12.5px; }
 .t td select.role.admin { background: var(--brand-soft); color: var(--brand); border-color: transparent; }
 .t td select.role.other { background: var(--info-soft); color: #1f4fae; border-color: transparent; }
+/* Team & access: the invite form opens right under its button, inside the Team panel (D84). */
+.invite-box { border: 1.5px solid var(--line); border-radius: 12px; padding: 14px; background: var(--screen); }
+.invite-box h3 { font-size: 14.5px; }
+.invite-form .af { min-width: 180px; flex: 1 1 180px; max-width: 280px; }
+@media (max-width: 640px) {
+  .invite-form, .invite-form .af { max-width: none; width: 100%; }
+  .invite-form .abtn { flex: 1 1 auto; }
+}
+.request-role { min-height: 40px; border-radius: 10px; border: 1.5px solid var(--line); padding: 0 10px; background: #fff; }
+/* A panel that opens and closes by clicking its whole header row. */
+.fold-head { margin: 0; font-size: inherit; }
+.fold-toggle { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; border-radius: 8px; }
+.fold-toggle:focus-visible { outline: 3px solid var(--info); outline-offset: 4px; }
+.fold-text { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; min-width: 0; }
+.fold-title { font-size: 16px; font-weight: 700; }
+.fold-chev { flex: none; transition: transform 0.15s ease; }
+.activity-log.open .fold-chev { transform: rotate(180deg); }
+@media (prefers-reduced-motion: reduce) { .fold-chev { transition: none; } }
+/* Notifications: a test email to any address, field and button on one row that wraps on phones. */
+.test-email-row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+.test-email-row .af { flex: 1 1 240px; min-width: 0; max-width: 420px; }
+@media (max-width: 640px) { .test-email-row .af { max-width: none; } .test-email-row .abtn { width: 100%; } }
 .logrows { list-style: none; margin: 0; padding: 0; }
 .logrow { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line-2); font-size: 13px; align-items: center; }
 .logrow:last-child { border-bottom: 0; }

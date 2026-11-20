@@ -882,16 +882,32 @@ describe('booking a job', () => {
     expect(await screen.findByText("You're on the waiting list for 99999. We'll let you know.")).toBeInTheDocument();
   });
 
-  it('asks for a 5-digit postcode', async () => {
+  it('asks for a valid postcode', async () => {
     const api = fakeApi(users.customer);
     api.on('GET /postcodes', { body: { postcodes: [{ code: '10115', name: 'Mitte' }] } });
     api.on('GET /bookings', { body: { bookings: [] } });
     renderAt('/book/svc-mow');
     await user().type(await screen.findByLabelText('Street and house number'), '12 Linden Street');
-    await user().type(screen.getByLabelText('Postcode'), '101');
+    await user().type(screen.getByLabelText('Postcode'), '---');
     await user().click(screen.getByRole('button', { name: /Continue · / }));
-    expect(screen.getByText('Enter a 5-digit postcode.')).toBeInTheDocument();
+    expect(screen.getByText('Enter a valid postcode, for example 10115 or SW1A 1AA.')).toBeInTheDocument();
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('accepts a postcode from another country, typed in any case and with spaces', async () => {
+    const api = fakeApi(users.customer);
+    api.on('GET /postcodes', { body: { postcodes: [{ code: 'SW1A 1AA', name: 'Westminster' }] } });
+    api.on('GET /bookings', { body: { bookings: [] } });
+    renderAt('/book/svc-mow');
+    await user().type(await screen.findByLabelText('Street and house number'), '1 Palace Street');
+    const postcode = screen.getByLabelText('Postcode');
+    await user().type(postcode, ' sw1a  1aa ');
+    // Upper-case and single spaces while typing; the space at the end goes when the field is left.
+    expect(postcode).toHaveValue('SW1A 1AA ');
+    expect(screen.getByText('Westminster')).toBeInTheDocument();
+    await user().tab();
+    expect(postcode).toHaveValue('SW1A 1AA');
+    expect(screen.queryByText("MISK isn't available here yet")).not.toBeInTheDocument();
   });
 
   it('adds photos from the camera or the gallery, up to 3', async () => {
@@ -2824,7 +2840,7 @@ describe('admin', () => {
     await user().type(await screen.findByLabelText('Username or email'), 'lina@misk.test');
     await user().type(screen.getByLabelText('Password'), 'a long new admin password');
     await user().click(screen.getByRole('button', { name: 'Sign in' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('waiting for an admin to approve it');
+    expect(await screen.findByRole('alert')).toHaveTextContent('waiting for approval by an admin');
   });
 
   it('approves an account request with one click from the email link, and hides the token', async () => {

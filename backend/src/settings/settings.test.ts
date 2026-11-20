@@ -156,20 +156,17 @@ describe('service area', () => {
     expect((await activity()).map((a) => a.action)).toEqual(['zone_paused', 'zone_live', 'zone_added']);
   });
 
-  it('refuses the same number as latitude and longitude, out-of-range values and points far from the other zones', async () => {
+  it('refuses the same number as latitude and longitude and out-of-range values, and writes nothing', async () => {
     const put = (code: string, body: unknown) => call(t, 'PUT', `/admin/zones/${code}`, { cookie: admin, body });
     const same = await put('10178', { name: 'Alexanderplatz', lat: 52.5219, lng: 52.5219 });
     expect(same.statusCode).toBe(400);
     expect(same.json()).toEqual({ error: 'coordinates_identical' });
     expect((await put('10178', { name: 'Null Island', lat: 0, lng: 0 })).json()).toEqual({ error: 'coordinates_identical' });
     expect((await put('10178', { name: 'Alexanderplatz', lat: 91, lng: 13.4 })).statusCode).toBe(400);
+    expect((await put('10178', { name: 'Alexanderplatz', lat: -91, lng: 13.4 })).statusCode).toBe(400);
     expect((await put('10178', { name: 'Alexanderplatz', lat: 52.5, lng: 181 })).statusCode).toBe(400);
-
-    // Latitude and longitude swapped puts Berlin in the Arabian Sea.
-    const swapped = await put('10178', { name: 'Alexanderplatz', lat: 13.4132, lng: 52.5219 });
-    expect(swapped.json()).toEqual({ error: 'zone_too_far' });
-    // Editing a zone measures against the others, not against its own earlier point.
-    expect((await put('10115', { name: 'Mitte', lat: 13.3846, lng: 52.5323 })).json()).toEqual({ error: 'zone_too_far' });
+    expect((await put('10178', { name: 'Alexanderplatz', lat: 52.5, lng: -181 })).statusCode).toBe(400);
+    expect((await put('10178', { name: 'Alexanderplatz', lat: 'north', lng: 13.4 })).statusCode).toBe(400);
 
     const zones = await t.pool.query("SELECT count(*)::int AS n FROM postcodes WHERE code = '10178'");
     expect(zones.rows[0]?.n).toBe(0);
@@ -178,17 +175,57 @@ describe('service area', () => {
     expect((await put('10178', { name: 'Alexanderplatz', lat: 52.5219, lng: 13.4132 })).statusCode).toBe(200);
   });
 
-  it('accepts only five-digit postcodes, for zones and for the waitlist', async () => {
-    const put = (code: string) => call(t, 'PUT', `/admin/zones/${encodeURIComponent(code)}`, { cookie: admin, body: { name: 'Test', lat: 52.51, lng: 13.41 } });
-    for (const code of ['AB', '99', '1-2-3', '1011', '101155', '00123', 'AB123', '10 115']) {
-      expect((await put(code)).json(), code).toEqual({ error: 'invalid_postcode' });
+  it('accepts zones anywhere in the world, however far from the other zones (D84)', async () => {
+    const put = (code: string, body: unknown) => call(t, 'PUT', `/admin/zones/${encodeURIComponent(code)}`, { cookie: admin, body });
+    const london = await put('SW1A 1AA', { name: 'Westminster', lat: 51.501, lng: -0.1419 });
+    expect(london.statusCode).toBe(200);
+    expect(london.json().zone).toMatchObject({ code: 'SW1A 1AA', live: false });
+    expect((await put('2000', { name: 'Sydney', lat: -33.8688, lng: 151.2093 })).statusCode).toBe(200);
+    expect((await put('100-0001', { name: 'Chiyoda', lat: 35.6852, lng: 139.7528 })).statusCode).toBe(200);
+    // Swapped coordinates are no longer refused: they are a valid point, just far away.
+    expect((await put('10179', { name: 'Swapped', lat: 13.4132, lng: 52.5219 })).statusCode).toBe(200);
+    expect((await activity()).map((a) => a.action)).toEqual(['zone_added', 'zone_added', 'zone_added', 'zone_added']);
+  });
+
+  it('accepts postcodes from any country, for zones and for the waitlist, and refuses junk', async () => {
+    const put = (code: string, lat: number) =>
+      call(t, 'PUT', `/admin/zones/${encodeURIComponent(code)}`, { cookie: admin, body: { name: 'Test', lat, lng: 13.41 } });
+    const good = ['10115', 'sw1a 1aa', '75008', '1010', '00-950', '1000-001', 'K1A 0B1', '100-0001', 'D02 X285', '  ec1a   1bb '];
+    for (const [i, code] of good.entries()) {
+      expect((await put(code, 40 + i)).statusCode, code).toBe(200);
     }
-    expect((await put('10179')).statusCode).toBe(200);
+    const stored = (await t.pool.query<{ code: string }>('SELECT code FROM postcodes')).rows.map((r) => r.code);
+    expect(stored).toEqual(expect.arrayContaining(['SW1A 1AA', 'K1A 0B1', 'D02 X285', 'EC1A 1BB', '00-950']));
+    for (const code of ['---', 'A', '1', 'HELLO', 'AB', '12345678901', '-1234', '1234-', '12--34', '12 - 34', '12_34', '12.34']) {
+      expect((await put(code, 20)).json(), code).toEqual({ error: 'invalid_postcode' });
+    }
 
     const customer = await signIn(t, '+4915100000001', 'customer');
     expect((await post('/waitlist', { postcode: 'ABC' }, customer)).json()).toEqual({ error: 'invalid_postcode' });
-    expect((await post('/waitlist', { postcode: '0' + '1234' }, customer)).statusCode).toBe(201);
-    expect((await post('/waitlist', { postcode: '00999' }, customer)).json()).toEqual({ error: 'invalid_postcode' });
+    expect((await post('/waitlist', { postcode: '---' }, customer)).json()).toEqual({ error: 'invalid_postcode' });
+    const joined = await post('/waitlist', { postcode: ' m1  1ae ' }, customer);
+    expect(joined.statusCode).toBe(201);
+    expect(joined.json()).toEqual({ postcode: 'M1 1AE' });
+    expect((await post('/waitlist', { postcode: '00999' }, customer)).statusCode).toBe(201);
+  });
+
+  it('lets customers book in a zone outside Germany', async () => {
+    await call(t, 'PUT', '/admin/zones/SW1A%201AA', { cookie: admin, body: { name: 'Westminster', lat: 51.501, lng: -0.1419, live: true } });
+    await approvedPro(t, '+4915100000101', { trades: [market.gardening] });
+    // The pro lives there and covers it.
+    const pro = (await t.pool.query<{ user_id: string }>('SELECT user_id FROM pro_profiles')).rows[0]?.user_id;
+    await t.pool.query("UPDATE pro_profiles SET home_postcode = 'SW1A 1AA' WHERE user_id = $1", [pro]);
+    const customer = await signIn(t, '+4915100000001', 'customer');
+    const slots = await call(t, 'GET', `/availability?serviceId=${market.mowing}&postcode=${encodeURIComponent(' sw1a 1aa ')}`, { cookie: customer });
+    expect(slots.statusCode).toBe(200);
+    const startsAt = slots.json().slots.filter((s: { available: boolean }) => s.available).at(-1)?.startsAt;
+    expect(startsAt).toEqual(expect.any(String));
+    const booked = await call(t, 'POST', '/bookings', {
+      cookie: customer,
+      body: { serviceId: market.mowing, size: 'M', address: '1 Palace Street', postcode: 'sw1a 1aa', startsAt },
+    });
+    expect(booked.statusCode).toBe(201);
+    expect(booked.json().booking).toMatchObject({ postcode: 'SW1A 1AA' });
   });
 
   it('refuses a zone placed on the same coordinates as another zone', async () => {
@@ -300,6 +337,77 @@ describe('notifications', () => {
       expect.objectContaining({ channel: 'sms', phone: '+4915123456789' }),
     ]);
   });
+
+  describe('a test email to any address', () => {
+    const sendTo = (email: unknown, kind = 'job_offer', cookie = admin) => post(`/admin/notifications/${kind}/test-email`, { email }, cookie);
+    const statusOf = async (id: string, cookie = admin) => (await get(`/admin/notifications/test-email/${id}`, cookie)).json();
+
+    it('queues the chosen message for the typed address through the outbox, and reports when it was sent', async () => {
+      // Sent even when email is off for this message: the point is to test email delivery.
+      await patch('/admin/notifications/job_offer', { email: false });
+      const queued = await sendTo('  Tester@Example.com ');
+      expect(queued.statusCode).toBe(202);
+      const { email } = queued.json();
+      expect(email).toMatchObject({ to: 'tester@example.com', status: 'queued', done: false, error: null });
+
+      const row = await t.pool.query<{ channel: string; email: string; subject: string; body: string }>(
+        "SELECT channel, email, subject, body FROM notifications WHERE kind = 'admin_test'",
+      );
+      expect(row.rows).toEqual([
+        { channel: 'email', email: 'tester@example.com', subject: '[Test] New job offer on MISK', body: expect.stringContaining('[Test]') },
+      ]);
+      expect((await activity())[0]).toMatchObject({ action: 'test_email_sent', details: { message: 'job_offer', email: 'tester@example.com' } });
+
+      const sent: string[] = [];
+      await dispatchOnce(t.pool, { sms: null, push: null, email: async (m) => void sent.push(m.to) }, silentLog);
+      expect(sent).toEqual(['tester@example.com']);
+      expect(await statusOf(email.id)).toMatchObject({ email: { status: 'sent', done: true, error: null } });
+    });
+
+    it('reports a failed delivery, and only calls it final after the last try', async () => {
+      const { email } = (await sendTo('bounce@example.com')).json();
+      const failing = {
+        sms: null,
+        push: null,
+        email: async () => {
+          throw new Error('550 mailbox unavailable');
+        },
+      };
+      await dispatchOnce(t.pool, failing, silentLog);
+      expect((await statusOf(email.id)).email).toMatchObject({ status: 'failed', done: false, error: '550 mailbox unavailable' });
+      await t.pool.query('UPDATE notifications SET attempts = 3 WHERE id = $1', [email.id]);
+      expect((await statusOf(email.id)).email).toMatchObject({ status: 'failed', done: true });
+      // Says so honestly when the server cannot send email at all.
+      const other = (await sendTo('nobody@example.com')).json().email;
+      await dispatchOnce(t.pool, { sms: null, push: null, email: null }, silentLog);
+      expect((await statusOf(other.id)).email).toMatchObject({ status: 'not_configured', done: true });
+    });
+
+    it('checks the address the same way as the rest of the API', async () => {
+      for (const bad of ['not-an-email', 'a@b', 'two words@example.com', '@example.com', `${'x'.repeat(250)}@example.com`]) {
+        expect((await sendTo(bad)).json(), bad).toEqual({ error: 'invalid_email' });
+      }
+      expect((await sendTo('')).statusCode).toBe(400);
+      expect((await sendTo(42)).statusCode).toBe(400);
+      expect((await post('/admin/notifications/sign_in_code/test-email', { email: 'tester@example.com' })).statusCode).toBe(400);
+      expect((await t.pool.query("SELECT 1 FROM notifications WHERE kind = 'admin_test'")).rowCount).toBe(0);
+    });
+
+    it('shares the test limit with the other tests, and shows each admin only their own emails', async () => {
+      const { email } = (await sendTo('tester@example.com')).json();
+      const other = await teammate('second.admin', 'admin');
+      expect((await get(`/admin/notifications/test-email/${email.id}`, other)).json()).toEqual({ error: 'test_email_not_found' });
+      expect((await get('/admin/notifications/test-email/not-a-uuid')).statusCode).toBe(400);
+      for (let i = 1; i < 20; i += 1) {
+        await post('/admin/notifications/booking_confirmed/test');
+      }
+      expect((await sendTo('tester@example.com')).json()).toEqual({ error: 'too_many_attempts' });
+      expect((await sendTo('tester@example.com', 'job_offer', other)).statusCode).toBe(202);
+      // Only admins with the notifications area may send one.
+      const support = await teammate('support.sam', 'support');
+      expect((await sendTo('tester@example.com', 'job_offer', support)).statusCode).toBe(403);
+    });
+  });
 });
 
 describe('team and access', () => {
@@ -328,7 +436,19 @@ describe('team and access', () => {
         body: { token, firstName: 'Nora', lastName: 'Berisha', email: ' Nora@Example.com ', password: 'my own password 42', ...body },
       });
 
-    it('makes a shareable link for a role; the person signs up with it and signs in with that role', async () => {
+    const signInAs = (username: string, password = 'my own password 42') =>
+      call(t, 'POST', '/auth/admin/login', { body: { username, password } });
+    const idOf = async (email: string) =>
+      (await t.pool.query<{ id: string }>('SELECT id FROM users WHERE email = $1', [email])).rows[0]?.id ?? '';
+    /** Signs up with a new link for the role and returns the waiting account's id. */
+    async function joinAs(role: string, body: Record<string, unknown> = {}) {
+      const token = tokenOf((await post('/admin/team/invites', { role })).json().link);
+      const joined = await join(token, body);
+      expect(joined.statusCode).toBe(201);
+      return idOf(joined.json().email);
+    }
+
+    it('makes a shareable link for a role; the person signs up and waits for an admin before signing in', async () => {
       const made = await post('/admin/team/invites', { role: 'operations' });
       expect(made.statusCode).toBe(201);
       const { invite, link } = made.json();
@@ -342,17 +462,92 @@ describe('team and access', () => {
       expect((await call(t, 'POST', '/auth/admin/invite/check', { body: { token } })).json()).toMatchObject({ invite: { role: 'operations' } });
       const joined = await join(token);
       expect(joined.statusCode).toBe(201);
-      expect(joined.json()).toEqual({ email: 'nora@example.com', role: 'operations' });
+      expect(joined.json()).toEqual({ email: 'nora@example.com', role: 'operations', status: 'pending_approval' });
+      // Joining never signs the person in.
+      expect(joined.cookies).toEqual([]);
 
-      const login = await call(t, 'POST', '/auth/admin/login', { body: { username: 'nora@example.com', password: 'my own password 42' } });
-      expect(login.json().user).toMatchObject({ adminRole: 'operations', firstName: 'Nora', lastName: 'Berisha' });
+      // Not yet: the right password gets "waiting for approval", a wrong one the usual answer.
+      const early = await signInAs('nora@example.com');
+      expect(early.statusCode).toBe(403);
+      expect(early.json()).toEqual({ error: 'pending_approval' });
+      expect((await signInAs('nora@example.com', 'a wrong password 1')).json()).toEqual({ error: 'invalid_credentials' });
+
+      const waiting = (await get('/admin/team')).json().admins as { email: string; pending: boolean; adminRole: string; invitedAt: string }[];
+      expect(waiting.find((a) => a.email === 'nora@example.com')).toMatchObject({ pending: true, adminRole: 'operations', invitedAt: expect.any(String) });
       const members = (await get('/admin/team/members')).json().members as { email: string; role: string; pending: boolean }[];
-      expect(members.find((m) => m.email === 'nora@example.com')).toMatchObject({ role: 'operations', pending: false });
+      expect(members.find((m) => m.email === 'nora@example.com')).toMatchObject({ role: 'operations', pending: true });
       expect((await get('/admin/team/invites')).json().invites).toEqual([]);
-      expect((await activity()).slice(0, 2)).toMatchObject([
-        { area: 'team', action: 'joined_by_invite', details: { name: 'Nora Berisha', role: 'operations' } },
+
+      const nora = await idOf('nora@example.com');
+      expect((await post(`/admin/team/${nora}/approve`)).json()).toEqual({ approved: true });
+      const login = await signInAs('nora@example.com');
+      expect(login.statusCode).toBe(200);
+      expect(login.json().user).toMatchObject({ adminRole: 'operations', firstName: 'Nora', lastName: 'Berisha' });
+      expect((await get('/auth/me', sessionCookie(login))).json().user.adminRole).toBe('operations');
+      expect((await activity()).slice(0, 3)).toMatchObject([
+        { area: 'team', action: 'invite_approved', details: { name: 'Nora Berisha', role: 'operations' } },
+        { area: 'team', action: 'invite_signed_up', details: { name: 'Nora Berisha', role: 'operations' } },
         { area: 'team', action: 'invite_link_created', details: { role: 'operations' } },
       ]);
+    });
+
+    it('emails the admins about the waiting account with a one-click approval link', async () => {
+      await t.pool.query("UPDATE users SET email = 'owner@example.com' WHERE username = 'admin'");
+      await joinAs('finance');
+      const email = t.emails.find((e) => e.to === 'owner@example.com');
+      expect(email).toMatchObject({ subject: 'New MISK team member waiting for approval' });
+      expect(email?.text).toContain('"finance"');
+      const token = email?.text.match(/\/admin\/approve#token=([A-Za-z0-9_-]+)/)?.[1] ?? '';
+      expect((await call(t, 'POST', '/auth/admin/approve', { body: { token } })).statusCode).toBe(200);
+      expect((await signInAs('nora@example.com')).json().user).toMatchObject({ adminRole: 'finance' });
+      expect(t.emails.find((e) => e.to === 'nora@example.com')).toMatchObject({ subject: 'Your MISK admin account is ready' });
+      expect((await activity())[0]).toMatchObject({ action: 'invite_approved_by_link', details: { role: 'finance' } });
+    });
+
+    it('lets the approving admin give another role', async () => {
+      const id = await joinAs('admin');
+      expect((await post(`/admin/team/${id}/approve`, { role: 'owner' })).json()).toEqual({ error: 'invalid_role' });
+      expect((await post(`/admin/team/${id}/approve`, { role: 'support', extra: true })).json()).toEqual({ error: 'invalid_body' });
+      expect((await post(`/admin/team/${id}/approve`, { role: 'support' })).statusCode).toBe(200);
+      expect((await signInAs('nora@example.com')).json().user).toMatchObject({ adminRole: 'support' });
+      expect((await activity())[0]).toMatchObject({ action: 'invite_approved', details: { role: 'support' } });
+    });
+
+    it('declining removes the account, so the person can never sign in', async () => {
+      const id = await joinAs('support');
+      expect((await post(`/admin/team/${id}/decline`)).statusCode).toBe(204);
+      expect((await signInAs('nora@example.com')).json()).toEqual({ error: 'invalid_credentials' });
+      expect((await post(`/admin/team/${id}/approve`)).statusCode).toBe(404);
+      expect((await activity())[0]).toMatchObject({ action: 'invite_declined', details: { name: 'Nora Berisha', role: 'support' } });
+      // The used link stays used.
+      expect((await get('/admin/team/invites')).json().invites).toEqual([]);
+    });
+
+    it('answers only the first of two decisions made at the same time', async () => {
+      const id = await joinAs('operations');
+      const second = await teammate('second.admin', 'admin');
+      const answers = await Promise.all([post(`/admin/team/${id}/approve`), post(`/admin/team/${id}/decline`, undefined, second)]);
+      const codes = answers.map((a) => a.statusCode).sort();
+      expect([[200, 409], [204, 409]]).toContainEqual(codes);
+      const decisions = (await activity()).filter((a) => ['invite_approved', 'invite_declined'].includes(a.action));
+      expect(decisions).toHaveLength(1);
+      // A second approval of the same person changes nothing.
+      if (codes.includes(200)) {
+        expect((await post(`/admin/team/${id}/approve`, undefined, second)).json()).toEqual({ error: 'not_pending' });
+      }
+    });
+
+    it('never lets a waiting account through the admin guard, even with a session', async () => {
+      const id = await joinAs('admin');
+      // A session made behind the login's back (for example before an approval was taken away) is not enough.
+      const { createSession } = await import('../auth/sessions.js');
+      const token = await createSession(t.pool, id);
+      const cookie = `misk_session=${token}`;
+      expect((await get('/admin/team', cookie)).statusCode).toBe(401);
+      expect((await get('/auth/me', cookie)).statusCode).toBe(401);
+      // A waiting admin does not count as the remaining admin.
+      const me = (await get('/auth/me')).json().user.id;
+      expect((await patch(`/admin/team/${me}/role`, { role: 'support' })).json()).toEqual({ error: 'last_admin' });
     });
 
     it('works once, runs out after 7 days, and can be withdrawn', async () => {
@@ -389,7 +584,8 @@ describe('team and access', () => {
       const special = tokenOf((await post('/admin/team/invites', { role: 'support' })).json().link);
       const joined = await join(special, { email: 'special@example.com', password: 'pässwört!9' });
       expect(joined.statusCode).toBe(201);
-      const login = await call(t, 'POST', '/auth/admin/login', { body: { username: 'special@example.com', password: 'pässwört!9' } });
+      await post(`/admin/team/${await idOf('special@example.com')}/approve`);
+      const login = await signInAs('special@example.com', 'pässwört!9');
       expect(login.statusCode).toBe(200);
     });
 

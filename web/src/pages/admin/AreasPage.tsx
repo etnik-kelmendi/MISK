@@ -7,6 +7,7 @@ import { Icon } from '../../components/Icon';
 import { ResourceState } from '../../components/ResourceState';
 import { useSave } from './settings/SaveStatus';
 import { project, separate } from './settings/zoneMap';
+import { MAX_POSTCODE_LENGTH, normalizePostcode } from '../../lib/checks';
 import { parseCoordinate, splitPair, zoneProblems, type ZoneField, type ZoneInput, type ZoneProblem } from './settings/zoneForm';
 
 interface ZonesResponse {
@@ -17,7 +18,7 @@ interface ZonesResponse {
 const MAP_WIDTH = 360;
 const MAP_HEIGHT = 260;
 const MAP_PADDING = 40;
-/** Big enough for a five-digit postcode; the colour shows live or waitlist, the tooltip both. */
+/** Big enough for a five-digit postcode (longer ones are squeezed); the colour shows live or waitlist, the tooltip both. */
 const RADIUS = 17;
 
 /**
@@ -43,7 +44,14 @@ function ZoneMap({ zones }: { zones: Zone[] }) {
             <g key={zone.code} className={zone.live ? 'zone live' : 'zone waiting'}>
               <title>{`${zone.code} · ${zone.name}: ${state}`}</title>
               <circle cx={x} cy={y} r={RADIUS} />
-              <text x={x} y={y + 3.5} textAnchor="middle" className="zc">
+              <text
+                x={x}
+                y={y + 3.5}
+                textAnchor="middle"
+                className="zc"
+                // Longer postcodes from other countries (D84) are squeezed to fit inside the circle.
+                {...(zone.code.length > 5 ? { textLength: RADIUS * 2 - 6, lengthAdjust: 'spacingAndGlyphs' as const } : {})}
+              >
                 {zone.code}
               </text>
             </g>
@@ -145,11 +153,9 @@ function AddZone({ zones, onAdded }: { zones: Zone[]; onAdded: (notice: string) 
   const problemOf = (field: ZoneField) => problems.find((p) => p.field === field);
 
   const message = (problem: ZoneProblem) =>
-    problem.key === 'tooFar'
-      ? t('admin.settings.area.errors.tooFar', { km: problem.km, code: problem.nearest })
-      : problem.key === 'sameAsZone'
-        ? t('admin.settings.area.errors.sameAsZone', { code: problem.nearest })
-        : t(`admin.settings.area.errors.${problem.key}`);
+    problem.key === 'sameAsZone'
+      ? t('admin.settings.area.errors.sameAsZone', { code: problem.nearest })
+      : t(`admin.settings.area.errors.${problem.key}`);
 
   const set = (field: ZoneField, value: string) => setValues((current) => ({ ...current, [field]: value }));
 
@@ -173,7 +179,7 @@ function AddZone({ zones, onAdded }: { zones: Zone[]; onAdded: (notice: string) 
     const lat = parseCoordinate(values.lat);
     const lng = parseCoordinate(values.lng);
     if (lat === null || lng === null) return;
-    const code = values.code.trim();
+    const code = normalizePostcode(values.code);
     const result = await track(() => api.put<{ zone: Zone }>(`/admin/zones/${encodeURIComponent(code)}`, { name: values.name.trim(), lat, lng }));
     if (result) {
       setValues({ code: '', name: '', lat: '', lng: '' });
@@ -221,7 +227,10 @@ function AddZone({ zones, onAdded }: { zones: Zone[]; onAdded: (notice: string) 
         {field('code', (invalid, describedBy) => (
           <input
             id="zone-code"
-            maxLength={10}
+            maxLength={MAX_POSTCODE_LENGTH + 4}
+            autoCapitalize="characters"
+            autoComplete="off"
+            spellCheck={false}
             value={values.code}
             aria-invalid={invalid}
             aria-describedby={describedBy}

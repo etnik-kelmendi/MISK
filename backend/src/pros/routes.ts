@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { currentUser } from '../auth/guard.js';
-import { normalizePostcode } from '../catalogue/routes.js';
+import { normalizePostcode, POSTCODE_INPUT_MAX_LENGTH } from '../catalogue/routes.js';
 import type { AppContext } from '../context.js';
 import { withTransaction } from '../db.js';
 import { badRequest, conflict, notFound } from '../errors.js';
@@ -72,7 +72,7 @@ export async function proRoutes(app: FastifyInstance, ctx: AppContext) {
           minProperties: 1,
           additionalProperties: false,
           properties: {
-            homePostcode: { type: 'string', minLength: 2, maxLength: 10 },
+            homePostcode: { type: 'string', minLength: 2, maxLength: POSTCODE_INPUT_MAX_LENGTH },
             radiusKm: { type: 'integer', minimum: 3, maximum: 30 },
             workingDays: { type: 'array', uniqueItems: true, maxItems: 7, items: { type: 'integer', minimum: 1, maximum: 7 } },
             trades: { type: 'array', uniqueItems: true, maxItems: 20, items: { type: 'string', format: 'uuid' } },

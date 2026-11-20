@@ -675,8 +675,12 @@ export interface AdminAccount {
   email: string | null;
   firstName: string | null;
   lastName: string | null;
-  /** Asked for an account on the control panel and not yet approved. */
+  /** Asked for an account on the control panel, or signed up with an invitation link, and not yet approved. */
   pending: boolean;
+  /** The role asked or invited for; the approving admin may change it (D84). */
+  adminRole: AdminRole | null;
+  /** Set when the account was made with an invitation link. */
+  invitedAt: string | null;
   createdAt: string;
   disabled: boolean;
 }

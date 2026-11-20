@@ -15,7 +15,10 @@ function openLink() {
 function openValidLink() {
   const api = fakeApi(null);
   api.on('POST /auth/admin/invite/check', OPENED);
-  api.on('POST /auth/admin/invite/accept', { status: 201, body: { email: 'nora@example.com', role: 'operations' } });
+  api.on('POST /auth/admin/invite/accept', {
+    status: 201,
+    body: { email: 'nora@example.com', role: 'operations', status: 'pending_approval' },
+  });
   openLink();
   return api;
 }
@@ -48,7 +51,12 @@ describe('joining the team with an invitation link', () => {
     await user().clear(screen.getByLabelText('Repeat password'));
     await user().type(screen.getByLabelText('Repeat password'), 'garden42');
     await user().click(screen.getByRole('button', CREATE));
-    expect(await screen.findByRole('status')).toHaveTextContent('Welcome to the team! Sign in with nora@example.com');
+    // The account now waits for an admin: the page says so instead of welcoming the person in (D84).
+    expect(await screen.findByRole('heading', { name: 'Your account is waiting for approval by an admin' })).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('An admin of the MISK team now needs to approve it');
+    expect(screen.getByRole('status')).toHaveTextContent('nora@example.com');
+    expect(screen.queryByText(/Welcome to the team/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', CREATE)).not.toBeInTheDocument();
     expect(api.bodies['POST /auth/admin/invite/accept']).toEqual({
       token: TOKEN,
       firstName: 'Nora',
@@ -56,7 +64,17 @@ describe('joining the team with an invitation link', () => {
       email: 'nora@example.com',
       password: 'garden42',
     });
-    expect(screen.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/admin/login');
+    expect(screen.getByRole('link', { name: 'Go to sign-in' })).toHaveAttribute('href', '/admin/login');
+  });
+
+  it('tells a person who signs in before approval that their account is waiting', async () => {
+    const api = fakeApi(null);
+    api.on('POST /auth/admin/login', { status: 403, body: { error: 'pending_approval' } });
+    renderAt('/admin/login');
+    await user().type(await screen.findByLabelText(/email|username/i), 'nora@example.com');
+    await user().type(screen.getByLabelText(/password/i, { selector: 'input' }), 'garden42');
+    await user().click(screen.getByRole('button', { name: /sign in/i }));
+    expect(await screen.findByText(/waiting for approval by an admin/)).toBeInTheDocument();
   });
 
   it('shows the password checklist before typing and updates it on every key press', async () => {
