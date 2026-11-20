@@ -945,6 +945,12 @@ describe('admin booking actions', () => {
     expect(byNumber.bookings.map((b: { id: string }) => b.id)).toEqual([upcoming.id]);
     const byAddress = (await call(t, 'GET', '/admin/bookings?q=linden', { cookie: admin })).json();
     expect(byAddress.counts.all).toBe(2);
+    // Customer and pro names are searched in full, first and last name together.
+    await t.pool.query("UPDATE users SET last_name = 'Okafor' WHERE first_name = 'Sara'");
+    const byFullName = (await call(t, 'GET', '/admin/bookings?q=sara%20okaf', { cookie: admin })).json();
+    expect(byFullName.counts.all).toBe(2);
+    const byProName = (await call(t, 'GET', `/admin/bookings?q=${encodeURIComponent(row.pro)}`, { cookie: admin })).json();
+    expect(byProName.counts.all).toBeGreaterThan(0);
     const nobody = (await call(t, 'GET', '/admin/bookings?q=zzzz', { cookie: admin })).json();
     expect(nobody).toMatchObject({ bookings: [], counts: { all: 0 } });
 

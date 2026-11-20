@@ -39,7 +39,9 @@ export const ITEMS = `
         WHEN b.status IN ('on_the_way', 'working') THEN 'live'
         WHEN b.status IN ('awaiting_payment', 'searching', 'accepted') THEN 'upcoming'
         ELSE 'done'
-      END AS tab
+      END AS tab,
+      -- Full names, so search finds "Anna Schmidt" as well as "Anna".
+      concat_ws(' ', cu.first_name, cu.last_name) AS customer_full, concat_ws(' ', pu.first_name, pu.last_name) AS pro_full
     FROM bookings b
     JOIN users cu ON cu.id = b.customer_id
     LEFT JOIN users pu ON pu.id = b.pro_id
@@ -54,7 +56,8 @@ export const ITEMS = `
         WHEN v.status = 'planned' AND v.starts_at <= now() THEN 'live'
         WHEN v.status = 'planned' THEN 'upcoming'
         ELSE 'done'
-      END
+      END,
+      concat_ws(' ', cu.first_name, cu.last_name), concat_ws(' ', pu.first_name, pu.last_name)
     FROM subscription_visits v
     JOIN subscriptions s ON s.id = v.subscription_id
     JOIN users cu ON cu.id = s.customer_id
@@ -67,8 +70,8 @@ export const ITEMS = `
 const FILTERS = `
   ($1::uuid IS NULL OR category_id = $1)
   AND ($2::text IS NULL OR kind = $2)
-  AND ($3::text IS NULL OR number ILIKE '%' || $3 || '%' OR customer ILIKE '%' || $3 || '%'
-       OR address ILIKE '%' || $3 || '%' OR postcode ILIKE '%' || $3 || '%' OR pro ILIKE '%' || $3 || '%')`;
+  AND ($3::text IS NULL OR number ILIKE '%' || $3 || '%' OR customer_full ILIKE '%' || $3 || '%'
+       OR address ILIKE '%' || $3 || '%' OR postcode ILIKE '%' || $3 || '%' OR pro_full ILIKE '%' || $3 || '%')`;
 
 export const MAX_LISTED = 500;
 
