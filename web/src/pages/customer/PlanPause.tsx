@@ -270,6 +270,14 @@ export function PlanPause({ subscription, onChanged }: { subscription: Subscript
   if (subscription.status !== 'active') {
     return null;
   }
+  // The plan's own terms allow no pauses (D85): no Pause action, only the reason.
+  if (subscription.maxPauseWeeks === 0) {
+    return (
+      <section className="stack" aria-label={t('subscription.pause.sectionLabel')}>
+        <p className="small muted">{t('subscription.pause.reasons.pauses_not_allowed')}</p>
+      </section>
+    );
+  }
   return (
     <section className="stack" aria-label={t('subscription.pause.sectionLabel')}>
       {withdrawn && <CalledOffNote pause={withdrawn} pro={subscription.proName ?? t('subscription.yourPro')} />}

@@ -130,12 +130,35 @@ describe('plans', () => {
     expect(created).not.toHaveProperty('skipsPerMonth');
   });
 
-  it('stores the pause rules: notice 1 to 60 days, 1 to 10 paused weeks a year (D77)', async () => {
-    const created = (await call(t, 'POST', '/admin/plans', { cookie: admin, body: { ...plan(), pauseNoticeDays: 14, maxPauseWeeks: 10 } })).json().plan;
-    expect(created).toMatchObject({ pauseNoticeDays: 14, maxPauseWeeks: 10 });
-    for (const body of [{ maxPauseWeeks: 0 }, { maxPauseWeeks: 11 }, { pauseNoticeDays: 0 }, { pauseNoticeDays: 61 }]) {
+  it('stores the pause rules: notice 0 to 30 days, 0 to 8 paused weeks a year (D77, D85)', async () => {
+    const created = (await call(t, 'POST', '/admin/plans', { cookie: admin, body: { ...plan(), pauseNoticeDays: 14, maxPauseWeeks: 8 } })).json().plan;
+    expect(created).toMatchObject({ pauseNoticeDays: 14, maxPauseWeeks: 8 });
+    // The ends of both ranges are fine: no pauses at all with no notice, and the longest rules.
+    for (const body of [{ maxPauseWeeks: 0, pauseNoticeDays: 0 }, { maxPauseWeeks: 8, pauseNoticeDays: 30 }, { maxPauseWeeks: 1, pauseNoticeDays: 1 }]) {
+      const response = await call(t, 'POST', '/admin/plans', { cookie: admin, body: { ...plan(), ...body } });
+      expect(response.statusCode).toBe(201);
+      expect(response.json().plan).toMatchObject(body);
+    }
+    const refused = [
+      { maxPauseWeeks: -1 },
+      { maxPauseWeeks: 9 },
+      { maxPauseWeeks: 10 },
+      { maxPauseWeeks: 1.5 },
+      { maxPauseWeeks: '4' },
+      { pauseNoticeDays: -1 },
+      { pauseNoticeDays: 31 },
+      { pauseNoticeDays: 60 },
+      { pauseNoticeDays: 7.5 },
+      { pauseNoticeDays: '7' },
+    ];
+    for (const body of refused) {
       expect((await call(t, 'POST', '/admin/plans', { cookie: admin, body: { ...plan(), ...body } })).statusCode).toBe(400);
     }
+    // Changing an existing plan follows the same ranges.
+    const id = created.id;
+    expect((await call(t, 'PUT', `/admin/plans/${id}`, { cookie: admin, body: { ...plan(), maxPauseWeeks: 0 } })).json().plan).toMatchObject({ maxPauseWeeks: 0 });
+    expect((await call(t, 'PUT', `/admin/plans/${id}`, { cookie: admin, body: { ...plan(), maxPauseWeeks: 9 } })).statusCode).toBe(400);
+    expect((await call(t, 'PUT', `/admin/plans/${id}`, { cookie: admin, body: { ...plan(), pauseNoticeDays: 31 } })).statusCode).toBe(400);
     const withoutPause: Partial<ReturnType<typeof plan>> = plan();
     delete withoutPause.pauseNoticeDays;
     delete withoutPause.maxPauseWeeks;
@@ -148,6 +171,10 @@ describe('plans', () => {
     );
     expect(row.rows[0]).toEqual({ pause_notice_days: 7, max_pause_weeks: 4 });
     await expect(t.pool.query('UPDATE plans SET min_term_months = 0')).rejects.toThrow();
+    // The database refuses what the API refuses.
+    await expect(t.pool.query('UPDATE plans SET max_pause_weeks = 9')).rejects.toThrow();
+    await expect(t.pool.query('UPDATE plans SET pause_notice_days = 31')).rejects.toThrow();
+    await expect(t.pool.query('UPDATE plans SET max_pause_weeks = -1')).rejects.toThrow();
   });
 
   it('keeps plan building to admins', async () => {

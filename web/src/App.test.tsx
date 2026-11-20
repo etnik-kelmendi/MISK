@@ -1996,6 +1996,24 @@ describe('monthly plans in the apps', () => {
       expect(start).toBeDisabled();
     });
 
+    it('shows no Pause action, only a plain line, on a plan with 0 pause weeks (D85)', async () => {
+      const api = fakeApi(users.customer);
+      api.on('GET /subscriptions/sub-1', { body: { subscription: subscription({ maxPauseWeeks: 0 }) } });
+      renderAt('/my-plans/sub-1');
+      expect(await screen.findByText('This plan cannot be paused.')).toBeInTheDocument();
+      expect(screen.getByText('Pauses are not allowed on this plan')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Pause plan' })).not.toBeInTheDocument();
+      expect(api.calls).not.toContain('GET /subscriptions/sub-1/pause-options');
+    });
+
+    it('says in the rules when no notice is needed (D85)', async () => {
+      const api = fakeApi(users.customer);
+      api.on('GET /subscriptions/sub-1', { body: { subscription: subscription({ pauseNoticeDays: 0 }) } });
+      api.on('GET /subscriptions/sub-1/pause-options', { body: pauseOptions({ noticeDays: 0 }) });
+      renderAt('/my-plans/sub-1');
+      expect(await screen.findByText('Pause up to 4 weeks a year, with no notice needed')).toBeInTheDocument();
+    });
+
     it('shows paused visits as Paused without Move, and a running pause until its end', async () => {
       const api = fakeApi(users.customer);
       api.on('GET /subscriptions/sub-1', {
@@ -2472,15 +2490,11 @@ describe('plan page', () => {
     expect(term).toHaveValue('3');
     await user().selectOptions(term, '6 months');
 
-    const notice = screen.getByLabelText('Notice before a pause starts (days)');
+    const notice = screen.getByRole('combobox', { name: 'Minimum notice to pause a plan' });
     expect(notice).toHaveValue('7');
-    const weeks = screen.getByRole('combobox', { name: 'Most paused weeks a year' });
-    expect(within(weeks).getAllByRole('option')).toHaveLength(10);
-    expect(within(weeks).getAllByRole('option')[0]).toHaveTextContent('1 week');
-    expect(within(weeks).getAllByRole('option')[9]).toHaveTextContent('10 weeks');
+    const weeks = screen.getByRole('combobox', { name: 'Maximum pause duration per year' });
     expect(weeks).toHaveValue('4');
-    await user().clear(notice);
-    await user().type(notice, '14');
+    await user().selectOptions(notice, '14 days');
     await user().selectOptions(weeks, '2 weeks');
 
     await user().click(screen.getByRole('button', { name: 'Save draft' }));
@@ -2500,16 +2514,67 @@ describe('plan page', () => {
     expect(api.bodies['POST /admin/plans']).not.toHaveProperty('skipsPerMonth');
   });
 
-  it('refuses a pause notice outside 1 to 60 days and points at it when publishing', async () => {
+  it('groups the pause rules: maximum per year first, then the notice, both as selects with their help (D85)', async () => {
     const api = openNewPlan();
     await fillComplete();
-    const notice = screen.getByLabelText('Notice before a pause starts (days)');
-    await user().clear(notice);
-    await user().type(notice, '0');
-    expect(screen.getByText('Enter a notice from 1 to 60 days.')).toBeInTheDocument();
-    await user().click(screen.getByRole('button', { name: 'Publish plan' }));
-    expect(notice).toHaveFocus();
-    expect(api.calls).not.toContain('POST /admin/plans');
+    const group = screen.getByRole('group', { name: 'Pause rules' });
+    const weeks = within(group).getByRole('combobox', { name: 'Maximum pause duration per year' });
+    const notice = within(group).getByRole('combobox', { name: 'Minimum notice to pause a plan' });
+    // The maximum comes above the notice.
+    expect(weeks.compareDocumentPosition(notice) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(group).getAllByRole('combobox')).toEqual([weeks, notice]);
+
+    const weekOptions = within(weeks).getAllByRole('option');
+    expect(weekOptions.map((o) => o.textContent)).toEqual([
+      '0 weeks – Pauses not allowed',
+      '1 week',
+      '2 weeks',
+      '3 weeks',
+      '4 weeks',
+      '5 weeks',
+      '6 weeks',
+      '7 weeks',
+      '8 weeks',
+    ]);
+    const dayOptions = within(notice).getAllByRole('option');
+    expect(dayOptions).toHaveLength(31);
+    expect(dayOptions[0]).toHaveTextContent('0 days');
+    expect(dayOptions[1]).toHaveTextContent('1 day');
+    expect(dayOptions[2]).toHaveTextContent('2 days');
+    expect(dayOptions[30]).toHaveTextContent('30 days');
+    // New plans start with 4 weeks and 7 days.
+    expect(weeks).toHaveValue('4');
+    expect(notice).toHaveValue('7');
+
+    const weeksHelp = 'Select the total number of weeks customers can pause their plan each year. Choose 0 to disable pauses.';
+    const noticeHelp = 'Customers must request a pause at least this many days before it starts.';
+    expect(screen.getByText(weeksHelp)).toBeInTheDocument();
+    expect(screen.getByText(noticeHelp)).toBeInTheDocument();
+    expect(weeks).toHaveAccessibleDescription(weeksHelp);
+    expect(notice).toHaveAccessibleDescription(noticeHelp);
+
+    await user().selectOptions(notice, '0 days');
+    await user().click(screen.getByRole('button', { name: 'Save draft' }));
+    await waitFor(() => expect(api.bodies['POST /admin/plans']).toMatchObject({ pauseNoticeDays: 0, maxPauseWeeks: 4 }));
+  });
+
+  it('removes the notice setting while 0 weeks are chosen, and brings it back with its value', async () => {
+    const api = openNewPlan();
+    await fillComplete();
+    const weeks = screen.getByRole('combobox', { name: 'Maximum pause duration per year' });
+    await user().selectOptions(screen.getByRole('combobox', { name: 'Minimum notice to pause a plan' }), '21 days');
+    await user().selectOptions(weeks, '0 weeks – Pauses not allowed');
+    expect(weeks).toHaveValue('0');
+    expect(screen.queryByRole('combobox', { name: 'Minimum notice to pause a plan' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Customers must request a pause at least this many days before it starts.')).not.toBeInTheDocument();
+    const preview = screen.getByRole('complementary', { name: 'Live preview · customer app' });
+    expect(within(preview).getByText("Min. 3 months, then 30 days' notice · Pauses not allowed")).toBeInTheDocument();
+
+    await user().selectOptions(weeks, '3 weeks');
+    expect(screen.getByRole('combobox', { name: 'Minimum notice to pause a plan' })).toHaveValue('21');
+    await user().selectOptions(weeks, '0 weeks – Pauses not allowed');
+    await user().click(screen.getByRole('button', { name: 'Save draft' }));
+    await waitFor(() => expect(api.bodies['POST /admin/plans']).toMatchObject({ maxPauseWeeks: 0, pauseNoticeDays: 21 }));
   });
 
   it('leaves an emptied number field empty and explains the limits before saving', async () => {

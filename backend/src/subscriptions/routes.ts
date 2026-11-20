@@ -439,7 +439,7 @@ export async function subscriptionRoutes(app: FastifyInstance, ctx: AppContext) 
           additionalProperties: false,
           properties: {
             startsOn: { type: 'string', format: 'date' },
-            weeks: { type: 'integer', minimum: 1, maximum: 10 },
+            weeks: { type: 'integer', minimum: 1, maximum: 8 },
           },
         },
       },

@@ -19,7 +19,7 @@ import { PLANNING_DAYS, SUBSCRIPTION_PATTERN, patternOf, planVisits, plannedStar
  */
 
 /** Why a plan cannot be paused right now, shown to the customer in place of the choices. */
-export type PauseBlock = 'not_active' | 'pause_already_planned' | 'no_weeks_left' | 'plan_ending';
+export type PauseBlock = 'not_active' | 'pause_already_planned' | 'no_weeks_left' | 'plan_ending' | 'pauses_not_allowed';
 
 const DAY_MS = 24 * 3600 * 1000;
 const PRO_CHANNELS = { push: true, sms: false, email: false };
@@ -206,6 +206,9 @@ export async function pauseOptions(
   if (subscription.status !== 'active') {
     return blocked('not_active');
   }
+  if (subscription.max_pause_weeks === 0) {
+    return blocked('pauses_not_allowed');
+  }
   if (await openPause(db, subscription.id)) {
     return blocked('pause_already_planned');
   }
@@ -274,6 +277,10 @@ export async function createPause(
       const subscription = await loadPauseSubscription(client, ids, tz, true);
       if (subscription.status !== 'active') {
         throw conflict('pause_not_possible');
+      }
+      // The plan's own terms, copied when the customer subscribed (D77), say 0 weeks: no new pauses.
+      if (subscription.max_pause_weeks === 0) {
+        throw conflict('pauses_not_allowed');
       }
       if (await openPause(client, subscription.id)) {
         throw conflict('pause_already_planned');

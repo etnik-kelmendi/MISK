@@ -233,6 +233,47 @@ describe('pausing a plan (D78)', () => {
     expect((await pause(subscription.id, `${next + 1}-01-04`, 1)).json()).toEqual({ error: 'pause_too_far' });
   });
 
+  it('refuses every pause on a plan with 0 paused weeks, and says so in the options (D85)', async () => {
+    await t.pool.query('UPDATE plans SET max_pause_weeks = 0');
+    const subscription = await subscribe();
+    expect((await load(subscription.id)).maxPauseWeeks).toBe(0);
+    const result = await options(subscription.id);
+    expect(result).toMatchObject({ reason: 'pauses_not_allowed', maxPauseWeeks: 0, earliestStartOn: null });
+    const response = await pause(subscription.id, addDays(await today(), 14), 1);
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toEqual({ error: 'pauses_not_allowed' });
+    const stored = await t.pool.query('SELECT count(*)::int AS n FROM subscription_pauses');
+    expect(stored.rows[0].n).toBe(0);
+  });
+
+  it('keeps the terms a plan was subscribed with when an admin later sets 0 weeks (D85)', async () => {
+    const subscription = await subscribe();
+    const now = await today();
+    const planned = await pause(subscription.id, addDays(now, 14), 1);
+    expect(planned.statusCode).toBe(200);
+    await t.pool.query('UPDATE plans SET max_pause_weeks = 0');
+    // The planned pause stays and the plan itself still pauses: it follows its own copied terms.
+    expect((await load(subscription.id)).pauses).toHaveLength(1);
+    expect((await options(subscription.id)).maxPauseWeeks).toBe(4);
+    // Only a plan whose own terms say 0 refuses new requests.
+    await t.pool.query('UPDATE subscriptions SET max_pause_weeks = 0');
+    await callOff(subscription.id, planned.json().subscription.pauses[0].id);
+    expect((await pause(subscription.id, addDays(now, 21), 1)).json()).toEqual({ error: 'pauses_not_allowed' });
+    expect((await load(subscription.id)).pauses.filter((p: { status: string }) => p.status === 'upcoming')).toHaveLength(0);
+  });
+
+  it('accepts a pause that starts today when the notice is 0 days (D85)', async () => {
+    await t.pool.query('UPDATE plans SET pause_notice_days = 0');
+    const subscription = await subscribe();
+    const now = await today();
+    expect((await options(subscription.id)).earliestStartOn).toBe(now);
+    expect((await pause(subscription.id, now, 1)).statusCode).toBe(200);
+    // The copied terms have the same limits as the plan's.
+    await expect(t.pool.query('UPDATE subscriptions SET max_pause_weeks = 9')).rejects.toThrow();
+    await expect(t.pool.query('UPDATE subscriptions SET pause_notice_days = 31')).rejects.toThrow();
+    await t.pool.query('UPDATE subscriptions SET max_pause_weeks = 0, pause_notice_days = 0');
+  });
+
   it('creates nothing when the credit fails', async () => {
     const subscription = await subscribe();
     const before = await t.pool.query('SELECT id, status, paused_by FROM subscription_visits ORDER BY starts_at');

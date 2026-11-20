@@ -118,6 +118,7 @@
     "pause_not_possible": "Only an active plan can be paused.",
     "pause_already_planned": "You already have a pause planned. You can plan the next one once it is over.",
     "pause_notice": "A pause needs more notice. Please choose a later first day.",
+    "pauses_not_allowed": "This plan cannot be paused.",
     "pause_too_far": "A pause can start at the latest at the end of next year.",
     "pause_after_end": "Your plan ends before this pause would. Please choose fewer weeks or an earlier day.",
     "pause_allowance": "That is more pause weeks than you have left for that year.",
@@ -1709,8 +1710,8 @@
         "addonPrice": "Extra price (€ / month)",
         "seasonal": "Seasonal plan",
         "proSharePct": "Pro earns: {{pct}}% of the monthly price",
-        "pauseNoticeDays": "Notice before a pause starts (days)",
-        "maxPauseWeeks": "Most paused weeks a year"
+        "pauseNoticeDays": "Minimum notice to pause a plan",
+        "maxPauseWeeks": "Maximum pause duration per year"
       },
       "priceHint": "Medium size. Small −15%, large +35%.",
       "priceInvalid": "Enter an amount of at least €5, such as 49 or 49.50.",
@@ -1721,7 +1722,12 @@
       "termHint": "After it, customers can cancel with 30 days' notice.",
       "weeksOption_one": "{{count}} week",
       "weeksOption_other": "{{count}} weeks",
-      "pauseHint": "Customers see the pause rules on the plan.",
+      "weeksNone": "0 weeks – Pauses not allowed",
+      "daysOption_one": "{{count}} day",
+      "daysOption_other": "{{count}} days",
+      "pauseRules": "Pause rules",
+      "maxPauseWeeksHint": "Select the total number of weeks customers can pause their plan each year. Choose 0 to disable pauses.",
+      "pauseNoticeDaysHint": "Customers must request a pause at least this many days before it starts.",
       "newTask": "Add a task",
       "addTask": "Add task",
       "removeTask": "Remove {{task}}",
@@ -1731,6 +1737,7 @@
       "seasonOff": "Runs all year",
       "seasonShort": "Season Apr – Oct",
       "rulesShort": "Min. {{months}} months, then 30 days' notice · Pause up to {{weeks}} weeks a year, {{days}} days' notice",
+      "rulesShortNoPause": "Min. {{months}} months, then 30 days' notice · Pauses not allowed",
       "proEarns": "Pro: {{amount}}/month per customer",
       "miskKeeps": "MISK: {{amount}}/month per customer",
       "preview": "Live preview · customer app",
@@ -1769,8 +1776,7 @@
         "leave": "Leave without saving"
       },
       "numberError": {
-        "visitMinutes": "Enter a visit length from {{min}} to {{max}} minutes, in steps of {{step}}.",
-        "pauseNoticeDays": "Enter a notice from {{min}} to {{max}} days."
+        "visitMinutes": "Enter a visit length from {{min}} to {{max}} minutes, in steps of {{step}}."
       },
       "deleted": "\"{{name}}\" was deleted.",
       "delete": {
@@ -2045,6 +2051,8 @@
     "pause_one": "Pause up to {{count}} week a year, with {{notice}}",
     "pause_other": "Pause up to {{count}} weeks a year, with {{notice}}",
     "notice_one": "{{count}} day's notice",
+    "noticeNone": "no notice needed",
+    "pauseNotAllowed": "Pauses are not allowed on this plan",
     "notice_other": "{{count}} days' notice"
   },
   "subscribe": {
@@ -2131,7 +2139,8 @@
         "pause_already_planned": "You already have a pause planned.",
         "no_weeks_left_one": "You have used your {{count}} pause week this year.",
         "no_weeks_left_other": "You have used all {{count}} pause weeks this year.",
-        "plan_ending": "Your plan ends too soon for a pause."
+        "plan_ending": "Your plan ends too soon for a pause.",
+        "pauses_not_allowed": "This plan cannot be paused."
       },
       "cardLabel": "Your pause",
       "card": "Paused from {{from}} to {{to}}",

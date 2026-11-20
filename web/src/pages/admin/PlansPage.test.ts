@@ -1,4 +1,4 @@
-import { cleanNumberInput, numberProblem, parseNumberField, stepNumber } from './PlansPage';
+import { cleanNumberInput, DEFAULT_PAUSE_NOTICE_DAYS, DEFAULT_PAUSE_WEEKS, numberProblem, parseNumberField, PAUSE_NOTICE_DAYS, PAUSE_WEEKS, stepNumber } from './PlansPage';
 
 describe('plan number fields', () => {
   it.each([
@@ -30,10 +30,6 @@ describe('plan number fields', () => {
     expect(stepNumber('visitMinutes', '15', -1)).toBe(15);
     expect(stepNumber('visitMinutes', '600', 1)).toBe(600);
     expect(stepNumber('visitMinutes', '', 1)).toBe(15);
-    expect(stepNumber('pauseNoticeDays', '1', -1)).toBe(1);
-    expect(stepNumber('pauseNoticeDays', '', -1)).toBe(60);
-    expect(stepNumber('pauseNoticeDays', '7', 1)).toBe(8);
-    expect(stepNumber('pauseNoticeDays', '60', 1)).toBe(60);
   });
 });
 
@@ -52,5 +48,16 @@ describe('what is wrong with a visit length (D62)', () => {
     ['600', null],
   ] as const)('%j is %j', (value, problem) => {
     expect(numberProblem('visitMinutes', value)).toBe(problem);
+  });
+});
+
+describe('pause rule choices (D85)', () => {
+  it('offers 0 to 8 weeks and 0 to 30 days, with 4 weeks and 7 days for new plans', () => {
+    expect([...PAUSE_WEEKS]).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(PAUSE_NOTICE_DAYS).toHaveLength(31);
+    expect(PAUSE_NOTICE_DAYS[0]).toBe(0);
+    expect(PAUSE_NOTICE_DAYS[30]).toBe(30);
+    expect(DEFAULT_PAUSE_WEEKS).toBe(4);
+    expect(DEFAULT_PAUSE_NOTICE_DAYS).toBe(7);
   });
 });

@@ -208,7 +208,7 @@ export function PlansPage() {
   );
 }
 
-type NumberField = 'visitMinutes' | 'pauseNoticeDays';
+type NumberField = 'visitMinutes';
 type PlanField = 'name' | 'category' | 'price' | 'tasks' | 'addonPrice';
 
 /** Every field that can stop publishing, with its input, in the order they appear on the page. */
@@ -219,16 +219,21 @@ const FIELD_ORDER: [PlanField | NumberField, string][] = [
   ['visitMinutes', 'plan-visitMinutes'],
   ['tasks', 'plan-new-task'],
   ['addonPrice', 'plan-addon-price'],
-  ['pauseNoticeDays', 'plan-pauseNoticeDays'],
 ];
 
-/** Most paused weeks a year an admin can choose (D77). */
-export const PAUSE_WEEKS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as const;
+/** Most paused weeks a year an admin can choose: 0 (no pauses) to 8 (D77, D85). */
+export const PAUSE_WEEKS = [0, 1, 2, 3, 4, 5, 6, 7, 8] as const;
+/** Notice before a pause starts an admin can choose: 0 to 30 days (D85). */
+export const PAUSE_NOTICE_DAYS = Array.from({ length: 31 }, (_, days) => days);
+/** What new plans start with: 4 paused weeks a year, 7 days' notice. */
+export const DEFAULT_PAUSE_WEEKS = 4;
+export const DEFAULT_PAUSE_NOTICE_DAYS = 7;
+
+const clamp = (value: number, min: number, max: number) => (Number.isFinite(value) ? Math.min(max, Math.max(min, Math.round(value))) : min);
 
 /** The limits the API accepts for each number, so the editor can explain them before saving. */
 export const NUMBER_LIMITS: Record<NumberField, { min: number; max: number; step: number }> = {
   visitMinutes: { min: 15, max: 600, step: 15 },
-  pauseNoticeDays: { min: 1, max: 60, step: 1 },
 };
 
 /** A whole number within the field's limits, or null while the field is empty or out of range. */
@@ -278,7 +283,7 @@ interface Draft {
   addonPrice: string;
   seasonal: boolean;
   minTermMonths: MinTerm;
-  pauseNoticeDays: string;
+  pauseNoticeDays: number;
   maxPauseWeeks: number;
   proSharePct: number;
 }
@@ -297,8 +302,8 @@ function toDraft(plan: Plan | null): Draft {
       addonPrice: '',
       seasonal: false,
       minTermMonths: 3,
-      pauseNoticeDays: '7',
-      maxPauseWeeks: 4,
+      pauseNoticeDays: DEFAULT_PAUSE_NOTICE_DAYS,
+      maxPauseWeeks: DEFAULT_PAUSE_WEEKS,
       proSharePct: 70,
     };
   }
@@ -314,8 +319,9 @@ function toDraft(plan: Plan | null): Draft {
     addonPrice: plan.addonPriceCents === null ? '' : (plan.addonPriceCents / 100).toFixed(2),
     seasonal: plan.seasonal,
     minTermMonths: plan.minTermMonths,
-    pauseNoticeDays: String(plan.pauseNoticeDays),
-    maxPauseWeeks: plan.maxPauseWeeks,
+    // A saved value outside the choices (it should not exist) is shown at the nearest one.
+    pauseNoticeDays: clamp(plan.pauseNoticeDays, 0, 30),
+    maxPauseWeeks: clamp(plan.maxPauseWeeks, 0, 8),
     proSharePct: plan.proSharePct,
   };
 }
@@ -333,7 +339,7 @@ function inputOf(draft: Draft): PlanInput {
     addonPriceCents: addonName ? parseEuroToCents(draft.addonPrice) : null,
     seasonal: draft.seasonal,
     minTermMonths: draft.minTermMonths,
-    pauseNoticeDays: parseNumberField('pauseNoticeDays', draft.pauseNoticeDays) ?? Number.NaN,
+    pauseNoticeDays: draft.pauseNoticeDays,
     maxPauseWeeks: draft.maxPauseWeeks,
     proSharePct: draft.proSharePct,
   };
@@ -554,10 +560,7 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
         />
         {invalid ? (
           <span id={`plan-${key}-error`} className="error-text">
-            {/* The visit length says exactly what is wrong (D62); the other numbers name their range. */}
-            {key === 'visitMinutes'
-              ? t(`admin.plans.visitError.${numberProblem(key, draft[key]) ?? 'empty'}`, { min, max, step })
-              : t(`admin.plans.numberError.${key}`, { min, max, step })}
+            {t(`admin.plans.visitError.${numberProblem(key, draft[key]) ?? 'empty'}`, { min, max, step })}
           </span>
         ) : (
           key === 'visitMinutes' && <span className="hint">{t('admin.plans.visitHint')}</span>
@@ -843,18 +846,48 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
             />
             <span className="hint">{draft.seasonal ? t('admin.plans.seasonOn') : t('admin.plans.seasonOff')}</span>
           </div>
-          {number('pauseNoticeDays')}
-          <div className="af">
-            <label htmlFor="plan-maxPauseWeeks">{t('admin.plans.fields.maxPauseWeeks')}</label>
-            <select id="plan-maxPauseWeeks" value={draft.maxPauseWeeks} onChange={(e) => set('maxPauseWeeks', Number(e.target.value))}>
-              {PAUSE_WEEKS.map((weeks) => (
-                <option key={weeks} value={weeks}>
-                  {t('admin.plans.weeksOption', { count: weeks })}
-                </option>
-              ))}
-            </select>
-            <span className="hint">{t('admin.plans.pauseHint')}</span>
-          </div>
+          <fieldset className="af pause-rules">
+            <legend>{t('admin.plans.pauseRules')}</legend>
+            <div className="af">
+              <label htmlFor="plan-maxPauseWeeks">{t('admin.plans.fields.maxPauseWeeks')}</label>
+              <select
+                id="plan-maxPauseWeeks"
+                value={draft.maxPauseWeeks}
+                aria-describedby="plan-maxPauseWeeks-hint"
+                onChange={(e) => set('maxPauseWeeks', Number(e.target.value))}
+              >
+                {PAUSE_WEEKS.map((weeks) => (
+                  <option key={weeks} value={weeks}>
+                    {weeks === 0 ? t('admin.plans.weeksNone') : t('admin.plans.weeksOption', { count: weeks })}
+                  </option>
+                ))}
+              </select>
+              <span id="plan-maxPauseWeeks-hint" className="hint">
+                {t('admin.plans.maxPauseWeeksHint')}
+              </span>
+            </div>
+            {/* Not rendered at all while pauses are off; the notice keeps its value for when they come back. */}
+            {draft.maxPauseWeeks > 0 && (
+              <div className="af">
+                <label htmlFor="plan-pauseNoticeDays">{t('admin.plans.fields.pauseNoticeDays')}</label>
+                <select
+                  id="plan-pauseNoticeDays"
+                  value={draft.pauseNoticeDays}
+                  aria-describedby="plan-pauseNoticeDays-hint"
+                  onChange={(e) => set('pauseNoticeDays', Number(e.target.value))}
+                >
+                  {PAUSE_NOTICE_DAYS.map((days) => (
+                    <option key={days} value={days}>
+                      {t('admin.plans.daysOption', { count: days })}
+                    </option>
+                  ))}
+                </select>
+                <span id="plan-pauseNoticeDays-hint" className="hint">
+                  {t('admin.plans.pauseNoticeDaysHint')}
+                </span>
+              </div>
+            )}
+          </fieldset>
 
           <div className="af full">
             <label htmlFor="plan-share">{t('admin.plans.fields.proSharePct', { pct: draft.proSharePct })}</label>
@@ -920,11 +953,9 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
             </span>
             <p className="tiny muted">
               {draft.seasonal && `${t('admin.plans.seasonShort')} · `}
-              {t('admin.plans.rulesShort', {
-                months: draft.minTermMonths,
-                weeks: draft.maxPauseWeeks,
-                days: draft.pauseNoticeDays.trim() || '–',
-              })}
+              {draft.maxPauseWeeks === 0
+                ? t('admin.plans.rulesShortNoPause', { months: draft.minTermMonths })
+                : t('admin.plans.rulesShort', { months: draft.minTermMonths, weeks: draft.maxPauseWeeks, days: draft.pauseNoticeDays })}
             </p>
           </div>
           <p className="small muted">

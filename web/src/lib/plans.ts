@@ -27,14 +27,20 @@ export function currentMonth(timeZone: string): number {
   return Number(new Intl.DateTimeFormat('en-GB', { timeZone, month: 'numeric' }).format(new Date()));
 }
 
-/** The plan rules every customer sees (D77): the minimum term with 30 days' notice after it, and the pause rules. */
+/** The plan rules every customer sees (D77): the minimum term with 30 days' notice after it, and the pause rules (0 weeks: no pauses; 0 days: no notice needed, D85). */
 export function planRuleTexts(
   t: TFunction,
   rules: { minTermMonths: number; pauseNoticeDays: number; maxPauseWeeks: number },
 ): { term: string; pause: string } {
   return {
     term: t('planRules.term', { count: rules.minTermMonths }),
-    pause: t('planRules.pause', { count: rules.maxPauseWeeks, notice: t('planRules.notice', { count: rules.pauseNoticeDays }) }),
+    pause:
+      rules.maxPauseWeeks === 0
+        ? t('planRules.pauseNotAllowed')
+        : t('planRules.pause', {
+            count: rules.maxPauseWeeks,
+            notice: rules.pauseNoticeDays === 0 ? t('planRules.noticeNone') : t('planRules.notice', { count: rules.pauseNoticeDays }),
+          }),
   };
 }
 

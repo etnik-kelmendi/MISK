@@ -703,9 +703,9 @@ export interface PlanInput {
   seasonal: boolean;
   /** 1, 3, 6 or 12 (D77). */
   minTermMonths: MinTerm;
-  /** Notice needed before a pause starts, 1 to 60 days (D77). */
+  /** Notice needed before a pause starts, 0 to 30 days (D77, D85). */
   pauseNoticeDays: number;
-  /** Most paused weeks a year, 1 to 10 (D77). */
+  /** Most paused weeks a year, 0 to 8; 0 means the plan cannot be paused (D77, D85). */
   maxPauseWeeks: number;
   proSharePct: number;
 }
@@ -773,7 +773,7 @@ export interface PauseOptions {
   visitCreditCents: number;
   /** The times of the visits a pause could call off. */
   visitStarts: string[];
-  reason: 'not_active' | 'pause_already_planned' | 'no_weeks_left' | 'plan_ending' | null;
+  reason: 'not_active' | 'pause_already_planned' | 'no_weeks_left' | 'plan_ending' | 'pauses_not_allowed' | null;
 }
 
 /** The days a visit can move to, or why it cannot move (D77). */
