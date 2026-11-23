@@ -33,11 +33,32 @@ export interface UserRow {
   lastActive: string | null;
 }
 
+type Channel = 'push' | 'sms' | 'email';
+
+/** How a message or notice went out (D87): always in the app, plus the channels it was queued on. */
+export interface Delivery {
+  inApp: boolean;
+  channels: Channel[];
+  /** Channels the server cannot send on yet (no SMS or mail service set up). */
+  notSetUp: Channel[];
+}
+
 interface UserAction {
   id: string;
-  action: 'messaged' | 'suspended' | 'reinstated' | 'deleted';
-  details: { text?: string; reason?: string; cancelledBookings?: number; endedPlans?: number; bookings?: number; plans?: number };
+  action: 'messaged' | 'suspended' | 'reinstated' | 'deleted' | 'phone_added' | 'phone_changed' | 'phone_removed';
+  details: {
+    text?: string;
+    reason?: string;
+    /** What the team told a suspended person, when it chose to (D87). */
+    message?: string;
+    cancelledBookings?: number;
+    endedPlans?: number;
+    bookings?: number;
+    plans?: number;
+    channels?: Channel[];
+  };
   createdAt: string;
+  /** Null for a change the person made themselves, such as their phone number. */
   adminName: string | null;
 }
 
@@ -46,6 +67,8 @@ export interface UserDetail extends UserRow {
   hasPassword: boolean;
   suspendedAt: string | null;
   suspendedReason: string | null;
+  /** What the team told the person when suspending them; the reason above stays internal (D87). */
+  suspendedMessage: string | null;
   deletedAt: string | null;
   deletedReason: string | null;
   bookings: { total: number; upcoming: number; completed: number; cancelled: number };
@@ -80,6 +103,15 @@ function TypeBadges({ types }: { types: UserType[] }) {
   );
 }
 
+/** "in the app, by text and by email": the ways a message reached the person, as one phrase. */
+function useWays() {
+  const { t, i18n } = useTranslation();
+  return (channels: Channel[], inApp: boolean) => {
+    const parts = [...(inApp ? [t('admin.users.delivery.inApp')] : []), ...channels.map((channel) => t(`admin.users.delivery.channel.${channel}`))];
+    return new Intl.ListFormat(i18n.language, { style: 'long', type: 'conjunction' }).format(parts);
+  };
+}
+
 function StatusBadge({ status }: { status: UserStatus }) {
   const { t } = useTranslation();
   return <span className={`badge ${status === 'active' ? 'g' : status === 'suspended' ? 'a' : 'r'}`}>{t(`admin.users.status.${status}`)}</span>;
@@ -95,11 +127,13 @@ function ReasonForm({
   kind: 'suspend' | 'delete';
   busy: boolean;
   onCancel: () => void;
-  onConfirm: (reason: string) => void;
+  /** `message` is what the person is told (Suspend only); empty when the team shares nothing (D87). */
+  onConfirm: (reason: string, message: string) => void;
 }) {
   const { t } = useTranslation();
   const id = useId();
   const [reason, setReason] = useState('');
+  const [message, setMessage] = useState('');
   const [tried, setTried] = useState(false);
   const missing = tried && !reason.trim();
 
@@ -110,7 +144,7 @@ function ReasonForm({
       document.getElementById(id)?.focus();
       return;
     }
-    onConfirm(reason.trim());
+    onConfirm(reason.trim(), message.trim());
   }
 
   return (
@@ -132,6 +166,22 @@ function ReasonForm({
         />
         <FieldError id={id} message={missing ? t('admin.users.reasonMissing') : null} />
       </div>
+      {kind === 'suspend' && (
+        <div className="af">
+          <label htmlFor={`${id}-message`}>{t('admin.users.suspend.message')}</label>
+          <textarea
+            id={`${id}-message`}
+            rows={3}
+            maxLength={MESSAGE_MAX}
+            value={message}
+            aria-describedby={`${id}-message-hint`}
+            onChange={(e) => setMessage(e.target.value)}
+          />
+          <span id={`${id}-message-hint`} className="hint">
+            {t('admin.users.suspend.messageHint')}
+          </span>
+        </div>
+      )}
       <div className="row gap8">
         <button type="button" className="abtn ghost" onClick={onCancel}>
           {t('admin.users.keep')}
@@ -199,7 +249,9 @@ function MessageForm({ busy, onCancel, onSend }: { busy: boolean; onCancel: () =
 function ActionLine({ entry }: { entry: UserAction }) {
   const { t } = useTranslation();
   const { timezone } = useMarket();
+  const ways = useWays();
   const d = entry.details;
+  const ownChange = entry.action.startsWith('phone_');
   const extra =
     entry.action === 'messaged'
       ? d.text
@@ -214,7 +266,15 @@ function ActionLine({ entry }: { entry: UserAction }) {
     <li>
       {t(`admin.users.log.${entry.action}`)}
       {extra && <div className="small log-note">{extra}</div>}
-      <div className="small muted">{t('admin.users.log.by', { name: entry.adminName ?? '–', date: dateTime(entry.createdAt, timezone) })}</div>
+      {d.message && <div className="small log-note">{t('admin.users.log.toldThem', { message: d.message })}</div>}
+      {d.channels && (
+        <div className="small muted">{t('admin.users.log.sentBy', { ways: ways(d.channels, entry.action !== 'deleted') })}</div>
+      )}
+      <div className="small muted">
+        {ownChange
+          ? t('admin.users.log.byThemselves', { date: dateTime(entry.createdAt, timezone) })
+          : t('admin.users.log.by', { name: entry.adminName ?? '–', date: dateTime(entry.createdAt, timezone) })}
+      </div>
     </li>
   );
 }
@@ -224,17 +284,27 @@ function UserDetails({ user, onChanged }: { user: UserDetail; onChanged: (user: 
   const { timezone } = useMarket();
   const api = useApi();
   const action = useAction();
+  const ways = useWays();
   const [mode, setMode] = useState<'idle' | 'message' | 'suspend' | 'delete'>('idle');
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ text: string; warnings: string[] } | null>(null);
   const deleted = user.status === 'deleted';
 
-  async function run(path: string, body: unknown, done: string) {
-    const result = await action.run(() => api.post<{ user: UserDetail }>(`/admin/users/${user.id}/${path}`, body));
-    if (result) {
-      setMode('idle');
-      setNotice(done);
-      onChanged(result.user);
-    }
+  /** Runs an action and says how the person was told, from the channels the API queued (D87). */
+  async function run(path: 'message' | 'suspend' | 'reinstate' | 'delete', body: unknown) {
+    const result = await action.run(() => api.post<{ user: UserDetail; delivery: Delivery }>(`/admin/users/${user.id}/${path}`, body));
+    if (!result) return;
+    const { delivery } = result;
+    // A closed account can no longer open the app, so only the text and email count.
+    const told = ways(delivery.channels, path !== 'delete' && delivery.inApp);
+    const text =
+      path === 'message'
+        ? t('admin.users.message.sentBy', { ways: told })
+        : path === 'delete' && delivery.channels.length === 0
+          ? t('admin.users.deleted')
+          : t(`admin.users.told.${path}`, { ways: told });
+    setMode('idle');
+    setNotice({ text, warnings: delivery.notSetUp.map((channel) => t(`admin.users.delivery.notSetUp.${channel}`)) });
+    onChanged(result.user);
   }
 
   return (
@@ -244,14 +314,22 @@ function UserDetails({ user, onChanged }: { user: UserDetail; onChanged: (user: 
         <StatusBadge status={user.status} />
       </div>
       {notice && (
-        <p className="note" role="status">
-          {notice}
-        </p>
+        <div className="note stack tight" role="status">
+          <p>{notice.text}</p>
+          {notice.warnings.map((warning) => (
+            <p key={warning} className="small">
+              {warning}
+            </p>
+          ))}
+        </div>
       )}
       {user.status === 'suspended' && user.suspendedReason && (
-        <p className="note warn-note">
-          {t('admin.users.suspendedNote', { date: user.suspendedAt ? longDate(user.suspendedAt, timezone) : '', reason: user.suspendedReason })}
-        </p>
+        <div className="note warn-note">
+          <p>{t('admin.users.suspendedNote', { date: user.suspendedAt ? longDate(user.suspendedAt, timezone) : '', reason: user.suspendedReason })}</p>
+          <p className="small">
+            {user.suspendedMessage ? t('admin.users.suspendedMessage', { message: user.suspendedMessage }) : t('admin.users.suspendedNoMessage')}
+          </p>
+        </div>
       )}
       {deleted && (
         <p className="note warn-note">
@@ -314,7 +392,7 @@ function UserDetails({ user, onChanged }: { user: UserDetail; onChanged: (user: 
             {t('admin.users.message.button')}
           </button>
           {user.status === 'suspended' ? (
-            <button type="button" className="abtn ghost" disabled={action.busy} onClick={() => void run('reinstate', undefined, t('admin.users.reinstated'))}>
+            <button type="button" className="abtn ghost" disabled={action.busy} onClick={() => void run('reinstate', undefined)}>
               {t('admin.users.reinstate')}
             </button>
           ) : (
@@ -328,14 +406,14 @@ function UserDetails({ user, onChanged }: { user: UserDetail; onChanged: (user: 
         </div>
       )}
       {mode === 'message' && (
-        <MessageForm busy={action.busy} onCancel={() => setMode('idle')} onSend={(text) => void run('message', { text }, t('admin.users.message.sent'))} />
+        <MessageForm busy={action.busy} onCancel={() => setMode('idle')} onSend={(text) => void run('message', { text })} />
       )}
       {(mode === 'suspend' || mode === 'delete') && (
         <ReasonForm
           kind={mode}
           busy={action.busy}
           onCancel={() => setMode('idle')}
-          onConfirm={(reason) => void run(mode, { reason }, t(mode === 'suspend' ? 'admin.users.suspended' : 'admin.users.deleted'))}
+          onConfirm={(reason, message) => void run(mode, mode === 'suspend' && message ? { reason, message } : { reason })}
         />
       )}
       <ErrorText error={action.error} />

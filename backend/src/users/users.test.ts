@@ -5,11 +5,14 @@ import {
   lastCode,
   resetDatabase,
   seedMarket,
+  sessionCookie,
   signIn,
   signInAdmin,
   type Market,
   type TestContext,
 } from '../../test/helpers.js';
+import { hashPassword } from '../auth/passwords.js';
+import { phoneSearchDigits } from './admin-routes.js';
 
 let t: TestContext;
 let market: Market;
@@ -151,15 +154,19 @@ describe('the Users page (D65)', () => {
 
     expect((await post(`/admin/users/${id}/suspend`, {})).statusCode).toBe(400);
     const suspended = await post(`/admin/users/${id}/suspend`, { reason: 'Repeated no-shows' });
-    expect(suspended.json().user).toMatchObject({ status: 'suspended', suspendedReason: 'Repeated no-shows' });
-    expect((await get('/auth/me', customer)).statusCode).toBe(401);
+    expect(suspended.json().user).toMatchObject({ status: 'suspended', suspendedReason: 'Repeated no-shows', suspendedMessage: null });
+    // Signed out at once: the session no longer works, and says why (D87).
+    const me = await get('/auth/me', customer);
+    expect(me.statusCode).toBe(403);
+    expect(me.json()).toEqual({ error: 'account_suspended', message: null, support: { email: null, phone: null } });
     const status = (await t.pool.query<{ status: string; cancelled_by: string }>('SELECT status, cancelled_by FROM bookings WHERE id = $1', [booking.id])).rows[0];
     expect(status).toEqual({ status: 'cancelled', cancelled_by: 'admin' });
     // Signing in again is refused with its own answer, after the right code.
     await call(t, 'POST', '/auth/phone/start', { body: { phone: CUSTOMER } });
     const again = await call(t, 'POST', '/auth/phone/verify', { body: { phone: CUSTOMER, code: lastCode(t, CUSTOMER) } });
     expect(again.statusCode).toBe(403);
-    expect(again.json()).toEqual({ error: 'account_suspended' });
+    expect(again.json()).toMatchObject({ error: 'account_suspended', message: null });
+    expect(again.cookies).toEqual([]);
     expect((await post(`/admin/users/${id}/suspend`, { reason: 'Again' })).json()).toEqual({ error: 'already_suspended' });
 
     const back = await post(`/admin/users/${id}/reinstate`);
@@ -173,7 +180,8 @@ describe('the Users page (D65)', () => {
     const pro = await approvedPro(t, '+4915100000101', { trades: [market.gardening] });
     await post(`/admin/users/${pro.proId}/suspend`, { reason: 'Damage reports' });
     expect((await t.pool.query<{ status: string }>('SELECT status FROM pro_profiles WHERE user_id = $1', [pro.proId])).rows[0]?.status).toBe('suspended');
-    expect((await get('/auth/me', pro.cookie)).statusCode).toBe(401);
+    expect((await get('/auth/me', pro.cookie)).json().error).toBe('account_suspended');
+    expect((await get('/pro/jobs', pro.cookie)).statusCode).toBe(403);
     const log = await t.pool.query("SELECT action FROM pro_admin_actions WHERE pro_id = $1 AND action = 'suspended'", [pro.proId]);
     expect(log.rowCount).toBe(1);
     await post(`/admin/users/${pro.proId}/reinstate`);
@@ -223,5 +231,213 @@ describe('the Users page (D65)', () => {
     };
     expect((await get('/admin/users', await make('sam', 'support'))).statusCode).toBe(200);
     expect((await get('/admin/users', await make('fiona', 'finance'))).statusCode).toBe(403);
+  });
+});
+
+const PASSWORD = 'garden42';
+
+/** A customer who signed up with email and password and has no phone, like anna@example.com in the demo. */
+async function emailCustomer(email = 'anna@example.com', firstName = 'Anna') {
+  const created = await t.pool.query<{ id: string }>(
+    `INSERT INTO users (email, password_hash, first_name, last_name, role, email_verified_at, terms_accepted_at)
+     VALUES ($1, $2, $3, 'Schmidt', 'customer', now(), now()) RETURNING id`,
+    [email, await hashPassword(PASSWORD), firstName],
+  );
+  const login = await call(t, 'POST', '/auth/login', { body: { email, password: PASSWORD } });
+  return { id: created.rows[0]?.id ?? '', cookie: sessionCookie(login) };
+}
+
+type Sent = { channel: string; phone: string | null; email: string | null; subject: string | null; body: string };
+const sentTo = async (id: string, kind: string) =>
+  (
+    await t.pool.query<Sent>('SELECT channel, phone, email, subject, body FROM notifications WHERE user_id = $1 AND kind = $2 ORDER BY channel', [
+      id,
+      kind,
+    ])
+  ).rows;
+
+describe('finding people by phone, however the number is typed (D87)', () => {
+  it('turns typed numbers into the digits to look for', () => {
+    expect(phoneSearchDigits('+49 (0)151 00000001')).toEqual(['4915100000001']);
+    expect(phoneSearchDigits('+49 (0) 151-000 00001')).toEqual(['4915100000001']);
+    expect(phoneSearchDigits('0049 151 00000001')).toEqual(['4915100000001']);
+    expect(phoneSearchDigits('+49 0151 00000001')).toEqual(['49015100000001', '4915100000001']);
+    expect(phoneSearchDigits('0151 / 000 000 01')).toEqual(['15100000001']);
+    expect(phoneSearchDigits('(0151) 00000001')).toEqual(['15100000001']);
+    // Too short, or not a number at all.
+    expect(phoneSearchDigits('015')).toEqual([]);
+    expect(phoneSearchDigits('user1234')).toEqual([]);
+    expect(phoneSearchDigits('')).toEqual([]);
+  });
+
+  it('finds a customer by every common way of writing their number, and nobody for a short or wrong one', async () => {
+    await signIn(t, CUSTOMER, 'customer', 'Sara');
+    await signIn(t, '+4915100000002', 'customer', 'Tom');
+    const typedNumbers = [
+      '+49 (0)151 00000002',
+      '+49 (0) 151-000 00002',
+      '0049 151 00000002',
+      '+49 0151 00000002',
+      '0151/000 000 02',
+      '15100000002',
+      '+4915100000002',
+    ];
+    for (const typed of typedNumbers) {
+      expect((await list(`?q=${encodeURIComponent(typed)}`)).users.map((u) => u.firstName), typed).toEqual(['Tom']);
+    }
+    // Part of a number finds everyone whose number has it.
+    expect((await list(`?q=${encodeURIComponent('0151 0000000')}`)).matching).toBe(2);
+    expect((await list('?q=000')).matching).toBe(0);
+    expect((await list(`?q=${encodeURIComponent('+44 151 00000002')}`)).matching).toBe(0);
+  });
+
+  it('finds an email customer by phone once they added one to their account', async () => {
+    const anna = await emailCustomer();
+    expect((await list(`?q=${encodeURIComponent('0151 00000009')}`)).matching).toBe(0);
+    await call(t, 'POST', '/account/phone/start', { cookie: anna.cookie, body: { phone: '+49 151 00000009' } });
+    const added = await call(t, 'POST', '/account/phone/verify', {
+      cookie: anna.cookie,
+      body: { phone: '+4915100000009', code: lastCode(t, '+4915100000009') },
+    });
+    expect(added.statusCode).toBe(200);
+    expect((await list(`?q=${encodeURIComponent('0151 00000009')}`)).users.map((u) => u.firstName)).toEqual(['Anna']);
+  });
+});
+
+describe('telling people about their account outside the app (D87)', () => {
+  it('emails a suspended email customer, shares only the message the admin chose, and explains it after the right password', async () => {
+    const anna = await emailCustomer();
+    await approvedPro(t, '+4915100000101', { trades: [market.gardening] });
+    await bookMowing(anna.cookie);
+
+    const suspended = await post(`/admin/users/${anna.id}/suspend`, {
+      reason: 'Chargeback fraud suspected',
+      message: '  Please call us about your last payment.  ',
+    });
+    expect(suspended.statusCode).toBe(200);
+    expect(suspended.json().delivery).toEqual({ inApp: true, channels: ['email'], notSetUp: [] });
+    expect(suspended.json().user).toMatchObject({
+      suspendedReason: 'Chargeback fraud suspected',
+      suspendedMessage: 'Please call us about your last payment.',
+    });
+
+    const notices = await sentTo(anna.id, 'account');
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatchObject({ channel: 'email', email: 'anna@example.com', subject: 'Your MISK account is suspended' });
+    expect(notices[0]?.body).toContain('Hello Anna,');
+    expect(notices[0]?.body).toContain('1 upcoming booking was cancelled; any money held on your card is released.');
+    expect(notices[0]?.body).toContain('Message from the MISK team: Please call us about your last payment.');
+    // The internal reason never leaves the control panel.
+    const everything = await t.pool.query<{ body: string }>('SELECT body FROM notifications UNION ALL SELECT body FROM inbox');
+    expect(everything.rows.some((row) => row.body.includes('Chargeback'))).toBe(false);
+
+    // The open session explains it.
+    const me = await get('/auth/me', anna.cookie);
+    expect(me.statusCode).toBe(403);
+    expect(me.json()).toEqual({
+      error: 'account_suspended',
+      message: 'Please call us about your last payment.',
+      support: { email: null, phone: null },
+    });
+    // Logging in: a wrong password or an unknown email reveals nothing; the right password explains it.
+    const login = (email: string, password: string) => call(t, 'POST', '/auth/login', { body: { email, password } });
+    expect((await login('anna@example.com', 'wrong-password1')).json()).toEqual({ error: 'invalid_login' });
+    expect((await login('nobody@example.com', PASSWORD)).json()).toEqual({ error: 'invalid_login' });
+    const right = await login('anna@example.com', PASSWORD);
+    expect(right.statusCode).toBe(403);
+    expect(right.json()).toMatchObject({ error: 'account_suspended', message: 'Please call us about your last payment.' });
+    expect(right.cookies).toEqual([]);
+
+    expect(suspended.json().user.actions[0]).toMatchObject({
+      action: 'suspended',
+      details: { reason: 'Chargeback fraud suspected', message: 'Please call us about your last payment.', channels: ['email'] },
+    });
+  });
+
+  it('texts and emails a person with both, names the support contact, and tells them when they are back', async () => {
+    const before = t.config.support;
+    t.config.support = { email: 'help@example.com', phone: '+493012345678' };
+    try {
+      const customer = await signIn(t, CUSTOMER, 'customer', 'Sara');
+      await t.pool.query("UPDATE users SET email = 'sara@example.com' WHERE phone = $1", [CUSTOMER]);
+      const id = await userId(CUSTOMER);
+
+      const suspended = await post(`/admin/users/${id}/suspend`, { reason: 'Abusive messages' });
+      expect(suspended.json().delivery.channels).toEqual(['sms', 'email']);
+      const notices = await sentTo(id, 'account');
+      expect(notices.map((n) => n.channel)).toEqual(['email', 'sms']);
+      const text = notices.find((n) => n.channel === 'sms')?.body ?? '';
+      expect(text).toBe(
+        'MISK: your account is suspended, so you cannot sign in for now. Questions? Contact the MISK team at help@example.com or +493012345678.',
+      );
+      expect((await get('/auth/me', customer)).json()).toEqual({
+        error: 'account_suspended',
+        message: null,
+        support: { email: 'help@example.com', phone: '+493012345678' },
+      });
+
+      const back = await post(`/admin/users/${id}/reinstate`);
+      expect(back.json().delivery).toEqual({ inApp: true, channels: ['sms', 'email'], notSetUp: [] });
+      const reinstated = (await sentTo(id, 'account')).filter((n) => !notices.some((old) => old.channel === n.channel && old.body === n.body));
+      expect(reinstated.map((n) => n.channel)).toEqual(['email', 'sms']);
+      expect(reinstated.find((n) => n.channel === 'email')?.subject).toBe('Your MISK account is active again');
+      const inbox = await t.pool.query<{ body: string }>("SELECT body FROM inbox WHERE user_id = $1 AND kind = 'account' ORDER BY created_at", [id]);
+      expect(inbox.rows.map((r) => r.body)).toEqual([text, 'MISK: your account is active again. You can sign in as before.']);
+      // The session from before the suspension is over; signing in again works.
+      expect((await get('/auth/me', customer)).statusCode).toBe(401);
+      expect((await get('/auth/me', await signIn(t, CUSTOMER))).statusCode).toBe(200);
+    } finally {
+      t.config.support = before;
+    }
+  });
+
+  it('tells a closed account by text and email before its details are removed', async () => {
+    await signIn(t, CUSTOMER, 'customer', 'Sara');
+    await t.pool.query("UPDATE users SET email = 'sara@example.com' WHERE phone = $1", [CUSTOMER]);
+    const id = await userId(CUSTOMER);
+    const closed = await post(`/admin/users/${id}/delete`, { reason: 'Asked to be removed' });
+    expect(closed.json().delivery.channels).toEqual(['sms', 'email']);
+    expect(await sentTo(id, 'account')).toEqual([
+      expect.objectContaining({ channel: 'email', email: 'sara@example.com', subject: 'Your MISK account has been closed' }),
+      expect.objectContaining({ channel: 'sms', phone: CUSTOMER }),
+    ]);
+    expect(closed.json().user.actions[0].details.channels).toEqual(['sms', 'email']);
+  });
+
+  it('sends a team message by text and email to a person with both, and says which channels the server cannot use yet', async () => {
+    await signIn(t, CUSTOMER, 'customer', 'Sara');
+    await t.pool.query("UPDATE users SET email = 'sara@example.com' WHERE phone = $1", [CUSTOMER]);
+    const id = await userId(CUSTOMER);
+    // A phone with the app's notifications on; push is not set up on this test server.
+    await t.pool.query("INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth) VALUES ($1, 'https://push.example.com/1', 'key', 'auth')", [id]);
+    const sent = await post(`/admin/users/${id}/message`, { text: 'Your invoice is ready.' });
+    expect(sent.json().delivery).toEqual({ inApp: true, channels: ['push', 'sms', 'email'], notSetUp: ['push'] });
+    const messages = await sentTo(id, 'team_message');
+    expect(messages.map((m) => m.channel)).toEqual(['email', 'push', 'sms']);
+    expect(messages.find((m) => m.channel === 'email')).toMatchObject({ subject: 'A message from the MISK team' });
+    expect(messages.find((m) => m.channel === 'email')?.body).toContain('Your invoice is ready.');
+    expect(sent.json().user.actions[0].details).toEqual({ text: 'Your invoice is ready.', channels: ['push', 'sms', 'email'] });
+
+    // Someone without a phone gets it by email and in the app.
+    const anna = await emailCustomer();
+    const toAnna = await post(`/admin/users/${anna.id}/message`, { text: 'Hello Anna' });
+    expect(toAnna.json().delivery.channels).toEqual(['email']);
+    expect((await sentTo(anna.id, 'team_message')).map((m) => m.channel)).toEqual(['email']);
+  });
+});
+
+describe('the unread count in the app (D87)', () => {
+  it('says how many messages are unread and which is newest, without loading the list', async () => {
+    const customer = await signIn(t, CUSTOMER, 'customer', 'Sara');
+    const id = await userId(CUSTOMER);
+    expect((await get('/inbox/unread', customer)).json()).toEqual({ unread: 0, newestId: null });
+    await post(`/admin/users/${id}/message`, { text: 'First' });
+    await post(`/admin/users/${id}/message`, { text: 'Second' });
+    const inbox = (await get('/inbox', customer)).json();
+    expect(inbox.messages[0]).toMatchObject({ kind: 'team_message', body: 'MISK team: Second' });
+    expect((await get('/inbox/unread', customer)).json()).toEqual({ unread: 2, newestId: inbox.messages[0].id });
+    expect((await post('/inbox/read', undefined, customer)).statusCode).toBe(204);
+    expect((await get('/inbox/unread', customer)).json()).toEqual({ unread: 0, newestId: inbox.messages[0].id });
+    expect((await call(t, 'GET', '/inbox/unread')).statusCode).toBe(401);
   });
 });

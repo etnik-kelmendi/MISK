@@ -55,4 +55,6 @@ export const ACTIVITY_FEED = `
   UNION ALL
   SELECT 'user-' || ua.id, 'users', 'user_' || ua.action, ua.details, ua.created_at, ua.admin_id,
     COALESCE(NULLIF(concat_ws(' ', u.first_name, u.last_name), ''), ua.details->>'name', 'Closed account')
-  FROM user_admin_actions ua JOIN users u ON u.id = ua.user_id`;
+  FROM user_admin_actions ua JOIN users u ON u.id = ua.user_id
+  -- A person's own phone changes (D87) are on their Users page log, not the team's.
+  WHERE ua.action NOT IN ('phone_added', 'phone_changed', 'phone_removed')`;

@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useApi } from '../api/ApiContext';
-import type { Inbox, InboxMessage } from '../api/types';
+import type { Inbox, InboxMessage, InboxUnread } from '../api/types';
 import { usePolling } from '../lib/usePolling';
 
 /** How often the app checks for new messages while it is open. */
@@ -26,6 +26,14 @@ const InboxContext = createContext<InboxValue | null>(null);
 export function readable(body: string): string {
   const text = body.replace(/^MISK:\s*/, '');
   return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** A message the MISK team wrote to this person on the control panel (D87). */
+export const isTeamMessage = (message: Pick<InboxMessage, 'kind'>) => message.kind === 'team_message';
+
+/** What a message says, without the "MISK:" or "MISK team:" it starts with; team messages are labelled instead. */
+export function messageText(message: Pick<InboxMessage, 'kind' | 'body'>): string {
+  return isTeamMessage(message) ? message.body.replace(/^MISK team:\s*/, '') : readable(message.body);
 }
 
 function rememberedIds(): Set<string> {
@@ -70,12 +78,15 @@ export function InboxProvider({ children }: { children: ReactNode }) {
   const [failed, setFailed] = useState(false);
   const [fresh, setFresh] = useState<InboxMessage[]>([]);
   const announced = useRef<Set<string> | null>(null);
+  // What the loaded list had, so the frequent cheap check knows when the list must be loaded again.
+  const loaded = useRef<InboxUnread | null>(null);
 
   const reload = useCallback(() => {
     api.get<Inbox>('/inbox').then(
       (data) => {
         setInbox(data);
         setFailed(false);
+        loaded.current = { unread: data.unread, newestId: data.messages[0]?.id ?? null };
         announced.current ??= rememberedIds();
         const seen = announced.current;
         const arrived = data.messages.filter((m) => !m.read && !seen.has(m.id));
@@ -94,8 +105,20 @@ export function InboxProvider({ children }: { children: ReactNode }) {
     );
   }, [api]);
 
+  // While the app is open: only the unread count and newest message, and the whole list only when they changed.
+  const check = useCallback(() => {
+    api.get<InboxUnread>('/inbox/unread').then(
+      (latest) => {
+        const known = loaded.current;
+        if (!known || known.unread !== latest.unread || known.newestId !== latest.newestId) reload();
+      },
+      // Retried on the next check; a suspended account is handled by the app as a whole.
+      (error: unknown) => console.warn('Could not check for new messages', error),
+    );
+  }, [api, reload]);
+
   useEffect(reload, [reload]);
-  usePolling(reload, INBOX_REFRESH_MS);
+  usePolling(check, INBOX_REFRESH_MS);
   // Coming back to the app checks at once, so a job given while it was in the background shows up.
   useEffect(() => {
     const onVisible = () => {
@@ -111,6 +134,7 @@ export function InboxProvider({ children }: { children: ReactNode }) {
     await api.post('/inbox/read');
     setFresh([]);
     setInbox((current) => (current ? { messages: current.messages.map((m) => ({ ...m, read: true })), unread: 0 } : current));
+    if (loaded.current) loaded.current = { ...loaded.current, unread: 0 };
   }, [api]);
 
   const value = useMemo(() => ({ inbox, failed, fresh, dismissFresh, reload, markRead }), [inbox, failed, fresh, dismissFresh, reload, markRead]);

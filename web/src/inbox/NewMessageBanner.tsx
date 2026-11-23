@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { Link, useLocation } from 'react-router';
 import { Icon } from '../components/Icon';
-import { readable, useInbox } from './InboxContext';
+import { isTeamMessage, messageText, useInbox } from './InboxContext';
 
 /**
  * Announces a message that just arrived, such as a job the team gave the pro or a cancelled job, at the
@@ -19,8 +19,9 @@ export function NewMessageBanner({ messagesPath }: { messagesPath: string }) {
     <div className="new-message" role="status" aria-live="polite">
       <Icon name="bell" />
       <div className="grow">
-        <p className="b small">{t('inbox.newTitle')}</p>
-        <p className="small">{readable(newest.body)}</p>
+        {/* A message the team wrote is named as such, so it is not mistaken for an automatic one (D87). */}
+        <p className="b small">{isTeamMessage(newest) ? t('inbox.newFromTeam') : t('inbox.newTitle')}</p>
+        <p className="small pre-line">{messageText(newest)}</p>
         {fresh.length > 1 && <p className="tiny muted">{t('inbox.more', { count: fresh.length - 1 })}</p>}
         <Link to={messagesPath} className="small b">
           {t('inbox.open')}

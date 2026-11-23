@@ -124,12 +124,26 @@ export async function enqueue(
   body: string,
   options: EnqueueOptions = {},
 ): Promise<boolean> {
+  return (await enqueueChannels(db, userId, kind, body, options)).length > 0;
+}
+
+/**
+ * Like enqueue, but says which channels the message was queued on (each once, even with push on several
+ * devices), so the control panel can tell the team how a message went out (D87).
+ */
+export async function enqueueChannels(
+  db: Queryable,
+  userId: string,
+  kind: NotificationKind,
+  body: string,
+  options: EnqueueOptions = {},
+): Promise<Channel[]> {
   const { channels, email } = options;
   const link = options.link ?? null;
   if (link !== null && !LINK_FORMAT.test(link)) {
     throw new Error(`Invalid message link: ${link}`);
   }
-  const result = await db.query(
+  const result = await db.query<{ channel: Channel }>(
     `WITH person AS (
        SELECT id, phone, email FROM users WHERE id = $1 AND disabled_at IS NULL
      ), chosen AS (
@@ -144,7 +158,8 @@ export async function enqueue(
      SELECT p.id, 'email', NULL, p.email, $4, NULL::uuid, $2, COALESCE($8, $3), NULL FROM person p, chosen c WHERE c.email AND p.email IS NOT NULL
      UNION ALL
      SELECT p.id, 'push', NULL, NULL, NULL, ps.id, $2, $3, $9::text
-     FROM person p JOIN push_subscriptions ps ON ps.user_id = p.id, chosen c WHERE c.push`,
+     FROM person p JOIN push_subscriptions ps ON ps.user_id = p.id, chosen c WHERE c.push
+     RETURNING channel`,
     [
       userId,
       kind,
@@ -165,7 +180,8 @@ export async function enqueue(
       [userId, kind, fitBody(body), link],
     );
   }
-  return Boolean(result.rowCount);
+  const queued = new Set(result.rows.map((row) => row.channel));
+  return CHANNELS.filter((channel) => queued.has(channel));
 }
 
 export interface Senders {

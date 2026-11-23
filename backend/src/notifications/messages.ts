@@ -85,10 +85,7 @@ export const messages = {
   applicationRejected: () => 'MISK: we could not approve your application yet. See the app for what to change.',
   // The Users page (D65): one account, whether customer, pro or both.
   fromTeam: (text: string) => `MISK team: ${text}`,
-  accountSuspendedByTeam: () =>
-    'MISK: your account is suspended, so you cannot sign in for now. Upcoming bookings and plans were cancelled and any held money released. Please contact the MISK team.',
-  accountReinstatedByTeam: () => 'MISK: your account is active again. You can sign in as before.',
-  accountClosedByTeam: () => 'MISK: your account has been closed by the MISK team. Upcoming bookings and plans were cancelled and any held money released.',
+  // Notices about the account itself (suspended, active again, closed) are in account-notices.ts (D87).
   planEndedByTeam: (plan: string) => `MISK: the ${plan} plan has ended. Its visits are taken off your week.`,
   accountSuspended: () => 'MISK: your pro account is suspended, so you get no new jobs. Please contact the MISK team.',
   accountReinstated: () => 'MISK: your pro account is active again. New jobs will reach you as before.',

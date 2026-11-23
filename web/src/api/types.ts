@@ -1024,3 +1024,9 @@ export interface Inbox {
   messages: InboxMessage[];
   unread: number;
 }
+
+/** The cheap check the app makes often: how many messages are unread, and which is newest (D87). */
+export interface InboxUnread {
+  unread: number;
+  newestId: string | null;
+}

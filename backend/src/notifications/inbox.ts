@@ -22,6 +22,17 @@ export async function inboxRoutes(app: FastifyInstance, ctx: AppContext) {
     return { messages: messages.rows, unread: unread.rows[0]?.n ?? 0 };
   });
 
+  // The app checks this often while open (D87): only the unread count and the newest message, so it loads the
+  // whole list only when something changed.
+  app.get('/inbox/unread', { preHandler: guards.signedIn }, async (request) => {
+    const found = await pool.query<{ unread: number; newestId: string | null }>(
+      `SELECT (SELECT count(*)::int FROM inbox WHERE user_id = $1 AND read_at IS NULL) AS unread,
+              (SELECT id FROM inbox WHERE user_id = $1 ORDER BY created_at DESC, id LIMIT 1) AS "newestId"`,
+      [currentUser(request).id],
+    );
+    return found.rows[0] ?? { unread: 0, newestId: null };
+  });
+
   // Opening Messages marks everything there as read.
   app.post('/inbox/read', { preHandler: guards.signedIn }, async (request, reply) => {
     await pool.query('UPDATE inbox SET read_at = now() WHERE user_id = $1 AND read_at IS NULL', [currentUser(request).id]);

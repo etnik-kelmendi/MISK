@@ -8,6 +8,7 @@ import { MAX_RESETS_PER_ACCOUNT, MAX_RESETS_PER_IP, normalizeEmail, RESET_LINK_M
 import { hashPassword, slowDownFailedLogin, spendVerificationTime, verifyPassword } from './passwords.js';
 import { publicUser, refuseWrongSite, startSessionCookie } from './routes.js';
 import { createSession, deleteExpiredRows, hashToken, recordAttempt, USER_COLUMNS, type User } from './sessions.js';
+import { suspendedAnswer } from './suspension.js';
 
 /** Customers' and pros' passwords: at least 8 characters with a letter and a number. */
 export const MIN_USER_PASSWORD_LENGTH = 8;
@@ -355,8 +356,10 @@ export async function emailAccountRoutes(app: FastifyInstance, ctx: AppContext) 
       if (row.disabled) {
         return reply.code(403).send({ error: 'account_disabled' });
       }
+      // After the right password only, like the answers below, so it reveals nothing to a stranger (D87).
       if (row.suspended) {
-        return reply.code(403).send({ error: 'account_suspended' });
+        request.log.warn({ event: 'login_rejected', reason: 'account_suspended', userId: row.id });
+        return reply.code(403).send(await suspendedAnswer(pool, config.support, row.id));
       }
       // Said only after the right password, so it does not reveal which emails have accounts.
       if (!row.verified) {

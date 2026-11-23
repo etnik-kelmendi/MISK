@@ -3,12 +3,17 @@ import type { Pool } from 'pg';
 import type { Config } from '../config.js';
 import type { AppContext } from '../context.js';
 import { withTransaction } from '../db.js';
-import { conflict } from '../errors.js';
+import { conflict, forbidden } from '../errors.js';
+import { isUniqueViolation } from '../http.js';
+import { phoneChangedNotice, type PhoneChange } from '../notifications/account-notices.js';
+import { enqueue } from '../notifications/outbox.js';
 import { normalizePhone } from '../notifications/phone.js';
+import { logUserAction } from '../users/actions.js';
 import { adminLogin } from './admin-sign-in.js';
 import { currentUser, sessionCookieFor, siteOf, sitesAreSeparate, type Site } from './guard.js';
-import { startPhoneSignIn, verifyPhoneSignIn } from './phone-sign-in.js';
+import { startPhoneChange, startPhoneSignIn, verifyPhoneChange, verifyPhoneSignIn } from './phone-sign-in.js';
 import { deleteSession, findUser, SESSION_MAX_AGE_SECONDS, type User } from './sessions.js';
+import { suspendedAnswer } from './suspension.js';
 import { ACCESS } from './access.js';
 
 const phoneProperty = { type: 'string', minLength: 6, maxLength: 32 } as const;
@@ -107,9 +112,13 @@ export async function authRoutes(app: FastifyInstance, ctx: AppContext) {
         return reply.code(400).send({ error: 'invalid_phone' });
       }
       const result = await verifyPhoneSignIn(pool, { phone, code: request.body.code, ip: request.ip });
+      if (result.outcome === 'account_suspended') {
+        request.log.warn({ event: 'sign_in_rejected', reason: result.outcome, userId: result.userId });
+        return reply.code(403).send(await suspendedAnswer(pool, config.support, result.userId));
+      }
       if (result.outcome !== 'success') {
         request.log.warn({ event: 'sign_in_rejected', reason: result.outcome });
-        const status = { invalid_code: 401, too_many_attempts: 429, account_disabled: 403, account_suspended: 403 }[result.outcome];
+        const status = { invalid_code: 401, too_many_attempts: 429, account_disabled: 403 }[result.outcome];
         return reply.code(status).send({ error: result.outcome });
       }
       await startSession(request, reply, result.token);
@@ -216,4 +225,116 @@ export async function authRoutes(app: FastifyInstance, ctx: AppContext) {
       return { user: publicUser(await requireUser(user.id)) };
     },
   );
+
+  // ---------- The phone number of one's own account (D87) ----------
+
+  /** Customers and pros only: a team account never has a phone. */
+  function accountHolder(request: FastifyRequest): User {
+    const user = currentUser(request);
+    if (user.role === 'admin') {
+      throw forbidden();
+    }
+    return user;
+  }
+
+  /** Tells the person by email (and in the app) that the phone of their account changed, and logs it. */
+  async function phoneChanged(user: User, change: PhoneChange, phone: string | null) {
+    const notice = phoneChangedNotice({ change, phone, firstName: user.firstName, support: config.support });
+    await enqueue(pool, user.id, 'account', notice.text, { channels: { push: false, sms: false, email: true }, email: notice.email });
+    // Only what happened: the numbers stay out of the log, which outlives a closed account.
+    await logUserAction(pool, user.id, null, change);
+  }
+
+  // Texts a code to the number to add. Whether another account uses it is only said after the right code.
+  app.post<{ Body: { phone: string } }>(
+    '/account/phone/start',
+    {
+      preHandler: guards.signedIn,
+      schema: {
+        body: { type: 'object', required: ['phone'], additionalProperties: false, properties: { phone: phoneProperty } },
+      },
+    },
+    async (request, reply) => {
+      if (refuseWrongSite(request, reply, config, 'app')) {
+        return reply;
+      }
+      const user = accountHolder(request);
+      const phone = normalizePhone(request.body.phone);
+      if (!phone) {
+        return reply.code(400).send({ error: 'invalid_phone' });
+      }
+      if (phone === user.phone) {
+        return reply.code(409).send({ error: 'phone_unchanged' });
+      }
+      const result = await startPhoneChange(pool, ctx.deliverCode, { userId: user.id, phone, ip: request.ip });
+      if (result.outcome === 'too_many_attempts') {
+        request.log.warn({ event: 'phone_change_code_limited', userId: user.id });
+        return reply.code(429).send({ error: 'too_many_attempts' });
+      }
+      request.log.info({ event: 'phone_change_code_sent', userId: user.id });
+      return reply.code(202).send({ phone });
+    },
+  );
+
+  app.post<{ Body: { phone: string; code: string } }>(
+    '/account/phone/verify',
+    {
+      preHandler: guards.signedIn,
+      schema: {
+        body: {
+          type: 'object',
+          required: ['phone', 'code'],
+          additionalProperties: false,
+          properties: { phone: phoneProperty, code: { type: 'string', pattern: '^[0-9]{6}$' } },
+        },
+      },
+    },
+    async (request, reply) => {
+      if (refuseWrongSite(request, reply, config, 'app')) {
+        return reply;
+      }
+      const user = accountHolder(request);
+      const phone = normalizePhone(request.body.phone);
+      if (!phone) {
+        return reply.code(400).send({ error: 'invalid_phone' });
+      }
+      let result;
+      try {
+        result = await verifyPhoneChange(pool, { userId: user.id, phone, code: request.body.code, ip: request.ip });
+      } catch (error) {
+        // A sign-in made an account for this phone between the check and the update.
+        if (!isUniqueViolation(error)) throw error;
+        result = { outcome: 'phone_taken' } as const;
+      }
+      if (result.outcome !== 'success') {
+        request.log.warn({ event: 'phone_change_rejected', userId: user.id, reason: result.outcome });
+        // Not 401: the person is signed in, only the code is wrong.
+        const status = { invalid_code: 400, too_many_attempts: 429, phone_taken: 409 }[result.outcome];
+        return reply.code(status).send({ error: result.outcome });
+      }
+      const change: PhoneChange = result.previous ? 'phone_changed' : 'phone_added';
+      await phoneChanged(user, change, phone);
+      request.log.info({ event: 'phone_changed', userId: user.id, change });
+      return { user: publicUser(await requireUser(user.id)) };
+    },
+  );
+
+  // Only an account that can still sign in with its email and password may remove its phone.
+  app.delete('/account/phone', { preHandler: guards.signedIn }, async (request, reply) => {
+    if (refuseWrongSite(request, reply, config, 'app')) {
+      return reply;
+    }
+    const user = accountHolder(request);
+    const removed = await pool.query(
+      `UPDATE users SET phone = NULL
+       WHERE id = $1 AND phone IS NOT NULL AND email IS NOT NULL AND password_hash IS NOT NULL AND email_verified_at IS NOT NULL`,
+      [user.id],
+    );
+    if (!removed.rowCount) {
+      return reply.code(409).send({ error: user.phone ? 'phone_needed_to_sign_in' : 'no_phone' });
+    }
+    await phoneChanged(user, 'phone_removed', null);
+    request.log.info({ event: 'phone_changed', userId: user.id, change: 'phone_removed' });
+    return { user: publicUser(await requireUser(user.id)) };
+  });
 }

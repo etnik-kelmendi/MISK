@@ -2,7 +2,8 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { Pool } from 'pg';
 import type { Config } from '../config.js';
 import { areaOf, canOpen } from './access.js';
-import { findSessionUser, type Role, type User } from './sessions.js';
+import { findSessionUser, findSuspendedSessionUser, type Role, type User } from './sessions.js';
+import { suspendedAnswer } from './suspension.js';
 
 export const SESSION_COOKIE = 'misk_session';
 /** The control panel's own session, so signing in on one site never signs you in on the other. */
@@ -72,6 +73,14 @@ export function createGuards(pool: Pool, config: Config): Guards {
       }
     }
     if (!user) {
+      // A session of an account the team suspended says so, so the app can explain it instead of asking
+      // the person to sign in again (D87).
+      for (const token of sessionTokens(request, config)) {
+        const suspendedId = await findSuspendedSessionUser(pool, token);
+        if (suspendedId) {
+          return reply.code(403).send(await suspendedAnswer(pool, config.support, suspendedId));
+        }
+      }
       return reply.code(401).send({ error: 'unauthenticated' });
     }
     request.user = user;

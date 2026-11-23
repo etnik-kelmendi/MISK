@@ -1,9 +1,15 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useApi } from '../api/ApiContext';
-import { ApiError } from '../api/client';
+import { ApiError, suspensionOf, type Suspension } from '../api/client';
 import type { User } from '../api/types';
 
-type AuthState = { status: 'loading' } | { status: 'signedOut' } | { status: 'signedIn'; user: User } | { status: 'error' };
+type AuthState =
+  | { status: 'loading' }
+  | { status: 'signedOut' }
+  | { status: 'signedIn'; user: User }
+  | { status: 'error' }
+  /** The team suspended the account: the app shows why instead of anything else (D87). */
+  | { status: 'suspended'; suspension: Suspension };
 
 interface AuthContextValue {
   state: AuthState;
@@ -28,7 +34,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!current) {
           return;
         }
-        if (error instanceof ApiError && error.status === 401) {
+        const suspension = suspensionOf(error);
+        if (suspension) {
+          setState({ status: 'suspended', suspension });
+        } else if (error instanceof ApiError && error.status === 401) {
           setState({ status: 'signedOut' });
         } else {
           console.error('Could not check the session', error);
@@ -40,6 +49,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       current = false;
     };
   }, [api, attempt]);
+
+  // Any request that finds the account suspended, also signing in or in the middle of a session (D87).
+  useEffect(() => api.onSuspended((suspension) => setState({ status: 'suspended', suspension })), [api]);
 
   const refresh = useCallback(() => setAttempt((value) => value + 1), []);
   const setUser = useCallback((user: User) => setState({ status: 'signedIn', user }), []);

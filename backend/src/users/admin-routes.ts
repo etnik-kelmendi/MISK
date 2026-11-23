@@ -6,22 +6,25 @@ import type { AppContext } from '../context.js';
 import { withTransaction, type Queryable } from '../db.js';
 import { conflict, notFound } from '../errors.js';
 import { uuidParams } from '../http.js';
+import { closedNotice, reinstatedNotice, suspendedNotice, type EndedWork, type Notice } from '../notifications/account-notices.js';
 import { messages } from '../notifications/messages.js';
-import { enqueue } from '../notifications/outbox.js';
+import { enqueue, enqueueChannels, type Channel } from '../notifications/outbox.js';
 import { loadChecks } from '../pros/checks.js';
 import { handOverWork, hasExpiredDocument, logProAction } from '../pros/management.js';
 import { dropUnpaidSubscription } from '../subscriptions/service.js';
+import { logUserAction } from './actions.js';
 
 /** Rows the Users page loads at once; "Show more" loads the next ones. */
 export const USERS_PAGE_SIZE = 50;
 const REASON_MAX = 500;
 const MESSAGE_MAX = 500;
+/** A phone search needs at least this many digits, so a short number does not match nearly everyone. */
+export const MIN_PHONE_SEARCH_DIGITS = 4;
 /** Bookings that have not started yet: these are cancelled when an account is suspended or closed. */
 const NOT_STARTED = ['awaiting_payment', 'searching', 'unassigned', 'accepted', 'on_the_way'];
 
 export type UserType = 'customer' | 'pro';
 export type UserStatus = 'active' | 'suspended' | 'deleted';
-export type UserAction = 'messaged' | 'suspended' | 'reinstated' | 'deleted';
 
 /**
  * One account as the Users page sees it (D64, D65). A pro who also booked as a customer is one row with
@@ -46,18 +49,35 @@ const USER_ROW = `
   (SELECT max(se.last_seen_at) FROM sessions se WHERE se.user_id = u.id) AS "lastActive"`;
 const USER_FROM = `FROM users u LEFT JOIN pro_profiles p ON p.user_id = u.id WHERE u.role IS DISTINCT FROM 'admin'`;
 
+/**
+ * The digits to look for in stored phone numbers (international, e.g. +4915100000001) for a query typed the
+ * way people write numbers: "+49 (0)151 000 00001", "+49 0151-…", "0049 151…", "0151 …", "15100000001".
+ * Empty when the query is not a phone number (it has letters, or too few digits).
+ */
+export function phoneSearchDigits(query: string): string[] {
+  if (!/^[\d\s+\-()./]+$/.test(query)) return [];
+  // "(0)" is the trunk prefix, dialled only inside the country; stored numbers never have it.
+  const typed = query.replace(/\(\s*0\s*\)/g, ' ').trim();
+  const digits = typed.replace(/\D/g, '');
+  const candidates = new Set<string>();
+  if (typed.startsWith('+') || digits.startsWith('00')) {
+    const international = digits.replace(/^00/, '');
+    candidates.add(international);
+    // A trunk 0 typed after the country code ("+49 0151…"); country codes have 1 to 3 digits.
+    for (let length = 1; length <= 3; length += 1) {
+      if (international[length] === '0') candidates.add(international.slice(0, length) + international.slice(length + 1));
+    }
+  } else {
+    // A national number ("0151…") is stored after the country code, without its leading 0.
+    candidates.add(digits.replace(/^0+/, ''));
+  }
+  return [...candidates].filter((candidate) => candidate.length >= MIN_PHONE_SEARCH_DIGITS);
+}
+
 function name(row: { first_name: string | null; last_name: string | null }) {
   return [row.first_name, row.last_name].filter(Boolean).join(' ');
 }
 
-export async function logUserAction(db: Queryable, userId: string, adminId: string, action: UserAction, details: Record<string, unknown> = {}) {
-  await db.query('INSERT INTO user_admin_actions (user_id, admin_id, action, details) VALUES ($1, $2, $3, $4)', [
-    userId,
-    adminId,
-    action,
-    JSON.stringify(details),
-  ]);
-}
 
 /**
  * Ends what an account booked as a customer: bookings that have not started are cancelled (held money is
@@ -121,17 +141,16 @@ export async function usersAdminRoutes(app: FastifyInstance, ctx: AppContext) {
       const q = request.query.q?.trim() ?? '';
       const type = request.query.type ?? 'all';
       const status = request.query.status ?? 'all';
-      // Name, email or phone; a phone matches with or without spaces and a leading 00.
-      // Phones are stored internationally (+4915…); "0049 151…" and "0151…" find them too.
-      const digits = q.replace(/[^\d]/g, '').replace(/^00/, '').replace(/^0/, '');
+      // Name, email or phone; a phone matches however it is typed (see phoneSearchDigits).
       const filtered = `
         WITH listed AS (SELECT ${USER_ROW} ${USER_FROM})
         SELECT * FROM listed
         WHERE ($1 = '' OR concat_ws(' ', "firstName", "lastName") ILIKE '%' || $1 || '%' OR email ILIKE '%' || $1 || '%'
-               OR ($2 <> '' AND regexp_replace(coalesce(phone, ''), '[^0-9]', '', 'g') LIKE '%' || $2 || '%'))
+               OR EXISTS (SELECT 1 FROM unnest($2::text[]) AS d(digits)
+                          WHERE regexp_replace(coalesce(phone, ''), '[^0-9]', '', 'g') LIKE '%' || d.digits || '%'))
           AND ($3 = 'all' OR $3 = ANY(types))
           AND ($4 = 'all' OR status = $4)`;
-      const params = [q, digits.length >= 3 ? digits : '', type, status];
+      const params = [q, phoneSearchDigits(q), type, status];
       const [rows, matching, total] = await Promise.all([
         pool.query(`${filtered} ORDER BY "joinedAt" DESC, id LIMIT ${USERS_PAGE_SIZE} OFFSET $5`, [...params, request.query.offset ?? 0]),
         pool.query<{ n: number }>(`SELECT count(*)::int AS n FROM (${filtered}) f`, params),
@@ -145,7 +164,7 @@ export async function usersAdminRoutes(app: FastifyInstance, ctx: AppContext) {
     const found = await pool.query(
       `SELECT ${USER_ROW},
          u.role, u.email_verified_at IS NOT NULL AS "emailConfirmed", u.password_hash IS NOT NULL AS "hasPassword",
-         u.suspended_at AS "suspendedAt", u.suspended_reason AS "suspendedReason",
+         u.suspended_at AS "suspendedAt", u.suspended_reason AS "suspendedReason", u.suspended_message AS "suspendedMessage",
          u.disabled_at AS "deletedAt", u.deleted_reason AS "deletedReason",
          p.status AS "proStatus"
        ${USER_FROM} AND u.id = $1`,
@@ -213,7 +232,17 @@ export async function usersAdminRoutes(app: FastifyInstance, ctx: AppContext) {
     return account;
   }
 
-  // A message from the team: in the app, by push, and by text (or email when there is no phone).
+  /**
+   * How a message went out, for the control panel (D87): always in the app, plus the channels it was queued
+   * on; notSetUp lists those the server cannot send on yet (no SMS or mail service), so the team knows.
+   */
+  const delivery = (channels: Channel[]) => ({ inApp: true, channels, notSetUp: channels.filter((channel) => !ctx.channelsReady[channel]) });
+
+  /** An account notice by every way the person can be reached: they may not be able to open the app (D87). */
+  const sendNotice = (db: Queryable, userId: string, notice: Notice) =>
+    enqueueChannels(db, userId, 'account', notice.text, { channels: { push: true, sms: true, email: true }, email: notice.email });
+
+  // A message from the team: in the app, by push, by text when there is a phone and by email when there is an email.
   app.post<{ Params: { id: string }; Body: { text: string } }>(
     '/admin/users/:id/message',
     {
@@ -231,19 +260,23 @@ export async function usersAdminRoutes(app: FastifyInstance, ctx: AppContext) {
     async (request) => {
       const adminId = currentUser(request).id;
       const text = request.body.text.trim();
-      await withTransaction(pool, async (client) => {
-        const account = await openAccount(client, request.params.id);
-        await enqueue(client, request.params.id, 'team_message', messages.fromTeam(text), {
-          channels: { push: true, sms: Boolean(account.phone), email: !account.phone && Boolean(account.email) },
+      const channels = await withTransaction(pool, async (client) => {
+        await openAccount(client, request.params.id);
+        // A channel the person has no address for is skipped by enqueue.
+        const queued = await enqueueChannels(client, request.params.id, 'team_message', messages.fromTeam(text), {
+          channels: { push: true, sms: true, email: true },
+          email: { subject: 'A message from the MISK team', text: teamMessageEmail(text) },
         });
-        await logUserAction(client, request.params.id, adminId, 'messaged', { text });
+        await logUserAction(client, request.params.id, adminId, 'messaged', { text, channels: queued });
+        return queued;
       });
-      request.log.info({ event: 'user_messaged', userId: request.params.id, by: adminId });
-      return { user: await detail(request.params.id) };
+      request.log.info({ event: 'user_messaged', userId: request.params.id, by: adminId, channels });
+      return { user: await detail(request.params.id), delivery: delivery(channels) };
     },
   );
 
-  app.post<{ Params: { id: string }; Body: { reason: string } }>(
+  // The reason stays internal; `message`, when the admin writes one, is what the person is told (D87).
+  app.post<{ Params: { id: string }; Body: { reason: string; message?: string } }>(
     '/admin/users/:id/suspend',
     {
       preHandler: guards.admin,
@@ -253,7 +286,10 @@ export async function usersAdminRoutes(app: FastifyInstance, ctx: AppContext) {
           type: 'object',
           required: ['reason'],
           additionalProperties: false,
-          properties: { reason: { type: 'string', minLength: 1, maxLength: REASON_MAX, pattern: '\\S' } },
+          properties: {
+            reason: { type: 'string', minLength: 1, maxLength: REASON_MAX, pattern: '\\S' },
+            message: { type: 'string', maxLength: MESSAGE_MAX },
+          },
         },
       },
     },
@@ -261,11 +297,16 @@ export async function usersAdminRoutes(app: FastifyInstance, ctx: AppContext) {
       const adminId = currentUser(request).id;
       const userId = request.params.id;
       const reason = request.body.reason.trim();
+      const note = request.body.message?.trim() || null;
       const account = await withTransaction(pool, async (client) => {
         const found = await openAccount(client, userId);
         if (found.suspended) throw conflict('already_suspended');
-        await client.query('UPDATE users SET suspended_at = now(), suspended_reason = $2 WHERE id = $1', [userId, reason]);
-        await client.query('DELETE FROM sessions WHERE user_id = $1', [userId]);
+        // Sessions are kept but stop working at once (findSessionUser), so the app can show why (D87).
+        await client.query('UPDATE users SET suspended_at = now(), suspended_reason = $2, suspended_message = $3 WHERE id = $1', [
+          userId,
+          reason,
+          note,
+        ]);
         if (found.role === 'pro') {
           await client.query(
             `UPDATE pro_profiles SET status = 'suspended', suspended_at = now(), suspended_reason = $2, updated_at = now()
@@ -273,15 +314,33 @@ export async function usersAdminRoutes(app: FastifyInstance, ctx: AppContext) {
             [userId, reason],
           );
         }
-        await enqueue(client, userId, 'account', messages.accountSuspendedByTeam());
         return found;
       });
-      const customer = await endCustomerWork(deps(), userId);
-      const handOver = account.role === 'pro' ? await handOverWork(deps(), userId, adminId) : null;
+      // Told after the bookings and plans are ended, so the notice can say what happened to them.
+      const tell = (work: EndedWork | null) =>
+        sendNotice(pool, userId, suspendedNotice({ firstName: account.first_name, work, note, support: config.support }));
+      let customer: { bookings: number; plans: number };
+      let handOver: Awaited<ReturnType<typeof handOverWork>> | null;
+      try {
+        customer = await endCustomerWork(deps(), userId);
+        handOver = account.role === 'pro' ? await handOverWork(deps(), userId, adminId) : null;
+      } catch (error) {
+        // The account is suspended either way; the person still hears it, without the counts.
+        await tell(null);
+        throw error;
+      }
+      const channels = await tell({ ...customer, proWorkHandedOver: Boolean(handOver && (handOver.bookings > 0 || handOver.plans > 0)) });
       if (handOver) await logProAction(pool, userId, adminId, 'suspended', { reason, ...handOver });
-      await logUserAction(pool, userId, adminId, 'suspended', { reason, cancelledBookings: customer.bookings, endedPlans: customer.plans, ...(handOver ?? {}) });
-      request.log.warn({ event: 'user_suspended', userId, by: adminId, ...customer });
-      return { user: await detail(userId) };
+      await logUserAction(pool, userId, adminId, 'suspended', {
+        reason,
+        ...(note ? { message: note } : {}),
+        cancelledBookings: customer.bookings,
+        endedPlans: customer.plans,
+        ...(handOver ?? {}),
+        channels,
+      });
+      request.log.warn({ event: 'user_suspended', userId, by: adminId, ...customer, channels });
+      return { user: await detail(userId), delivery: delivery(channels) };
     },
   );
 
@@ -291,12 +350,16 @@ export async function usersAdminRoutes(app: FastifyInstance, ctx: AppContext) {
     async (request) => {
       const adminId = currentUser(request).id;
       const userId = request.params.id;
-      await withTransaction(pool, async (client) => {
+      const channels = await withTransaction(pool, async (client) => {
         const found = await openAccount(client, userId);
         const pro = await client.query<{ status: string }>('SELECT status FROM pro_profiles WHERE user_id = $1', [userId]);
         const proSuspended = pro.rows[0]?.status === 'suspended';
         if (!found.suspended && !proSuspended) throw conflict('not_suspended');
-        await client.query('UPDATE users SET suspended_at = NULL, suspended_reason = NULL WHERE id = $1', [userId]);
+        await client.query('UPDATE users SET suspended_at = NULL, suspended_reason = NULL, suspended_message = NULL WHERE id = $1', [userId]);
+        if (found.suspended) {
+          // The sessions kept while suspended end: the person signs in afresh (D87).
+          await client.query('DELETE FROM sessions WHERE user_id = $1', [userId]);
+        }
         let proTo: string | null = null;
         if (proSuspended) {
           // Like Reinstate on the Providers page: back to Active, or to Pending approval if a document ran out.
@@ -307,11 +370,12 @@ export async function usersAdminRoutes(app: FastifyInstance, ctx: AppContext) {
           );
           await logProAction(client, userId, adminId, 'reinstated', { to: proTo });
         }
-        await enqueue(client, userId, 'account', messages.accountReinstatedByTeam());
-        await logUserAction(client, userId, adminId, 'reinstated', proTo ? { proStatus: proTo } : {});
+        const queued = await sendNotice(client, userId, reinstatedNotice({ firstName: found.first_name, support: config.support }));
+        await logUserAction(client, userId, adminId, 'reinstated', { ...(proTo ? { proStatus: proTo } : {}), channels: queued });
+        return queued;
       });
-      request.log.info({ event: 'user_reinstated', userId, by: adminId });
-      return { user: await detail(userId) };
+      request.log.info({ event: 'user_reinstated', userId, by: adminId, channels });
+      return { user: await detail(userId), delivery: delivery(channels) };
     },
   );
 
@@ -335,10 +399,10 @@ export async function usersAdminRoutes(app: FastifyInstance, ctx: AppContext) {
       const adminId = currentUser(request).id;
       const userId = request.params.id;
       const reason = request.body.reason.trim();
-      const account = await withTransaction(pool, async (client) => {
+      const { account, channels } = await withTransaction(pool, async (client) => {
         const found = await openAccount(client, userId);
-        // Told first, while the phone and email are still there.
-        await enqueue(client, userId, 'account', messages.accountClosedByTeam());
+        // Told first, while the phone and email are still there: the queued text and email keep them.
+        const queued = await sendNotice(client, userId, closedNotice({ firstName: found.first_name, support: config.support }));
         if (found.role === 'pro') {
           await client.query(
             `UPDATE pro_profiles SET status = 'suspended', suspended_at = COALESCE(suspended_at, now()),
@@ -346,7 +410,7 @@ export async function usersAdminRoutes(app: FastifyInstance, ctx: AppContext) {
             [userId, reason],
           );
         }
-        return found;
+        return { account: found, channels: queued };
       });
       const customer = await endCustomerWork(deps(), userId);
       const handOver = account.role === 'pro' ? await handOverWork(deps(), userId, adminId) : null;
@@ -365,10 +429,16 @@ export async function usersAdminRoutes(app: FastifyInstance, ctx: AppContext) {
           cancelledBookings: customer.bookings,
           endedPlans: customer.plans,
           ...(handOver ?? {}),
+          channels,
         });
       });
-      request.log.warn({ event: 'user_deleted', userId, by: adminId });
-      return { user: await detail(userId) };
+      request.log.warn({ event: 'user_deleted', userId, by: adminId, channels });
+      return { user: await detail(userId), delivery: delivery(channels) };
     },
   );
+}
+
+/** The email version of a team message: the same text with a greeting and where to find it in the app. */
+function teamMessageEmail(text: string): string {
+  return ['Hello,', `The MISK team sent you this message:\n\n${text}`, 'You can also read it in the MISK app under Messages.', 'The MISK team'].join('\n\n');
 }

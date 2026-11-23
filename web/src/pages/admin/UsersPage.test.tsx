@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { fakeApi, renderAt, users } from '../../test/harness';
-import type { UserDetail, UserRow } from './UsersPage';
+import type { Delivery, UserDetail, UserRow } from './UsersPage';
 
 const user = () => userEvent.setup();
 
@@ -18,6 +18,7 @@ const row = (overrides: Partial<UserRow>): UserRow => ({
   ...overrides,
 });
 const SARA = row({});
+const delivery = (channels: Delivery['channels'], notSetUp: Delivery['channels'] = []): Delivery => ({ inApp: true, channels, notSetUp });
 const DANIEL = row({ id: 'u-daniel', firstName: 'Daniel', lastName: null, email: null, phone: '+4915100000101', types: ['customer', 'pro'] });
 
 const detail = (overrides: Partial<UserDetail> = {}): UserDetail => ({
@@ -26,6 +27,7 @@ const detail = (overrides: Partial<UserDetail> = {}): UserDetail => ({
   hasPassword: true,
   suspendedAt: null,
   suspendedReason: null,
+  suspendedMessage: null,
   deletedAt: null,
   deletedReason: null,
   bookings: { total: 7, upcoming: 1, completed: 5, cancelled: 1 },
@@ -126,9 +128,19 @@ describe('the Users page (D65)', () => {
   it('sends a message, and suspends only after a confirmation with a reason', async () => {
     const api = adminApi();
     api.on('GET /admin/users/u-sara', { body: { user: detail() } });
-    api.on('POST /admin/users/u-sara/message', { body: { user: detail({ actions: [{ id: '1', action: 'messaged', details: { text: 'Hi' }, createdAt: '2026-11-16T10:00:00.000Z', adminName: 'admin' }] }) } });
+    api.on('POST /admin/users/u-sara/message', {
+      body: {
+        user: detail({
+          actions: [{ id: '1', action: 'messaged', details: { text: 'Hi', channels: ['sms', 'email'] }, createdAt: '2026-11-16T10:00:00.000Z', adminName: 'admin' }],
+        }),
+        delivery: delivery(['sms', 'email']),
+      },
+    });
     api.on('POST /admin/users/u-sara/suspend', {
-      body: { user: detail({ status: 'suspended', suspendedAt: '2026-11-16T10:05:00.000Z', suspendedReason: 'Repeated no-shows' }) },
+      body: {
+        user: detail({ status: 'suspended', suspendedAt: '2026-11-16T10:05:00.000Z', suspendedReason: 'Repeated no-shows' }),
+        delivery: delivery(['sms', 'email']),
+      },
     });
     renderAt('/admin/users?open=u-sara');
     const panel = await screen.findByRole('dialog', { name: 'Sara Meier' });
@@ -139,8 +151,9 @@ describe('the Users page (D65)', () => {
     await user().type(within(panel).getByLabelText('Message from the MISK team'), 'Please call us.');
     await user().click(within(panel).getByRole('button', { name: 'Send message' }));
     await waitFor(() => expect(api.bodies['POST /admin/users/u-sara/message']).toEqual({ text: 'Please call us.' }));
-    expect(await within(panel).findByText('Message sent.')).toBeInTheDocument();
-    expect(within(panel).getByText('Sent a message')).toBeInTheDocument();
+    // The team sees how it went out (D87).
+    expect(await within(panel).findByText('Message sent in the app, by text, and by email.')).toBeInTheDocument();
+    expect(within(panel).getByText('Sent a message').closest('li')).toHaveTextContent('Sent in the app, by text, and by email');
 
     await user().click(within(panel).getByRole('button', { name: 'Suspend' }));
     const confirm = within(panel).getByRole('alertdialog', { name: 'Suspend this account?' });
@@ -151,6 +164,8 @@ describe('the Users page (D65)', () => {
     await user().click(within(confirm).getByRole('button', { name: 'Suspend account' }));
     await waitFor(() => expect(api.bodies['POST /admin/users/u-sara/suspend']).toEqual({ reason: 'Repeated no-shows' }));
     expect(await within(panel).findByText(/Suspended on 16 Nov 2026: Repeated no-shows/)).toBeInTheDocument();
+    expect(within(panel).getByText('The account is suspended. They were told in the app, by text, and by email.')).toBeInTheDocument();
+    expect(within(panel).getByText('No message was shared with them; the reason stays internal.')).toBeInTheDocument();
     expect(within(panel).getByRole('button', { name: 'Reinstate' })).toBeInTheDocument();
   });
 
@@ -168,6 +183,7 @@ describe('the Users page (D65)', () => {
           deletedAt: '2026-11-16T11:00:00.000Z',
           deletedReason: 'Asked to be removed',
         }),
+        delivery: delivery(['email']),
       },
     });
     renderAt('/admin/users?open=u-sara');
@@ -178,8 +194,72 @@ describe('the Users page (D65)', () => {
     await user().type(within(confirm).getByLabelText(/Reason/), 'Asked to be removed');
     await user().click(within(confirm).getByRole('button', { name: 'Delete account' }));
     expect(await within(panel).findByText(/Closed on 16 Nov 2026: Asked to be removed/)).toBeInTheDocument();
+    // A closed account cannot open the app, so only the email counts.
+    expect(within(panel).getByText('The account is closed. They were told by email.')).toBeInTheDocument();
     expect(within(panel).queryByRole('button', { name: 'Message' })).not.toBeInTheDocument();
     expect(within(panel).queryByRole('button', { name: 'Suspend' })).not.toBeInTheDocument();
+  });
+});
+
+describe('telling people how they were reached (D87)', () => {
+  it('lets the team write what the suspended person is told, separate from the internal reason', async () => {
+    const api = adminApi();
+    api.on('GET /admin/users/u-sara', { body: { user: detail() } });
+    api.on('POST /admin/users/u-sara/suspend', {
+      body: {
+        user: detail({
+          status: 'suspended',
+          suspendedAt: '2026-11-16T10:05:00.000Z',
+          suspendedReason: 'Chargeback',
+          suspendedMessage: 'Please call us about your last payment.',
+        }),
+        delivery: delivery(['sms', 'email'], ['sms']),
+      },
+    });
+    renderAt('/admin/users?open=u-sara');
+    const panel = await screen.findByRole('dialog', { name: 'Sara Meier' });
+    await user().click(within(panel).getByRole('button', { name: 'Suspend' }));
+    const confirm = within(panel).getByRole('alertdialog', { name: 'Suspend this account?' });
+    expect(within(confirm).getByLabelText('Message to the person (optional)')).toHaveAccessibleDescription(
+      'Sent to them with the notice and shown when they try to sign in. The reason above stays internal.',
+    );
+    await user().type(within(confirm).getByLabelText(/Reason/), 'Chargeback');
+    await user().type(within(confirm).getByLabelText('Message to the person (optional)'), '  Please call us about your last payment. ');
+    await user().click(within(confirm).getByRole('button', { name: 'Suspend account' }));
+    await waitFor(() =>
+      expect(api.bodies['POST /admin/users/u-sara/suspend']).toEqual({ reason: 'Chargeback', message: 'Please call us about your last payment.' }),
+    );
+    const status = await within(panel).findByText('The account is suspended. They were told in the app, by text, and by email.');
+    // The server has no SMS service yet: the team is told no text went out.
+    expect(status.closest('[role="status"]')).toHaveTextContent('Text messages are not set up on the server yet, so no text went out.');
+    expect(within(panel).getByText('Told them: Please call us about your last payment.')).toBeInTheDocument();
+  });
+
+  it('shows a person\x27s own phone changes in the activity log', async () => {
+    const api = adminApi();
+    api.on('GET /admin/users/u-sara', {
+      body: {
+        user: detail({
+          actions: [
+            { id: '2', action: 'phone_added', details: {}, createdAt: '2026-11-17T09:00:00.000Z', adminName: null },
+            {
+              id: '1',
+              action: 'suspended',
+              details: { reason: 'Spam', message: 'Call us', cancelledBookings: 1, endedPlans: 0, channels: ['email'] },
+              createdAt: '2026-11-16T09:00:00.000Z',
+              adminName: 'admin',
+            },
+          ],
+        }),
+      },
+    });
+    renderAt('/admin/users?open=u-sara');
+    const panel = await screen.findByRole('dialog', { name: 'Sara Meier' });
+    const added = within(panel).getByText('Added a phone number').closest('li');
+    expect(added).toHaveTextContent('By the person themselves');
+    const suspended = within(panel).getByText('Suspended the account').closest('li');
+    expect(suspended).toHaveTextContent('Told them: Call us');
+    expect(suspended).toHaveTextContent('Sent in the app and by email');
   });
 });
 

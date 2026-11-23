@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { useMarket } from '../api/MarketContext';
 import { Icon, type IconKey } from '../components/Icon';
-import { readable, useInbox } from '../inbox/InboxContext';
+import { isTeamMessage, messageText, useInbox } from '../inbox/InboxContext';
 import { dateTime } from '../lib/format';
 import { AppHeader } from '../shells/Shells';
 
@@ -18,6 +18,8 @@ const ICON_OF: Partial<Record<string, IconKey>> = {
   pro_on_the_way: 'pin',
   rating_request: 'star',
   chat_message: 'chat',
+  team_message: 'users',
+  account: 'shield',
 };
 
 /** Every message MISK sent the person, also when no text message or push reached them. */
@@ -68,19 +70,22 @@ export function MessagesPage() {
           <ul className="stack" aria-label={t('inbox.title')}>
             {inbox.messages.map((message) => {
               const isNew = fresh?.has(message.id) ?? !message.read;
+              const team = isTeamMessage(message);
               return (
-                <li key={message.id} className={`card row gap8 msg ${isNew ? 'new' : ''}`}>
+                <li key={message.id} className={`card row gap8 msg ${isNew ? 'new' : ''} ${team ? 'team' : ''}`}>
                   <span className="ci" aria-hidden="true">
                     <Icon name={ICON_OF[message.kind] ?? 'chat'} />
                   </span>
                   <span className="grow">
+                    {/* Written by a person on the MISK team, not sent automatically (D87). */}
+                    {team && <span className="msg-from">{t('inbox.fromTeam')}</span>}
                     {/* A message about a chat opens that chat (D83). */}
                     {message.link ? (
-                      <Link to={message.link} className="block msg-link">
-                        {readable(message.body)}
+                      <Link to={message.link} className="block msg-link pre-line">
+                        {messageText(message)}
                       </Link>
                     ) : (
-                      <span className="block">{readable(message.body)}</span>
+                      <span className="block pre-line">{messageText(message)}</span>
                     )}
                     <span className="tiny muted">
                       {dateTime(message.createdAt, timezone)}

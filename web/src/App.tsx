@@ -6,6 +6,7 @@ import { createApi } from './api/client';
 import { MarketProvider } from './api/MarketContext';
 import { AuthProvider } from './auth/AuthContext';
 import { RequireRole } from './auth/RequireRole';
+import { SuspendedGate } from './auth/SuspendedScreen';
 import type { AppConfig, Site } from './config';
 import { AccountPage } from './pages/AccountPage';
 import { AdminBookingRedirect } from './pages/admin/AdminBookingPage';
@@ -241,7 +242,14 @@ function AdminRoutes() {
 
 /** The pages of one website: the customer and pro app, or the admin control panel. */
 export function AppRoutes({ site }: { site: Site }) {
-  return site === 'admin' ? <AdminRoutes /> : <CustomerAndProRoutes />;
+  return site === 'admin' ? (
+    <AdminRoutes />
+  ) : (
+    // A suspended customer or pro sees why, whatever page they are on (D87).
+    <SuspendedGate>
+      <CustomerAndProRoutes />
+    </SuspendedGate>
+  );
 }
 
 export function App({ config }: { config: AppConfig }) {

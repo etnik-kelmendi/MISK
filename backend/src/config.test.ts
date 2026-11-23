@@ -83,4 +83,14 @@ describe('loadConfig', () => {
     expect(() => loadConfig({ ...base, TWILIO_ACCOUNT_SID: 'AC1' })).toThrow('must be set together');
     expect(() => loadConfig({ ...base, ...twilio, TWILIO_FROM_NUMBER: '0151' })).toThrow('international number');
   });
+
+  it('reads the optional support contact (D87)', () => {
+    expect(loadConfig(base).support).toEqual({ email: null, phone: null });
+    expect(loadConfig({ ...base, SUPPORT_EMAIL: ' help@example.com ', SUPPORT_PHONE: '+49 30 1234 5678' }).support).toEqual({
+      email: 'help@example.com',
+      phone: '+493012345678',
+    });
+    expect(() => loadConfig({ ...base, SUPPORT_EMAIL: 'help' })).toThrow('SUPPORT_EMAIL');
+    expect(() => loadConfig({ ...base, SUPPORT_PHONE: '030 1234' })).toThrow('SUPPORT_PHONE');
+  });
 });

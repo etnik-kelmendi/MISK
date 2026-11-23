@@ -72,6 +72,15 @@ export interface FakeApi {
   on: (route: string, reply: Reply) => void;
 }
 
+/** The app's frequent unread check, answered from whatever the test's GET /inbox answers (D87). */
+async function unreadFromInbox(inbox: Reply | undefined, url: URL): Promise<Answer> {
+  const answer = await (typeof inbox === 'function' ? inbox({ body: undefined, url }) : (inbox ?? { body: { messages: [], unread: 0 } }));
+  const data = answer.body as { messages?: { id: string }[]; unread?: number } | undefined;
+  return answer.status && answer.status >= 400
+    ? answer
+    : { body: { unread: data?.unread ?? 0, newestId: data?.messages?.[0]?.id ?? null } };
+}
+
 /**
  * Replaces fetch with a router keyed by "METHOD /path" (query string ignored). Unknown routes answer
  * 404, so a test fails loudly when a page calls something unexpected.
@@ -96,7 +105,7 @@ export function fakeApi(user: User | null): FakeApi {
       calls.push(key);
       const body = typeof init?.body === 'string' ? (JSON.parse(init.body) as unknown) : init?.body;
       bodies[key] = body;
-      const reply = routes.get(key);
+      const reply = routes.get(key) ?? (key === 'GET /inbox/unread' ? unreadFromInbox(routes.get('GET /inbox'), url) : undefined);
       const resolved = await (typeof reply === 'function' ? reply({ body, url }) : (reply ?? { status: 404, body: { error: 'not_found' } }));
       const status = resolved.status ?? 200;
       return new Response(status === 204 ? null : JSON.stringify(resolved.body ?? {}), {

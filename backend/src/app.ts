@@ -101,6 +101,7 @@ export async function buildApp({ config, pool, gateway, sms, email = null, stora
     deliverEmail,
     guards: createGuards(pool, config),
     storage: storage ?? createDiskStorage(config.uploadDir),
+    channelsReady: { sms: Boolean(sms), email: Boolean(email), push: Boolean(config.push) },
   };
 
   await app.register(cookie);

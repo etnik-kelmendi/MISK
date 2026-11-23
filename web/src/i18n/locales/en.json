@@ -188,7 +188,11 @@
     "issue_not_open": "This issue was already resolved.",
     "job_started": "Work has started, so this job can no longer be cancelled. Report an issue instead.",
     "reason_note_required": "Write a short reason.",
-    "customer_not_ratable": "You can rate the customer for 7 days after the job is done."
+    "customer_not_ratable": "You can rate the customer for 7 days after the job is done.",
+    "phone_taken": "Another MISK account already uses this phone number. Use a different number, or contact the MISK team if it is yours.",
+    "phone_unchanged": "This is already the phone number of your account.",
+    "phone_needed_to_sign_in": "You sign in with this phone number, so it cannot be removed. Change it to another number instead.",
+    "no_phone": "Your account has no phone number to remove."
   },
   "nav": {
     "customer": "Main menu",
@@ -548,7 +552,25 @@
   },
   "account": {
     "title": "Account",
-    "phone": "Signed in with {{phone}}"
+    "phoneTitle": "Phone number",
+    "phoneUses": "You can sign in with this number, and we text you about your bookings.",
+    "phoneNone": "No phone number yet. Add one to sign in with a texted code, get texts about your bookings, and be easier to help when you call us.",
+    "phoneAdd": "Add phone number",
+    "phoneChange": "Change phone number",
+    "phoneRemove": "Remove",
+    "phoneLabel": "Mobile number",
+    "phoneHint": "With the country code, e.g. +49 151 23456789. We text a code to check it is yours.",
+    "phoneSendCode": "Send code",
+    "phoneCodeTitle": "Confirm your phone number",
+    "phoneCodeSent": "We sent a 6-digit code to {{phone}}. Enter it to save the number.",
+    "phoneConfirm": "Save phone number",
+    "phoneOther": "Use another number",
+    "phoneSaved": "Your phone number is saved.",
+    "phoneRemoved": "Your phone number is removed.",
+    "phoneRemoveTitle": "Remove your phone number?",
+    "phoneRemoveText": "You will sign in with your email and password only, and we stop texting you. Messages still reach you by email and in the app.",
+    "phoneKeep": "Keep it",
+    "phoneRemoveConfirm": "Remove phone number"
   },
   "weekday": {
     "1": "Mon",
@@ -2026,17 +2048,19 @@
         "button": "Message",
         "title": "Send a message",
         "label": "Message from the MISK team",
-        "hint": "Goes to the app, by push, and by text (or email when there is no phone). Up to 500 characters.",
+        "hint": "Goes to the app, by push, by text when they have a phone and by email when they have an email address. Up to 500 characters.",
         "missing": "Write the message first.",
         "send": "Send message",
-        "sent": "Message sent."
+        "sentBy": "Message sent {{ways}}."
       },
       "suspend": {
         "button": "Suspend",
         "title": "Suspend this account?",
-        "text": "They are signed out and cannot sign in until you reinstate them. Their upcoming bookings and plans are cancelled and held money is released. A pro gets no new jobs, and their jobs go to other pros.",
+        "text": "They are signed out at once and cannot sign in until you reinstate them. Their upcoming bookings and plans are cancelled and held money is released. A pro gets no new jobs, and their jobs go to other pros. They are told by text and email.",
         "reason": "Reason (saved in the activity log)",
-        "confirm": "Suspend account"
+        "confirm": "Suspend account",
+        "message": "Message to the person (optional)",
+        "messageHint": "Sent to them with the notice and shown when they try to sign in. The reason above stays internal."
       },
       "delete": {
         "button": "Delete user",
@@ -2046,8 +2070,6 @@
         "confirm": "Delete account"
       },
       "reinstate": "Reinstate",
-      "reinstated": "The account is active again. They were told.",
-      "suspended": "The account is suspended. They were told.",
       "deleted": "The account is closed.",
       "log": {
         "title": "Activity log",
@@ -2057,7 +2079,33 @@
         "reinstated": "Reinstated the account",
         "deleted": "Closed the account",
         "reasonLine": "Reason: {{reason}} · {{bookings}} bookings and {{plans}} plans cancelled",
-        "by": "{{name}} · {{date}}"
+        "by": "{{name}} · {{date}}",
+        "phone_added": "Added a phone number",
+        "phone_changed": "Changed their phone number",
+        "phone_removed": "Removed their phone number",
+        "toldThem": "Told them: {{message}}",
+        "sentBy": "Sent {{ways}}",
+        "byThemselves": "By the person themselves · {{date}}"
+      },
+      "told": {
+        "suspend": "The account is suspended. They were told {{ways}}.",
+        "reinstate": "The account is active again. They were told {{ways}}.",
+        "delete": "The account is closed. They were told {{ways}}."
+      },
+      "suspendedMessage": "Told them: {{message}}",
+      "suspendedNoMessage": "No message was shared with them; the reason stays internal.",
+      "delivery": {
+        "inApp": "in the app",
+        "channel": {
+          "push": "by push notification",
+          "sms": "by text",
+          "email": "by email"
+        },
+        "notSetUp": {
+          "push": "Push notifications are not set up on the server yet, so no push notification went out.",
+          "sms": "Text messages are not set up on the server yet, so no text went out.",
+          "email": "Email is not set up on the server yet, so no email went out."
+        }
       }
     }
   },
@@ -2433,7 +2481,9 @@
     "more_one": "and 1 more new message",
     "more_other": "and {{count}} more new messages",
     "open": "Open messages",
-    "dismiss": "Close the new message"
+    "dismiss": "Close the new message",
+    "newFromTeam": "New message from the MISK team",
+    "fromTeam": "From the MISK team"
   },
   "forgot": {
     "title": "Forgot your password?",
@@ -2746,5 +2796,14 @@
     "confirm": "Cancel job",
     "reasonMissing": "Choose a reason.",
     "noteMissing": "Write a short reason."
+  },
+  "suspended": {
+    "title": "Your account is suspended",
+    "text": "The MISK team has suspended your account, so you cannot use the app for now. Upcoming bookings and plans were cancelled, and any money held on your card is released.",
+    "messageTitle": "Message from the MISK team",
+    "contactTitle": "Contact the MISK team",
+    "contactNone": "Reply to the email or text message we sent you about it, and the team will help.",
+    "later": "When your account is active again, we tell you by text or email, and you can sign in as before.",
+    "signOut": "Back to log in"
   }
 }

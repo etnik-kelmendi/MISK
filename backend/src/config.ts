@@ -33,6 +33,13 @@ export interface Config {
   smtp: SmtpConfig | null;
   /** Web Push to the app on people's phones; null until the VAPID keys are given. */
   push: PushConfig | null;
+  /** How people reach the MISK team, e.g. from the "account suspended" screen and notices; each may be null. */
+  support: SupportContact;
+}
+
+export interface SupportContact {
+  email: string | null;
+  phone: string | null;
 }
 
 type RawEnv = Record<string, string | undefined>;
@@ -171,6 +178,20 @@ function parsePush(env: RawEnv): PushConfig | null {
   return { publicKey, privateKey, subject };
 }
 
+// Both optional: shown to people who need the team, such as a suspended account (D87).
+function parseSupport(env: RawEnv): SupportContact {
+  const email = env.SUPPORT_EMAIL?.trim() || null;
+  if (email && (email.length > 254 || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email))) {
+    throw new Error('SUPPORT_EMAIL must be an email address such as help@misk.app');
+  }
+  const phoneInput = env.SUPPORT_PHONE?.trim() || null;
+  const phone = phoneInput ? normalizePhone(phoneInput) : null;
+  if (phoneInput && !phone) {
+    throw new Error('SUPPORT_PHONE must be an international number such as +4930123456');
+  }
+  return { email, phone };
+}
+
 export function loadConfig(env: RawEnv): Config {
   const production = env.NODE_ENV === 'production';
   const twilio = parseTwilio(env);
@@ -193,5 +214,6 @@ export function loadConfig(env: RawEnv): Config {
     stripe: parseStripe(env, production),
     smtp: parseSmtp(env),
     push: parsePush(env),
+    support: parseSupport(env),
   };
 }

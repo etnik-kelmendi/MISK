@@ -94,6 +94,24 @@ export async function findSessionUser(pool: Queryable, token: string): Promise<U
   return result.rows[0] ?? null;
 }
 
+/**
+ * The account behind a still-valid session whose account the team has suspended, or null. A suspension keeps
+ * the person's sessions (they no longer work, see findSessionUser) so the app can tell them why they were
+ * signed out instead of only showing the sign-in page (D87); reinstating ends those sessions.
+ */
+export async function findSuspendedSessionUser(pool: Queryable, token: string): Promise<string | null> {
+  const result = await pool.query<{ id: string }>(
+    `SELECT users.id FROM sessions JOIN users ON users.id = sessions.user_id
+     WHERE sessions.token_hash = $1
+       AND users.suspended_at IS NOT NULL
+       AND users.disabled_at IS NULL
+       AND sessions.expires_at > now()
+       AND sessions.last_seen_at > now() - make_interval(secs => $2)`,
+    [hashToken(token), APP_IDLE_SECONDS],
+  );
+  return result.rows[0]?.id ?? null;
+}
+
 export async function findUser(pool: Queryable, userId: string): Promise<User | null> {
   const result = await pool.query<User>(`SELECT ${USER_COLUMNS} FROM users WHERE id = $1`, [userId]);
   return result.rows[0] ?? null;

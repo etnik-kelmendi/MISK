@@ -31,6 +31,10 @@ export function RequireRole({ allow, children }: { allow: Role | Role[]; childre
       </div>
     );
   }
+  if (state.status === 'suspended') {
+    // The app shows the "account suspended" screen instead of any page (SuspendedGate).
+    return null;
+  }
   if (state.status === 'signedOut') {
     const target = role === 'admin' ? '/admin/login' : '/signin';
     return <Navigate to={target} replace state={{ from: location.pathname }} />;

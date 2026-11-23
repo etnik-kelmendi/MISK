@@ -11,8 +11,9 @@ import { useAction } from '../lib/useAction';
 import { useValidation } from '../lib/useValidation';
 import { FieldError } from '../components/FieldError';
 import { AppHeader } from '../shells/Shells';
+import { AccountPhone } from './AccountPhone';
 
-/** Name and sign-out, shared by the customer and pro apps. */
+/** Name, phone number and sign-out, shared by the customer and pro apps. */
 export function AccountPage() {
   const { t } = useTranslation();
   const api = useApi();
@@ -55,7 +56,6 @@ export function AccountPage() {
             />
             <FieldError id="account-name" message={form.message('firstName')} />
           </div>
-          <p className="small muted">{t('account.phone', { phone: user.phone ?? '' })}</p>
           <ErrorText error={error} />
           {saved && (
             <p className="small brand-text" role="status">
@@ -66,6 +66,7 @@ export function AccountPage() {
             {t('common.save')}
           </button>
         </form>
+        <AccountPhone />
         <div className="card">
           <PushToggle />
         </div>
