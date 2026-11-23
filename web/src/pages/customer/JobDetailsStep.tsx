@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type FormE
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { useApi } from '../../api/ApiContext';
-import type { BookingListItem, Category, JobSize, Plan, Postcode, Service } from '../../api/types';
+import type { BookingListItem, Category, JobSize, Plan, Postcode, SavedAddress, Service } from '../../api/types';
 import { useResource } from '../../api/useResource';
 import { FieldError } from '../../components/FieldError';
 import { Icon } from '../../components/Icon';
@@ -85,8 +85,8 @@ function MakeItAPlan({ category }: { category: Category }) {
 }
 
 /**
- * Job details (D69): where, how big, photos and notes, with the fixed price. Starts from the address of the
- * customer's last booking.
+ * Job details (D69): where, how big, photos and notes, with the fixed price. Starts from the selected address
+ * on Home (D89), or else the customer's last booking.
  */
 export function JobDetailsStep({
   category,
@@ -133,15 +133,22 @@ export function JobDetailsStep({
     { address: 'address', postcode: 'postcode' },
   );
 
-  // An empty form starts from the last booking's address.
+  // An empty form starts from the address selected on Home (D89), else the last booking's address.
   const { address, postcode } = details;
   useEffect(() => {
     if (address || postcode) return;
     let live = true;
-    api.get<{ bookings: BookingListItem[] }>('/bookings').then(
-      (result) => {
-        const last = [...result.bookings].sort((a, b) => b.startsAt.localeCompare(a.startsAt)).find((b) => b.address && b.postcode);
-        if (live && last?.address && last.postcode) onPrefill(last.address, last.postcode);
+    async function lastAddress(): Promise<{ address: string; postcode: string } | null> {
+      const saved = await api.get<{ addresses: SavedAddress[] }>('/addresses');
+      const selected = saved.addresses.find((a) => a.selected && a.served);
+      if (selected) return selected;
+      const result = await api.get<{ bookings: BookingListItem[] }>('/bookings');
+      const last = [...result.bookings].sort((a, b) => b.startsAt.localeCompare(a.startsAt)).find((b) => b.address && b.postcode);
+      return last?.address && last.postcode ? { address: last.address, postcode: last.postcode } : null;
+    }
+    lastAddress().then(
+      (found) => {
+        if (live && found) onPrefill(found.address, found.postcode);
       },
       // Filling the address is a convenience; the customer can still type it.
       (error: unknown) => console.warn('Could not load the last address', error),

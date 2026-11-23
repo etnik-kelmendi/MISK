@@ -39,10 +39,12 @@ function TabBar({ tabs, label }: { tabs: Tab[]; label: string }) {
   );
 }
 
+/**
+ * The customer menu (D89): Home, Bookings, Plans and Profile. Messages are opened from the bell on Home and
+ * from Profile. A pro booking for themselves gets back to their pro app from the last tab instead (D64).
+ */
 function CustomerTabs() {
   const { t } = useTranslation();
-  const { inbox } = useInbox();
-  // A pro booking for themselves gets back to their pro app from the last tab (D64).
   const isPro = useUser().role === 'pro';
   return (
     <TabBar
@@ -51,8 +53,7 @@ function CustomerTabs() {
         { to: '/', icon: 'home', label: t('nav.home'), end: true },
         { to: '/bookings', icon: 'list', label: t('nav.bookings') },
         { to: '/plans', icon: 'repeat', label: t('nav.plans') },
-        { to: '/messages', icon: 'chat', label: t('nav.messages'), badge: inbox?.unread },
-        isPro ? { to: '/pro', icon: 'wrench', label: t('nav.proApp') } : { to: '/account', icon: 'user', label: t('nav.account') },
+        isPro ? { to: '/pro', icon: 'wrench', label: t('nav.proApp') } : { to: '/profile', icon: 'user', label: t('nav.profile') },
       ]}
     />
   );

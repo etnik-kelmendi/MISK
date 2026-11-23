@@ -406,6 +406,7 @@ const KNOWN_ACTIONS = [
   'invited',
   'role_changed',
   'trade_removed',
+  'trades_reordered',
   'account_created',
   'password_reset',
   'email_changed',

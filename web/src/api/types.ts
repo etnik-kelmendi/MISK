@@ -70,6 +70,60 @@ export interface Slot {
   endsAt: string;
   freePros: number;
   available: boolean;
+  /** Only when a pro was picked on Home (D89): whether that pro is free and online at this time. */
+  preferredFree?: boolean;
+}
+
+/** A saved address of the customer (D89). */
+export interface SavedAddress {
+  id: string;
+  label: string | null;
+  address: string;
+  postcode: string;
+  /** The zone's name, e.g. "Mitte". */
+  areaName: string;
+  /** False when the team paused the zone since the address was saved. */
+  served: boolean;
+  selected: boolean;
+  createdAt: string;
+}
+
+export interface HomeTrade {
+  id: string;
+  slug: string;
+  name: string;
+  icon: IconName;
+}
+
+/** A pro as Home shows them (D89): first name only. */
+export interface HomePro {
+  id: string;
+  firstName: string | null;
+  photoId: string | null;
+  /** Published trades in the team's order; the first is the one Home books. */
+  trades: HomeTrade[];
+  ratingAverage: number | null;
+  ratingCount: number;
+  jobsDone: number;
+  isFavourite: boolean;
+}
+
+/** GET /home (D89): the plans banner and "Top rated near you" for the selected address. */
+export interface HomeData {
+  plan: { id: string; name: string; categoryId: string; fromCents: number } | null;
+  pros: HomePro[];
+}
+
+/** A favourite pro (D83), with the trades they can be booked in now (D89). */
+export interface FavouritePro {
+  id: string;
+  firstName: string | null;
+  photoId: string | null;
+  ratingAverage: number | null;
+  ratingCount: number;
+  jobsDone: number;
+  trades: HomeTrade[];
+  savedAt: string;
 }
 
 export type BookingStatus =
@@ -174,6 +228,8 @@ export interface Money {
 
 export interface CustomerBooking extends BookingBase, Money {
   pro: ProSummary | null;
+  /** The pro picked on Home, who was offered the job first (D89). */
+  preferredPro?: { id: string; firstName: string | null } | null;
   /** Set while a pro is booked and has not arrived yet (D83). */
   arrival?: Arrival | null;
   /** The pro is more than 30 minutes late, so cancelling is free (D83). */
@@ -245,6 +301,8 @@ export interface CustomerProfile {
 
 export interface AdminBooking extends BookingBase, Money {
   pro: ProSummary | null;
+  /** The pro the customer picked on Home, who was offered the job first (D89). */
+  preferredPro?: { id: string; firstName: string | null } | null;
   cancelledBy: string | null;
   proSharePct: number;
   customer: { id: string; firstName: string | null; phone: string | null };

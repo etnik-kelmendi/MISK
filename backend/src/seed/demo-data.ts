@@ -372,7 +372,19 @@ async function fill(
       [customer.phone, customer.email, customer.email ? customerHash : null, customer.firstName, customer.lastName, `cus_seed_${customer.key}`],
     );
     customerIds.set(customer.key, user.rows[0]?.id ?? '');
+    // Their home is their saved, selected address on Home (D89).
+    await db.query(
+      `INSERT INTO customer_addresses (customer_id, label, address, postcode, lat, lng, is_selected)
+       SELECT $1, 'Home', $2, code, lat, lng, true FROM postcodes WHERE code = $3`,
+      [user.rows[0]?.id, customer.address, customer.postcode],
+    );
   }
+  // Sara also has her office saved, so the address sheet on Home has a choice.
+  await db.query(
+    `INSERT INTO customer_addresses (customer_id, label, address, postcode, lat, lng)
+     SELECT $1, 'Work', '5 Unter den Linden', code, lat, lng FROM postcodes WHERE code = '10117'`,
+    [customerIds.get('sara')],
+  );
 
   const approvedFor = (slug: string) => PROS.filter((p) => p.status === 'approved' && p.trades.includes(slug));
 

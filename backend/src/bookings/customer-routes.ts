@@ -8,6 +8,7 @@ import { ApiError, badRequest, conflict, notFound } from '../errors.js';
 import { isExclusionViolation, isUniqueViolation, uuidParams } from '../http.js';
 import { formatSlot, messages } from '../notifications/messages.js';
 import { enqueue } from '../notifications/outbox.js';
+import { saveFirstAddress } from '../customers/addresses.js';
 import { readSingleFile, storeUpload } from '../uploads/uploads.js';
 import {
   eligibleProFilter,
@@ -59,6 +60,8 @@ interface BookingBody {
   /** How the customer pays (D73); without it, a new card in the browser. */
   paymentMethod?: { type: PaymentChoice; cardId?: string };
   day?: string;
+  /** The pro picked on Home, who gets the job offer first (D89). */
+  preferredProId?: string;
 }
 
 const paymentUnavailable = () => new ApiError(502, 'payment_unavailable');
@@ -133,7 +136,22 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
     return booking;
   }
 
-  app.get<{ Querystring: { serviceId?: string; serviceIds?: string; postcode: string; bookingId?: string } }>(
+  /**
+   * The pro a customer picked on Home (D89), when they can do this trade: approved, not suspended and in
+   * the trade. Anyone else is no choice at all, so the booking simply goes to normal dispatch.
+   */
+  async function preferablePro(proId: string | undefined, categoryId: string, customerId: string): Promise<{ id: string; firstName: string | null } | null> {
+    if (!proId || proId === customerId) return null;
+    const found = await pool.query<{ id: string; firstName: string | null }>(
+      `SELECT p.user_id AS id, u.first_name AS "firstName" FROM pro_profiles p JOIN users u ON u.id = p.user_id
+       WHERE p.user_id = $1 AND p.status = 'approved' AND u.disabled_at IS NULL
+         AND EXISTS (SELECT 1 FROM pro_trades t WHERE t.pro_id = p.user_id AND t.category_id = $2)`,
+      [proId, categoryId],
+    );
+    return found.rows[0] ?? null;
+  }
+
+  app.get<{ Querystring: { serviceId?: string; serviceIds?: string; postcode: string; bookingId?: string; proId?: string } }>(
     '/availability',
     {
       preHandler: guards.customer,
@@ -149,6 +167,8 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
             postcode: { type: 'string', minLength: 2, maxLength: POSTCODE_INPUT_MAX_LENGTH },
             // The customer's own booking being moved: it does not count against its new time (D75).
             bookingId: { type: 'string', format: 'uuid' },
+            // The pro picked on Home: each time then says whether they are free (D89).
+            proId: { type: 'string', format: 'uuid' },
           },
         },
       },
@@ -156,12 +176,14 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
     async (request) => {
       const services = await activeServices(requestedServices(request.query));
       const postcode = await servedPostcode(request.query.postcode);
+      const preferred = await preferablePro(request.query.proId, services[0].categoryId, currentUser(request).id);
       if (request.query.bookingId) {
         const own = await pool.query('SELECT 1 FROM bookings WHERE id = $1 AND customer_id = $2', [request.query.bookingId, currentUser(request).id]);
         if (!own.rowCount) throw notFound();
       }
       const slots = await findSlots(pool, {
         ...(request.query.bookingId ? { excludeBookingId: request.query.bookingId } : {}),
+        ...(preferred ? { preferredProId: preferred.id } : {}),
         categoryId: services[0].categoryId,
         postcode,
         durationMinutes: packagePrice(services, 'M').durationMinutes,
@@ -172,7 +194,7 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
       const waitlist = await waitlistFor(pool, currentUser(request).id, services[0].categoryId, postcode);
       // Times held for this customer because they waited for them (D74).
       const held = await heldFor(pool, currentUser(request).id, services[0].categoryId, postcode);
-      return { timezone: ctx.config.timezone, slots, waitlist, held };
+      return { timezone: ctx.config.timezone, slots, waitlist, held, preferredPro: preferred };
     },
   );
 
@@ -201,6 +223,7 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
             startsAt: { type: 'string', format: 'date-time' },
             flexibleWindow: { type: 'string', enum: FLEXIBLE_WINDOWS },
             day: { type: 'string', format: 'date' },
+            preferredProId: { type: 'string', format: 'uuid' },
             paymentMethod: {
               type: 'object',
               required: ['type'],
@@ -240,6 +263,11 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
           throw paymentUnavailable();
         }
         if (!cards.some((card) => card.id === cardId)) throw badRequest('card_not_found');
+      }
+      const preferred = await preferablePro(body.preferredProId, service.categoryId, customer.id);
+      if (body.preferredProId && !preferred) {
+        // The pro stopped working in this trade or was suspended since Home showed them: normal dispatch.
+        request.log.info({ event: 'preferred_pro_ignored', proId: body.preferredProId });
       }
       const price = packagePrice(services, body.size);
       const priceCents = price.jobCents;
@@ -290,8 +318,8 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
         const inserted = await client.query<{ id: string }>(
           `INSERT INTO bookings (customer_id, service_id, category_id, service_name, size, address, postcode, notes,
              starts_at, ends_at, price_cents, fee_cents, pro_share_pct, package_discount_cents, flexible_window, confirm_by,
-             payment_choice, payment_card_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING id`,
+             payment_choice, payment_card_id, preferred_pro_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) RETURNING id`,
           [
             customer.id,
             service.id,
@@ -311,9 +339,12 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
             confirmBy,
             choice,
             cardId,
+            preferred?.id ?? null,
           ],
         );
         const id = onlyRow(inserted).id;
+        // A customer's first booking address becomes their saved, selected address for Home (D89).
+        await saveFirstAddress(client, customer.id, body.address.trim(), postcode);
         // Booking in a trade ends the customer's holds there, so others can have those times again (D74).
         await client.query('DELETE FROM slot_holds WHERE customer_id = $1 AND category_id = $2', [customer.id, service.categoryId]);
         await client.query(

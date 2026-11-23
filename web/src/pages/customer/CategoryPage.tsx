@@ -1,5 +1,5 @@
 import type { TFunction } from 'i18next';
-import { useCallback, useState } from 'react';
+import { useCallback, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router';
 import { useApi } from '../../api/ApiContext';
@@ -12,6 +12,7 @@ import { euro, PACKAGE_DISCOUNT_PCT } from '../../lib/format';
 import { planRuleTexts, planSizePrice } from '../../lib/plans';
 import { AppHeader } from '../../shells/Shells';
 import { CATEGORY_COLORS } from './categoryColors';
+import { PickedProChip, PRO_PARAM, usePickedPro } from './PickedPro';
 
 type Mode = 'one' | 'plan';
 
@@ -34,6 +35,19 @@ export function CategoryPage() {
   const [params, setParams] = useSearchParams();
   const category = market.categories.find((c) => c.slug === slug);
   const mode: Mode = params.get('mode') === 'plan' ? 'plan' : 'one';
+  // The pro picked on Home (D89), kept in the address so going back and forth keeps the choice.
+  const proId = params.get(PRO_PARAM);
+  const picked = usePickedPro(proId, category?.id ?? '');
+
+  /** Changes some query parameters and keeps the others (the picked pro, a found service). */
+  function change(next: Record<string, string | null>) {
+    const merged = new URLSearchParams(params);
+    for (const [key, value] of Object.entries(next)) {
+      if (value === null) merged.delete(key);
+      else merged.set(key, value);
+    }
+    setParams(merged, { replace: true });
+  }
 
   if (!category) {
     return <Navigate to="/" replace />;
@@ -45,8 +59,11 @@ export function CategoryPage() {
         category={category}
         mode={mode}
         initial={params.get('service')}
-        onMode={(next) => setParams(next === 'plan' ? { mode: 'plan' } : {}, { replace: true })}
-        onContinue={(services) => navigate(`/book?services=${services.map((s) => s.id).join(',')}`)}
+        picked={mode === 'one' && picked ? <PickedProChip pro={picked} onRemove={() => change({ [PRO_PARAM]: null })} /> : null}
+        onMode={(next) => change({ mode: next === 'plan' ? 'plan' : null })}
+        onContinue={(services) =>
+          navigate(`/book?services=${services.map((s) => s.id).join(',')}${picked ? `&${PRO_PARAM}=${encodeURIComponent(picked.id)}` : ''}`)
+        }
       />
     </>
   );
@@ -148,8 +165,11 @@ export function CategoryView({
   initial = null,
   onMode,
   onContinue,
+  picked = null,
 }: {
   category: Category;
+  /** "Booking with Daniel" when a pro was picked on Home (D89). */
+  picked?: ReactNode;
   mode?: Mode;
   /** A service already ticked, e.g. from a search result. */
   initial?: string | null;
@@ -182,6 +202,7 @@ export function CategoryView({
             <p className="small muted">{t('category.checked')}</p>
           </div>
         </div>
+        {picked}
         {onMode && (
           <div className="seg seg-full" role="group" aria-label={t('services.kind')}>
             <button type="button" className={mode === 'one' ? 'on' : ''} aria-pressed={mode === 'one'} onClick={() => onMode('one')}>

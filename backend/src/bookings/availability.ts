@@ -23,6 +23,8 @@ export interface SlotQuery {
   customerId?: string;
   /** A booking that is being moved: it does not count against the pros or the demand at its new time. */
   excludeBookingId?: string;
+  /** The pro the customer picked on Home (D89): each slot then says whether that pro is free and online. */
+  preferredProId?: string;
 }
 
 export interface Slot {
@@ -30,6 +32,8 @@ export interface Slot {
   endsAt: Date;
   freePros: number;
   available: boolean;
+  /** Only with `preferredProId`: whether that pro can take the job at this time. */
+  preferredFree?: boolean;
 }
 
 /**
@@ -86,7 +90,7 @@ export function eligibleProFilter(
  * With `onlyStart`, returns just that slot (or nothing when it is not a real slot).
  */
 export async function findSlots(db: Queryable, query: SlotQuery, onlyStart?: Date): Promise<Slot[]> {
-  const result = await db.query<{ startsAt: Date; endsAt: Date; freePros: number; demand: number }>(
+  const result = await db.query<{ startsAt: Date; endsAt: Date; freePros: number; demand: number; preferredFree: boolean | null }>(
     `WITH local_today AS (SELECT (now() AT TIME ZONE $4)::date AS d),
      slots AS (
        SELECT (day + make_interval(hours => h)) AT TIME ZONE $4 AS starts_at,
@@ -105,7 +109,12 @@ export async function findSlots(db: Queryable, query: SlotQuery, onlyStart?: Dat
           AND NOT EXISTS (SELECT 1 FROM booking_offers o WHERE o.booking_id = b.id AND o.status = 'pending'))
        + (SELECT count(*)::int FROM slot_holds h
           WHERE h.category_id = $1 AND h.expires_at > now() AND h.customer_id IS DISTINCT FROM $10::uuid
-            AND tstzrange(h.starts_at, h.ends_at) && tstzrange(s.starts_at, s.ends_at)) AS demand
+            AND tstzrange(h.starts_at, h.ends_at) && tstzrange(s.starts_at, s.ends_at)) AS demand,
+       CASE WHEN $12::uuid IS NOT NULL THEN EXISTS (
+         SELECT 1 FROM pro_profiles p
+         WHERE p.user_id = $12::uuid AND p.online
+           AND ${eligibleProFilter('$1', '$2', 's.starts_at', 's.ends_at', '$4', '$10::uuid', '$11::uuid')}
+       ) END AS "preferredFree"
      FROM slots s
      WHERE s.fits
        AND s.starts_at >= now() + make_interval(mins => $8)
@@ -123,13 +132,15 @@ export async function findSlots(db: Queryable, query: SlotQuery, onlyStart?: Dat
       onlyStart ?? null,
       query.customerId ?? null,
       query.excludeBookingId ?? null,
+      query.preferredProId ?? null,
     ],
   );
-  return result.rows.map(({ startsAt, endsAt, freePros, demand }) => ({
+  return result.rows.map(({ startsAt, endsAt, freePros, demand, preferredFree }) => ({
     startsAt,
     endsAt,
     freePros: Math.max(0, freePros - demand),
     available: freePros > demand,
+    ...(query.preferredProId ? { preferredFree: preferredFree === true } : {}),
   }));
 }
 

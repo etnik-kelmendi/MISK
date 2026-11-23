@@ -685,7 +685,7 @@ describe('the Services page (D68)', () => {
     api.on('GET /bookings', { body: { bookings: [] } });
     renderAt('/');
     await user().type(await screen.findByRole('searchbox'), 'piano');
-    expect(screen.getByText(/Nothing found for .piano./)).toBeInTheDocument();
+    expect(screen.getByText('No services found')).toBeInTheDocument();
   });
 
   it('can untick a service again', async () => {
@@ -1256,14 +1256,14 @@ describe('messages', () => {
     expect(screen.queryByText('New message')).not.toBeInTheDocument();
   });
 
-  it('gives customers Messages too, with an explanation when there are none', async () => {
+  it('gives customers Messages too, from Profile, with an explanation when there are none', async () => {
     fakeApi(users.customer);
-    renderAt('/messages');
+    renderAt('/profile');
+    const menu = await screen.findByRole('navigation', { name: 'Main menu' });
+    // Messages left the menu (D89); Profile links to it.
+    expect(within(menu).queryByRole('link', { name: 'Messages' })).not.toBeInTheDocument();
+    await user().click(await screen.findByRole('link', { name: 'Messages' }));
     expect(await screen.findByText(/No messages yet/)).toBeInTheDocument();
-    expect(within(screen.getByRole('navigation', { name: 'Main menu' })).getByRole('link', { name: 'Messages' })).toHaveAttribute(
-      'href',
-      '/messages',
-    );
   });
 });
 

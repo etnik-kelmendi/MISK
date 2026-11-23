@@ -394,6 +394,14 @@ describe('admin booking side panel', () => {
     expect(within(dialog).getByText('The customer is charged 24 hours after the job is done, if they report no problem.')).toBeInTheDocument();
   });
 
+  it('says which pro the customer asked for on Home (D89)', async () => {
+    const api = setUp();
+    api.on(`GET /admin/bookings/${BOOKING_ID}`, { body: { booking: detail({ preferredPro: { id: 'u-daniel', firstName: 'Daniel' } }) } });
+    renderAt(`/admin/bookings?open=b:${BOOKING_ID}`);
+    const dialog = await screen.findByRole('dialog', { name: 'B-1042' });
+    expect(within(dialog).getByText('Customer asked for Daniel')).toBeInTheDocument();
+  });
+
   it('gives a job nobody took to a pro nearby', async () => {
     const api = setUp();
     const assigned = detail({

@@ -8,11 +8,12 @@ import { AppHeader } from '../../shells/Shells';
 import { EMPTY_DETAILS, JobDetailsStep, type Details } from './JobDetailsStep';
 import { ChooseTimeStep, type When } from './ChooseTimeStep';
 import { ReviewPayStep } from './ReviewPayStep';
+import { PickedProChip, PRO_PARAM, usePickedPro } from './PickedPro';
 
 export function BookPage() {
   const { t } = useTranslation();
   const { serviceId } = useParams();
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const market = useMarket();
   const [step, setStep] = useState<'details' | 'time' | 'review'>('details');
   const [details, setDetails] = useState<Details>(EMPTY_DETAILS);
@@ -22,6 +23,8 @@ export function BookPage() {
   const ids = serviceId ? [serviceId] : (params.get('services') ?? '').split(',').filter(Boolean);
   const category = market.categories.find((c) => c.services.some((s) => s.id === ids[0]));
   const services = ids.map((id) => category?.services.find((s) => s.id === id)).filter((s): s is Service => s !== undefined);
+  // The pro picked on Home gets the job first (D89).
+  const picked = usePickedPro(params.get(PRO_PARAM), category?.id ?? '');
 
   if (!category || services.length === 0 || services.length !== new Set(ids).size) {
     return <Navigate to={category ? `/category/${category.slug}` : '/'} replace />;
@@ -56,6 +59,18 @@ export function BookPage() {
           </li>
         ))}
       </ol>
+      {picked && step !== 'review' && (
+        <div className="body picked-pro-bar">
+          <PickedProChip
+            pro={picked}
+            onRemove={() => {
+              const next = new URLSearchParams(params);
+              next.delete(PRO_PARAM);
+              setParams(next, { replace: true });
+            }}
+          />
+        </div>
+      )}
       {step === 'details' && (
         <JobDetailsStep
           category={category}
@@ -78,6 +93,7 @@ export function BookPage() {
           services={services}
           postcode={details.postcode}
           address={details.address}
+          picked={picked}
           initial={when}
           onDone={(next) => {
             setWhen(next);
@@ -85,7 +101,9 @@ export function BookPage() {
           }}
         />
       )}
-      {step === 'review' && when && <ReviewPayStep category={category} services={services} details={details} when={when} />}
+      {step === 'review' && when && (
+        <ReviewPayStep category={category} services={services} details={details} when={when} picked={picked} />
+      )}
     </>
   );
 }

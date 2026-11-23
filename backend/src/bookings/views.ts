@@ -48,6 +48,8 @@ interface BookingRow {
   proId: string | null;
   proName: string | null;
   proPhone: string | null;
+  preferredProId: string | null;
+  preferredProName: string | null;
 }
 
 export const BOOKING_COLUMNS = `b.id, 'B-' || b.number AS number, cat.name AS "categoryName",
@@ -59,9 +61,11 @@ export const BOOKING_COLUMNS = `b.id, 'B-' || b.number AS number, cat.name AS "c
   b.cancelled_by AS "cancelledBy", b.created_at AS "createdAt", b.completed_at AS "completedAt",
   extract(epoch FROM b.starts_at - now()) / 3600 AS "hoursLeft", b.late_cancel AS "lateCancel",
   b.customer_id AS "customerId", cu.first_name AS "customerName", cu.phone AS "customerPhone",
-  b.pro_id AS "proId", pu.first_name AS "proName", pu.phone AS "proPhone"`;
+  b.pro_id AS "proId", pu.first_name AS "proName", pu.phone AS "proPhone",
+  b.preferred_pro_id AS "preferredProId", ppu.first_name AS "preferredProName"`;
 
 export const BOOKING_FROM = `bookings b JOIN users cu ON cu.id = b.customer_id LEFT JOIN users pu ON pu.id = b.pro_id
+  LEFT JOIN users ppu ON ppu.id = b.preferred_pro_id
   JOIN categories cat ON cat.id = b.category_id`;
 
 /** A booking as one viewer may see it. Phone numbers are only shown to admins. */
@@ -156,6 +160,9 @@ export async function loadBooking(db: Queryable, bookingId: string, viewer: View
     rating: rating.rows[0] ?? null,
     tasks,
   };
+  // The pro the customer picked on Home, who was offered the job first (D89): for the customer and the team
+  // only, first name only.
+  const preferredPro = b.preferredProId ? { id: b.preferredProId, firstName: b.preferredProName } : null;
 
   if (viewer === 'pro') {
     const [customerStars, customerRating] = await Promise.all([
@@ -218,6 +225,7 @@ export async function loadBooking(db: Queryable, bookingId: string, viewer: View
       ...base,
       ...money,
       pro,
+      preferredPro,
       arrival,
       canCancel: unassigned || b.status === 'accepted' || b.status === 'on_the_way',
       // Cancelling now costs the full price: a pro is booked and the start is less than 24 hours away (D34).
@@ -280,6 +288,7 @@ export async function loadBooking(db: Queryable, bookingId: string, viewer: View
     ...base,
     ...money,
     pro,
+    preferredPro,
     // The team confirmed this pro; the assignment is final until the pro gives the job back (D88).
     assignmentLocked: lock.rows[0]?.at != null,
     assignmentLockedAt: lock.rows[0]?.at ?? null,

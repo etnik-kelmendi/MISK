@@ -9,6 +9,7 @@ import type { AdminAction, AdminBooking, AdminVisit, BookingStatus, IssueReason,
 import { useResource } from '../../api/useResource';
 import { Drawer } from '../../components/Drawer';
 import { ErrorText } from '../../components/ErrorText';
+import { Icon } from '../../components/Icon';
 import { PhotoGrid } from '../../components/Photos';
 import { ResourceState } from '../../components/ResourceState';
 import { StatusBadge } from '../../components/StatusBadge';
@@ -667,6 +668,11 @@ function BookingDetails({ booking, onChanged }: { booking: AdminBooking; onChang
 
       <section className="stack">
         <h3>{t('admin.booking.offers')}</h3>
+        {booking.preferredPro && (
+          <p className="small row gap6">
+            <Icon name="heart" /> {t('admin.booking.preferredPro', { name: booking.preferredPro.firstName ?? '' })}
+          </p>
+        )}
         {booking.offers.length === 0 ? (
           <p className="muted small">{t('admin.booking.noOffers')}</p>
         ) : (

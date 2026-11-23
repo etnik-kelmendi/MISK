@@ -904,3 +904,39 @@ button.online:focus-visible { outline: 3px solid var(--info); outline-offset: 2p
 .msg-from { color: var(--brand); font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; }
 .phone-current { font-size: 16px; font-weight: 700; }
 .code-input { letter-spacing: 0.3em; font-variant-numeric: tabular-nums; }
+
+/* ---------- Customer Home (D89) ---------- */
+.home-head { align-items: flex-start; }
+.bell-btn { position: relative; margin-top: 16px; }
+.bell-btn .tab-badge { top: -4px; right: -4px; }
+.pill { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-height: 36px; padding: 7px 12px; border-radius: 99px; background: var(--card); box-shadow: 0 1px 3px rgba(15, 26, 21, 0.08); color: var(--ink); font-size: 13px; font-weight: 600; cursor: pointer; }
+.address-pill-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.linkbtn { color: var(--brand); font-weight: 700; text-decoration: underline; text-underline-offset: 2px; margin-top: 10px; }
+.top-pros-hint { margin: -4px 0 8px; }
+.hscroll { display: flex; gap: 10px; overflow-x: auto; margin: 0 -16px; padding: 2px 16px 6px; scrollbar-width: none; }
+.hscroll::-webkit-scrollbar { display: none; }
+.hscroll > li { flex: none; }
+.procard { display: block; width: 150px; height: 100%; background: var(--card); border-radius: 16px; padding: 12px; box-shadow: 0 1px 3px rgba(15, 26, 21, 0.06); color: var(--ink); text-decoration: none; }
+.procard:hover { box-shadow: 0 2px 10px rgba(15, 26, 21, 0.1); }
+.procard-name { margin-top: 8px; }
+.procard-stats { margin-top: 6px; gap: 6px; }
+.procard-stats .stars { display: inline-flex; align-items: center; gap: 3px; }
+.procard-book { margin-top: 8px; align-items: center; }
+.fav-heart { color: var(--danger); display: inline-flex; }
+.fav-heart svg { fill: currentColor; }
+.fav-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+.fav-grid .procard { width: auto; }
+.picked-pro .mini-btn { background: var(--card); }
+.picked-pro-bar { padding-bottom: 0; }
+.address-choice { align-items: center; }
+.address-row { align-items: flex-start; }
+.address-row > svg { margin-top: 3px; color: var(--muted); }
+.address-actions { justify-content: flex-end; }
+.address-form .row .btn { flex: 1; }
+
+/* Trade order in the Catalogue (D89). */
+.trade-row { display: flex; align-items: center; gap: 4px; }
+.trade-row .trade { flex: 1; min-width: 0; }
+.trade-move { display: grid; gap: 2px; }
+.iconbtn.small-icon { width: 28px; height: 28px; font-size: 14px; }
+.iconbtn.small-icon:disabled { opacity: 0.35; cursor: default; }

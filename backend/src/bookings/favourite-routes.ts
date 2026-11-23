@@ -65,6 +65,14 @@ export async function favouriteRoutes(app: FastifyInstance, ctx: AppContext) {
       `SELECT f.pro_id AS id, u.first_name AS "firstName", p.photo_upload_id AS "photoId",
          (SELECT round(avg(stars)::numeric, 2)::float FROM ratings r WHERE r.pro_id = f.pro_id) AS "ratingAverage",
          (SELECT count(*)::int FROM ratings r WHERE r.pro_id = f.pro_id) AS "ratingCount",
+         (SELECT count(*)::int FROM bookings b WHERE b.pro_id = f.pro_id AND b.status = 'completed')
+           + (SELECT count(*)::int FROM subscription_visits v WHERE v.pro_id = f.pro_id AND v.status = 'completed') AS "jobsDone",
+         -- The published trades to book the pro in (D89); none while the pro cannot take jobs.
+         CASE WHEN p.status = 'approved' AND p.payouts_enabled AND p.jobs_paused_at IS NULL THEN
+           (SELECT COALESCE(json_agg(json_build_object('id', c.id, 'slug', c.slug, 'name', c.name, 'icon', c.icon)
+              ORDER BY c.sort_order, c.name), '[]')
+            FROM pro_trades t JOIN categories c ON c.id = t.category_id WHERE t.pro_id = f.pro_id AND c.active)
+         ELSE '[]' END AS trades,
          f.created_at AS "savedAt"
        FROM customer_favourite_pros f JOIN users u ON u.id = f.pro_id LEFT JOIN pro_profiles p ON p.user_id = f.pro_id
        WHERE f.customer_id = $1 AND u.disabled_at IS NULL

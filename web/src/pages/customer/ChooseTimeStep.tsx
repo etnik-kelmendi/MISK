@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useApi } from '../../api/ApiContext';
 import { useMarket } from '../../api/MarketContext';
-import type { Service, Slot } from '../../api/types';
+import type { HomePro, Service, Slot } from '../../api/types';
 import { useResource } from '../../api/useResource';
 import { ErrorText } from '../../components/ErrorText';
 import { Icon } from '../../components/Icon';
@@ -69,12 +69,15 @@ export function ChooseTimeStep({
   services,
   postcode,
   address,
+  picked = null,
   initial,
   onDone,
 }: {
   services: Service[];
   postcode: string;
   address: string;
+  /** The pro picked on Home (D89): only their free times are offered while they have any. */
+  picked?: HomePro | null;
   /** What was chosen before, when the customer comes back to this step. */
   initial: When | null;
   onDone: (when: When) => void;
@@ -83,13 +86,15 @@ export function ChooseTimeStep({
   const api = useApi();
   const { timezone } = useMarket();
   const ids = services.map((service) => service.id).join(',');
+  const proId = picked?.id ?? null;
   const load = useCallback(
     () =>
       api.get<{ slots: Slot[]; waitlist?: WaitEntry[]; held?: HeldTime[] }>(
-        `/availability?serviceIds=${encodeURIComponent(ids)}&postcode=${encodeURIComponent(postcode)}`,
+        `/availability?serviceIds=${encodeURIComponent(ids)}&postcode=${encodeURIComponent(postcode)}${proId ? `&proId=${encodeURIComponent(proId)}` : ''}`,
       ),
-    [api, ids, postcode],
+    [api, ids, postcode, proId],
   );
+  const proName = picked?.firstName ?? t('home.yourPro');
   const { state, reload, update } = useResource(load);
   const [day, setDay] = useState<string | null>(
     initial?.kind === 'flexible' ? initial.day : initial ? dayKey(initial.slot.startsAt, timezone) : null,
@@ -126,7 +131,11 @@ export function ChooseTimeStep({
     <>
       <div className="body">
         <ResourceState state={state} reload={reload}>
-          {({ slots, waitlist = [], held = [] }) => {
+          {({ slots: allSlots, waitlist = [], held = [] }) => {
+            // With a picked pro, only the times they are free, as long as they have any (D89).
+            const proSlots = picked ? allSlots.filter((s) => s.preferredFree) : [];
+            const proOnly = proSlots.length > 0;
+            const slots = proOnly ? proSlots : allSlots;
             const days = [...new Set(slots.map((s) => dayKey(s.startsAt, timezone)))];
             if (days.length === 0) return <p className="card">{t('book.noSlots')}</p>;
             const shownDay = day && days.includes(day) ? day : (days.find((d) => slots.some((s) => s.available && dayKey(s.startsAt, timezone) === d)) ?? days[0] ?? '');
@@ -162,6 +171,12 @@ export function ChooseTimeStep({
 
             return (
               <>
+                {picked && (
+                  <p className={`info ${proOnly ? '' : 'amber'}`} role="status">
+                    <Icon name="heart" />
+                    <span>{proOnly ? t('picked.onlyFree', { name: proName }) : t('picked.noTimes', { name: proName })}</span>
+                  </p>
+                )}
                 <h2 className="h-sm">{month}</h2>
                 <div className="days days-fit" role="group" aria-label={t('book.day')}>
                   {days.map((d) => {

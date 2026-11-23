@@ -217,7 +217,7 @@ export async function catalogueRoutes(app: FastifyInstance, ctx: AppContext) {
     },
     // A new trade is a draft: hidden from customers until the team publishes it.
     async (request, reply) => {
-      const { name, icon, sortOrder = 0, active = false } = request.body;
+      const { name, icon, sortOrder, active = false } = request.body;
       const chosenSlug = request.body.slug;
       const base = chosenSlug ?? slugify(name);
       // Without a chosen slug, "window-cleaning" becomes "window-cleaning-2" when the first is taken.
@@ -226,9 +226,11 @@ export async function catalogueRoutes(app: FastifyInstance, ctx: AppContext) {
         try {
           const category = await withTransaction(pool, async (client) => {
             const result = await client.query<{ id: string }>(
-              `INSERT INTO categories (slug, name, icon, sort_order, active) VALUES ($1, $2, $3, $4, $5)
+              // Without a chosen place, a new trade goes to the end of the order the app shows (D89).
+              `INSERT INTO categories (slug, name, icon, sort_order, active)
+               VALUES ($1, $2, $3, COALESCE($4, (SELECT COALESCE(max(sort_order) + 1, 0) FROM categories)), $5)
                RETURNING id, slug, name, icon, sort_order AS "sortOrder", active`,
-              [slug, name.trim(), icon, sortOrder, active],
+              [slug, name.trim(), icon, sortOrder ?? null, active],
             );
             const row = onlyRow(result);
             await logChange(client, { adminId: currentUser(request).id, categoryId: row.id, action: 'trade_added', details: { name: name.trim() } });
@@ -242,6 +244,48 @@ export async function catalogueRoutes(app: FastifyInstance, ctx: AppContext) {
         }
       }
       throw conflict('slug_taken');
+    },
+  );
+
+  /**
+   * Sets the order of the trades, which the customer app's Home and search follow (D89). The list must name
+   * every trade exactly once, so a page that missed a new trade cannot drop it from the order.
+   */
+  app.put<{ Body: { ids: string[] } }>(
+    '/admin/categories/order',
+    {
+      preHandler: guards.admin,
+      schema: {
+        body: {
+          type: 'object',
+          required: ['ids'],
+          additionalProperties: false,
+          properties: { ids: { type: 'array', minItems: 1, maxItems: 200, uniqueItems: true, items: { type: 'string', format: 'uuid' } } },
+        },
+      },
+    },
+    async (request) => {
+      const { ids } = request.body;
+      const adminId = currentUser(request).id;
+      const categories = await withTransaction(pool, async (client) => {
+        const all = await client.query<{ id: string }>('SELECT id FROM categories ORDER BY id FOR UPDATE');
+        const known = new Set(all.rows.map((row) => row.id));
+        if (ids.length !== known.size || ids.some((id) => !known.has(id))) {
+          throw conflict('trade_list_changed');
+        }
+        await client.query(
+          `UPDATE categories c SET sort_order = x.ord - 1
+           FROM unnest($1::uuid[]) WITH ORDINALITY AS x(id, ord) WHERE c.id = x.id`,
+          [ids],
+        );
+        await logActivity(client, { adminId, area: 'catalogue', action: 'trades_reordered', details: { count: ids.length } });
+        const result = await client.query(
+          'SELECT id, slug, name, icon, sort_order AS "sortOrder", active FROM categories ORDER BY sort_order, name',
+        );
+        return result.rows;
+      });
+      request.log.info({ event: 'trades_reordered', by: adminId });
+      return { categories };
     },
   );
 

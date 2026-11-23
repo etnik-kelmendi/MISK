@@ -193,7 +193,11 @@
     "phone_taken": "Another MISK account already uses this phone number. Use a different number, or contact the MISK team if it is yours.",
     "phone_unchanged": "This is already the phone number of your account.",
     "phone_needed_to_sign_in": "You sign in with this phone number, so it cannot be removed. Change it to another number instead.",
-    "no_phone": "Your account has no phone number to remove."
+    "no_phone": "Your account has no phone number to remove.",
+    "address_limit": "You have saved the most addresses you can keep. Remove one first.",
+    "postcode_invalid": "Enter a valid postcode, for example 10115 or SW1A 1AA.",
+    "trade_list_changed": "The list of trades changed meanwhile. The page is up to date now; please try again.",
+    "pro_not_found": "This pro is not taking bookings right now."
   },
   "nav": {
     "customer": "Main menu",
@@ -248,15 +252,36 @@
     "forgotPhoneHint": "Logging in with email and forgot your password?"
   },
   "home": {
-    "hello": "Good to see you,",
     "name": "{{name}}",
-    "upcoming": "Your bookings",
     "categories": "Categories",
     "noCategories": "No services are offered yet. Please check back soon.",
-    "trust": "Every pro is checked by the MISK team: ID, qualifications and insurance.",
     "search": "What do you need help with?",
     "searchResults": "Search results",
-    "searchNone": "Nothing found for “{{query}}”. Try another word, or pick a trade below."
+    "searchNone": "No services found",
+    "greeting": {
+      "morning": "Good morning,",
+      "afternoon": "Good afternoon,",
+      "evening": "Good evening,"
+    },
+    "addAddress": "Add your address",
+    "changeAddress": ", change address",
+    "addressFailed": "Your addresses could not be loaded. Tap to try again.",
+    "messagesUnread_one": "Messages, {{count}} unread",
+    "messagesUnread_other": "Messages, {{count}} unread",
+    "planBanner": "{{name}} from {{price}}/month",
+    "planBannerText": "Your own pro on a regular schedule, for one fixed monthly price.",
+    "seeAllPlans": "See all plans",
+    "topRated": "Top rated near you",
+    "favourites": "Favourites",
+    "tapPro": "Tap a pro to book them directly. They get your job first.",
+    "noPros": "No rated pros work at this address yet. Pick a category above and we find the best free pro for you.",
+    "noProsNoAddress": "Add your address above to see the top-rated pros near you.",
+    "favourite": "Favourite",
+    "rating": "Rated {{average}} out of 5",
+    "jobs_one": "{{count}} job",
+    "jobs_other": "{{count}} jobs",
+    "book": "Book {{name}}",
+    "yourPro": "your pro"
   },
   "category": {
     "pros_one": "{{count}} verified pro",
@@ -571,7 +596,9 @@
     "phoneRemoveTitle": "Remove your phone number?",
     "phoneRemoveText": "You will sign in with your email and password only, and we stop texting you. Messages still reach you by email and in the app.",
     "phoneKeep": "Keep it",
-    "phoneRemoveConfirm": "Remove phone number"
+    "phoneRemoveConfirm": "Remove phone number",
+    "unread_one": "{{count}} unread",
+    "unread_other": "{{count}} unread"
   },
   "weekday": {
     "1": "Mon",
@@ -1105,7 +1132,8 @@
       "proCancelled": "{{name}} gave the job back on {{date}}: {{reason}}.",
       "proCancelledLate": "{{name}} gave the job back on {{date}}, less than 24 hours before the start: {{reason}}.",
       "customerRated": "{{name}} rated the customer {{stars}} out of 5",
-      "proNote": "Pro's note: {{note}}"
+      "proNote": "Pro's note: {{note}}",
+      "preferredPro": "Customer asked for {{name}}"
     },
     "pros": {
       "title": "Providers",
@@ -1449,7 +1477,11 @@
       "tasksOf": "Tasks: {{tasks}}",
       "noTasks": "No tasks: the service is the one task",
       "saveTasks": "Save tasks",
-      "tasksSaved": "Tasks saved. They apply to new bookings only."
+      "tasksSaved": "Tasks saved. They apply to new bookings only.",
+      "orderHint": "Customers see published trades in this order. Use the arrows to move a trade.",
+      "moveUp": "Move {{name}} up",
+      "moveDown": "Move {{name}} down",
+      "moved": "Moved {{name}}."
     },
     "areas": {
       "title": "Areas",
@@ -1721,7 +1753,8 @@
           "user_deleted": "Closed the account",
           "plan_deleted": "Deleted the plan \"{{name}}\"",
           "plan_published": "Published the plan \"{{name}}\"",
-          "plan_unpublished": "Unpublished the plan \"{{name}}\""
+          "plan_unpublished": "Unpublished the plan \"{{name}}\"",
+          "trades_reordered": "Changed the order of the trades in the app"
         },
         "requests": "Account requests",
         "online": "Online now",
@@ -2816,5 +2849,39 @@
     "contactNone": "Reply to the email or text message we sent you about it, and the team will help.",
     "later": "When your account is active again, we tell you by text or email, and you can sign in as before.",
     "signOut": "Back to log in"
+  },
+  "addresses": {
+    "title": "Your addresses",
+    "choose": "Choose the address for your bookings",
+    "add": "Add an address",
+    "addTitle": "New address",
+    "editTitle": "Edit address",
+    "label": "Name",
+    "labelPlaceholder": "e.g. Home or Work",
+    "save": "Save address",
+    "selected": "Selected",
+    "notServed": "MISK is paused here",
+    "full": "You have saved {{count}} addresses, the most you can keep. Remove one to add another.",
+    "none": "No saved addresses yet. Add one to see pros near you and book faster.",
+    "use": "Use this one",
+    "edit": "Edit",
+    "editLabel": "Edit {{address}}",
+    "remove": "Remove",
+    "removeLabel": "Remove {{address}}",
+    "removeTitle": "Remove this address?",
+    "keep": "Keep it"
+  },
+  "favourites": {
+    "title": "Favourites",
+    "none": "No favourite pros yet. After a job, tap the heart to save your pro here.",
+    "unavailable": "Not taking jobs right now"
+  },
+  "picked": {
+    "title": "Booking with {{name}}.",
+    "text": "{{name}} gets this job first. If they're busy at the time you pick, it goes to the next best-rated pro.",
+    "remove": "Book without {{name}}",
+    "onlyFree": "Showing the times {{name}} is free.",
+    "noTimes": "{{name}} has no free time in the next days, so your job goes to the next best-rated pro.",
+    "summary": "{{name}} gets this job first"
   }
 }

@@ -163,8 +163,9 @@ describe('messages from the MISK team', () => {
     let messages = [message('m0', 'MISK: your Lawn mowing on Wed 11 Nov is booked.', true, 'booking_confirmed')];
     api.on('GET /inbox', () => ({ body: { messages, unread: messages.filter((m) => !m.read).length } }));
     renderAt('/');
-    const nav = await screen.findByRole('navigation', { name: 'Main menu' });
-    expect(within(nav).getByRole('link', { name: 'Messages' })).toBeInTheDocument();
+    // Messages are opened from the bell on Home (D89).
+    const bell = await screen.findByRole('link', { name: 'Messages' });
+    expect(bell).toHaveAttribute('href', '/messages');
     const loads = () => api.calls.filter((call) => call === 'GET /inbox').length;
     const before = loads();
 
@@ -179,7 +180,7 @@ describe('messages from the MISK team', () => {
     const banner = (await screen.findByText('New message from the MISK team')).closest('[role="status"]') as HTMLElement;
     expect(banner).toHaveTextContent('Please call us about your booking.');
     expect(banner).not.toHaveTextContent('MISK team:');
-    expect(within(nav).getByRole('link', { name: 'Messages, 1' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Messages, 1 unread' })).toBe(bell);
     expect(loads()).toBe(before + 1);
 
     await user().click(within(banner).getByRole('link', { name: 'Open messages' }));
@@ -190,6 +191,8 @@ describe('messages from the MISK team', () => {
     expect(team).toHaveTextContent('Please call us about your booking.');
     expect(older).not.toHaveTextContent('From the MISK team');
     await waitFor(() => expect(api.calls).toContain('POST /inbox/read'));
-    await waitFor(() => expect(within(nav).getByRole('link', { name: 'Messages' })).toBeInTheDocument());
+    // Read now: Profile's Messages row no longer counts it.
+    await user().click(within(screen.getByRole('navigation', { name: 'Main menu' })).getByRole('link', { name: 'Profile' }));
+    await waitFor(() => expect(screen.getByRole('link', { name: 'Messages' })).toHaveAttribute('href', '/messages'));
   });
 });

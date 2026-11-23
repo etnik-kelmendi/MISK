@@ -36,6 +36,7 @@ const PATHS = {
   upload: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M17 8l-5-5-5 5 M12 3v12',
   download: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M7 10l5 5 5-5 M12 15V3',
   chevD: 'M6 9l6 6 6-6',
+  chevU: 'M18 15l-6-6-6 6',
   chart: 'M3 3v18h18 M7 16v-5 M12 16V8 M17 16V7',
   grid: 'M3 3h7v7H3z M14 3h7v7h-7z M14 14h7v7h-7z M3 14h7v7H3z',
   board: 'M3 4h18v16H3z M9 4v16 M15 4v16',

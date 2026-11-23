@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router';
 import { useApi } from '../../api/ApiContext';
 import { useMarket } from '../../api/MarketContext';
-import type { Category, CustomerBooking, PaymentStep, Service } from '../../api/types';
+import type { Category, CustomerBooking, HomePro, PaymentStep, Service } from '../../api/types';
 import { useResource } from '../../api/useResource';
 import { ErrorText } from '../../components/ErrorText';
 import { Icon } from '../../components/Icon';
@@ -72,12 +72,15 @@ function PayForm({
   services,
   details,
   when,
+  picked = null,
 }: {
   methods: PaymentMethods;
   category: Category;
   services: Service[];
   details: Details;
   when: When;
+  /** The pro picked on Home, who gets the job first (D89). */
+  picked?: HomePro | null;
 }) {
   const { t } = useTranslation();
   const api = useApi();
@@ -105,6 +108,7 @@ function PayForm({
       notes: details.notes,
       ...(when.kind === 'slot' ? { startsAt: when.slot.startsAt } : { flexibleWindow: when.window, day: when.day }),
       paymentMethod: option.choice === 'card' ? { type: 'card', cardId: option.cardId } : { type: option.choice },
+      ...(picked ? { preferredProId: picked.id } : {}),
     });
     // The booking is made; its photos follow. One that fails can be added again on the booking page.
     for (const photo of details.photos) {
@@ -189,6 +193,11 @@ function PayForm({
           <p className="row small">
             <Icon name="pin" /> {details.address}, {details.postcode}
           </p>
+          {picked && (
+            <p className="row small">
+              <Icon name="heart" /> {t('picked.summary', { name: picked.firstName ?? t('home.yourPro') })}
+            </p>
+          )}
           <p className="row small">
             <Icon name="camera" />{' '}
             {details.photos.length > 0 ? t('details.photosAttached', { count: details.photos.length }) : t('review.noPhotos')}
@@ -286,7 +295,7 @@ function PayForm({
 }
 
 /** Review & pay (D73): what was chosen, the price from the control panel's fee, and how to pay. */
-export function ReviewPayStep(props: { category: Category; services: Service[]; details: Details; when: When }) {
+export function ReviewPayStep(props: { category: Category; services: Service[]; details: Details; when: When; picked?: HomePro | null }) {
   const api = useApi();
   const load = useCallback(() => api.get<PaymentMethods>('/payment-methods'), [api]);
   const { state, reload } = useResource(load);

@@ -39,6 +39,8 @@ interface DispatchRow {
   price_cents: number;
   pro_share_pct: number;
   customer_id: string;
+  /** The pro the customer picked on Home (D89). */
+  preferred_pro_id: string | null;
   started: boolean;
   /** Set for a flexible booking whose pro has not picked the time yet (D70). */
   flexible_window: string | null;
@@ -57,7 +59,9 @@ export function flexibleStarts(starts: string, ends: string, dur: string): strin
 /**
  * Offers a searching booking to the best free pro who has not seen it yet: highest rating first, then
  * the fewest jobs this week, then the shortest distance. Only online pros get offers (D86): when the only
- * free pros left are offline, the booking keeps searching and the next dispatch pass tries again. With
+ * free pros left are offline, the booking keeps searching and the next dispatch pass tries again. A pro the
+ * customer picked on Home is offered the job before anyone else when they are online and free (D89); once
+ * their offer is declined or runs out, the job goes on to the others as usual. With
  * nobody left, or once the start time has passed, the booking becomes unassigned for the admins. Pros
  * paused for late cancellations are left out. Safe to call at any time and repeatedly.
  */
@@ -65,7 +69,7 @@ export async function offerNext(deps: BookingDeps, bookingId: string): Promise<'
   return withTransaction(deps.pool, async (client) => {
     const found = await client.query<DispatchRow>(
       `SELECT id, status, category_id, postcode, starts_at, ends_at, service_name, price_cents, pro_share_pct,
-         customer_id,
+         customer_id, preferred_pro_id,
          CASE WHEN flexible_window IS NOT NULL AND time_confirmed_at IS NULL THEN flexible_window END AS flexible_window,
          confirm_by,
          COALESCE((SELECT sum(duration_minutes)::int FROM booking_services bs WHERE bs.booking_id = bookings.id),
@@ -93,14 +97,16 @@ export async function offerNext(deps: BookingDeps, bookingId: string): Promise<'
            WHERE ${
              booking.flexible_window
                ? // A flexible job goes to pros free at one of its possible starts at least.
-                 `p.user_id IS NOT NULL AND EXISTS (SELECT 1 FROM ${flexibleStarts('$3::timestamptz', '$4::timestamptz', '$9::int')} AS st
-                   WHERE ${eligibleProFilter('$1', '$2', 'st', 'st + make_interval(mins => $9::int)', '$5', '$8::uuid', '$6::uuid')})`
+                 `p.user_id IS NOT NULL AND EXISTS (SELECT 1 FROM ${flexibleStarts('$3::timestamptz', '$4::timestamptz', '$10::int')} AS st
+                   WHERE ${eligibleProFilter('$1', '$2', 'st', 'st + make_interval(mins => $10::int)', '$5', '$8::uuid', '$6::uuid')})`
                : eligibleProFilter('$1', '$2', '$3', '$4', '$5', '$8::uuid')
            }
              AND NOT EXISTS (SELECT 1 FROM booking_offers o WHERE o.booking_id = $6 AND o.pro_id = p.user_id)
              AND NOT ${LATE_CANCEL_PAUSED}
            ORDER BY
              p.online DESC,
+             -- The pro the customer picked on Home gets the first offer when free and online (D89).
+             (p.user_id IS NOT DISTINCT FROM $9::uuid) DESC,
              COALESCE((SELECT avg(stars) FROM ratings r WHERE r.pro_id = p.user_id), $7) DESC,
              (SELECT count(*) FROM bookings d WHERE d.pro_id = p.user_id AND d.status = 'completed'
                 AND d.completed_at > now() - interval '7 days') ASC,
@@ -119,6 +125,7 @@ export async function offerNext(deps: BookingDeps, bookingId: string): Promise<'
             bookingId,
             NEW_PRO_RATING,
             booking.customer_id,
+            booking.preferred_pro_id,
             ...(booking.flexible_window ? [booking.duration_minutes] : []),
           ],
         );

@@ -275,5 +275,7 @@ describe('a pro who also books (D64)', () => {
     const menu = await screen.findByRole('navigation', { name: 'Main menu' });
     expect(within(menu).getByRole('link', { name: 'Pro app' })).toHaveAttribute('href', '/pro');
     expect(within(menu).queryByRole('link', { name: 'Account' })).not.toBeInTheDocument();
+    // Four buttons, as for every customer (D89), with the pro app in Profile's place.
+    expect(within(menu).getAllByRole('link').map((link) => link.textContent)).toEqual(['Home', 'Bookings', 'Plans', 'Pro app']);
   });
 });

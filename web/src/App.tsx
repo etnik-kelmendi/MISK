@@ -36,6 +36,7 @@ import { BookingsPage } from './pages/customer/BookingsPage';
 import { BookPage } from './pages/customer/BookPage';
 import { CategoryPage } from './pages/customer/CategoryPage';
 import { CustomerPlansPage } from './pages/customer/CustomerPlansPage';
+import { FavouritesPage } from './pages/customer/FavouritesPage';
 import { MyPlanPage } from './pages/customer/MyPlanPage';
 import { SubscribePage } from './pages/customer/SubscribePage';
 import { HomePage } from './pages/customer/HomePage';
@@ -94,7 +95,10 @@ function CustomerAndProRoutes() {
         <Route path="plans/:id" element={<SubscribePage />} />
         <Route path="my-plans/:id" element={<MyPlanPage />} />
         <Route path="messages" element={<MessagesPage />} />
-        <Route path="account" element={<AccountPage />} />
+        <Route path="favourites" element={<FavouritesPage />} />
+        {/* Profile is the customer's Account page (D89); the older /account address keeps working. */}
+        <Route path="profile" element={<AccountPage customer />} />
+        <Route path="account" element={<AccountPage customer />} />
       </Route>
       <Route
         path="pro"

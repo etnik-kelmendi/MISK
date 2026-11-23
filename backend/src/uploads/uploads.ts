@@ -62,7 +62,8 @@ export async function storeUpload(
 /**
  * Who may see a file: its owner and admins always; for a job photo also the booking's customer,
  * its assigned pro, and a pro who currently has the job on offer; a pro's profile photo also their
- * customers; a chat photo also the booking's customer and pro.
+ * customers and, while the pro is approved, customers with a saved address in the pro's area (D89); a chat
+ * photo also the booking's customer and pro.
  */
 async function findReadableUpload(db: Queryable, user: User, uploadId: string) {
   const result = await db.query<{ mime: string; storage_key: string }>(
@@ -85,6 +86,16 @@ async function findReadableUpload(db: Queryable, user: User, uploadId: string) {
        OR EXISTS (
          SELECT 1 FROM pro_profiles pp JOIN bookings b ON b.pro_id = pp.user_id
          WHERE pp.photo_upload_id = u.id AND b.customer_id = $2
+       )
+       -- An approved pro's profile photo: customers with a saved address the pro works at, who may see the
+       -- pro on Home under "Top rated near you" (D89).
+       OR EXISTS (
+         SELECT 1 FROM pro_profiles pp
+         JOIN postcodes home ON home.code = pp.home_postcode
+         JOIN customer_addresses a ON a.customer_id = $2
+         JOIN postcodes dest ON dest.code = a.postcode
+         WHERE pp.photo_upload_id = u.id AND pp.status = 'approved'
+           AND distance_km(home.lat, home.lng, dest.lat, dest.lng) <= pp.radius_km
        )
        -- A photo sent in a booking's chat: that booking's customer and pro (D83).
        OR EXISTS (

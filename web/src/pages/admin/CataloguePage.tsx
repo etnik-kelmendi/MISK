@@ -816,6 +816,23 @@ export function CataloguePage() {
   const [removed, setRemoved] = useState<string | null>(null);
   const load = useCallback(() => api.get<AdminCatalogue>('/admin/catalogue'), [api]);
   const { state, reload } = useResource(load);
+  const ordering = useAction();
+  const [moved, setMoved] = useState<string | null>(null);
+
+  /** Moves a trade one place up or down; the customer app shows published trades in this order (D89). */
+  async function move(categories: AdminCategory[], index: number, delta: -1 | 1) {
+    const ids = categories.map((c) => c.id);
+    const target = index + delta;
+    const id = ids[index];
+    const other = ids[target];
+    if (!id || !other) return;
+    ids[index] = other;
+    ids[target] = id;
+    const done = await ordering.run(() => api.put('/admin/categories/order', { ids }));
+    setMoved(done === undefined ? null : (categories[index]?.name ?? null));
+    // Also after a refusal, so a trade another teammate added meanwhile shows up.
+    reload();
+  }
   const select = (id: string) => {
     setRemoved(null);
     setParams({ trade: id }, { replace: true });
@@ -841,9 +858,16 @@ export function CataloguePage() {
             <div className="catalogue">
               <nav className="panel trade-list" aria-label={t('admin.catalogue.trades')}>
                 {data.categories.length === 0 && <p className="small muted">{t('admin.catalogue.noTrades')}</p>}
-                {data.categories.map((category) => (
+                {data.categories.length > 1 && <p className="tiny muted">{t('admin.catalogue.orderHint')}</p>}
+                <ErrorText error={ordering.error} />
+                {moved && (
+                  <p className="visually-hidden" role="status">
+                    {t('admin.catalogue.moved', { name: moved })}
+                  </p>
+                )}
+                {data.categories.map((category, index) => (
+                  <div key={category.id} className="trade-row">
                   <button
-                    key={category.id}
                     type="button"
                     className={`trade ${category.id === selected?.id ? 'on' : ''}`}
                     aria-current={category.id === selected?.id ? 'true' : undefined}
@@ -863,6 +887,29 @@ export function CataloguePage() {
                       </span>
                     </span>
                   </button>
+                  {data.categories.length > 1 && (
+                    <span className="trade-move">
+                      <button
+                        type="button"
+                        className="iconbtn small-icon"
+                        aria-label={t('admin.catalogue.moveUp', { name: category.name })}
+                        disabled={index === 0 || ordering.busy}
+                        onClick={() => void move(data.categories, index, -1)}
+                      >
+                        <Icon name="chevU" />
+                      </button>
+                      <button
+                        type="button"
+                        className="iconbtn small-icon"
+                        aria-label={t('admin.catalogue.moveDown', { name: category.name })}
+                        disabled={index === data.categories.length - 1 || ordering.busy}
+                        onClick={() => void move(data.categories, index, 1)}
+                      >
+                        <Icon name="chevD" />
+                      </button>
+                    </span>
+                  )}
+                  </div>
                 ))}
               </nav>
               <div className="stack">

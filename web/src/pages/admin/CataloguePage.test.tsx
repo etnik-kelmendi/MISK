@@ -76,17 +76,47 @@ function setUp(data = catalogue()) {
 const rowOf = (name: string) => screen.getByText(name, { selector: 'span.b' }).closest('tr') as HTMLElement;
 
 describe('catalogue page', () => {
+  it('moves a trade up or down, sending the whole new order (D89)', async () => {
+    const api = setUp();
+    const reordered = catalogue();
+    api.on('PUT /admin/categories/order', () => {
+      // The next load shows the new order.
+      api.on('GET /admin/catalogue', { body: { ...reordered, categories: [...reordered.categories].reverse() } });
+      return { body: { categories: [] } };
+    });
+    renderAt('/admin/catalogue');
+    const trades = await screen.findByRole('navigation', { name: 'Trades' });
+    expect(within(trades).getByText(/Customers see published trades in this order/)).toBeInTheDocument();
+    expect(within(trades).getByRole('button', { name: 'Move Gardening up' })).toBeDisabled();
+    expect(within(trades).getByRole('button', { name: 'Move Pool care down' })).toBeDisabled();
+    await user().click(within(trades).getByRole('button', { name: 'Move Gardening down' }));
+    await waitFor(() => expect(api.bodies['PUT /admin/categories/order']).toEqual({ ids: ['cat-pool', 'cat-garden'] }));
+    await waitFor(() => expect(within(trades).getByRole('button', { name: 'Move Pool care up' })).toBeDisabled());
+    expect(within(trades).getByRole('status')).toHaveTextContent('Moved Gardening.');
+  });
+
+  it('says when the trade list changed meanwhile', async () => {
+    const api = setUp();
+    api.on('PUT /admin/categories/order', { status: 409, body: { error: 'trade_list_changed' } });
+    renderAt('/admin/catalogue');
+    const trades = await screen.findByRole('navigation', { name: 'Trades' });
+    await user().click(within(trades).getByRole('button', { name: 'Move Pool care up' }));
+    expect(await within(trades).findByText(/The list of trades changed meanwhile/)).toBeInTheDocument();
+  });
+
   it('lists trades with visible services and pros, and shows the selected trade', async () => {
     setUp();
     renderAt('/admin/catalogue');
     const trades = await screen.findByRole('navigation', { name: 'Trades' });
-    const buttons = within(trades).getAllByRole('button');
+    const buttons = within(trades)
+      .getAllByRole('button')
+      .filter((button) => button.classList.contains('trade'));
     expect(buttons[0]).toHaveTextContent('Gardening');
     expect(buttons[0]).toHaveTextContent('2 of 3 services visible · 5 pros');
-    expect(buttons[1]).toHaveTextContent('Draft');
+    expect(within(trades).getByRole('button', { name: /^Pool care/ })).toHaveTextContent('Draft');
     expect(screen.getByText('4 verified pros · 2 services visible')).toBeInTheDocument();
 
-    await user().click(buttons[1] as HTMLElement);
+    await user().click(within(trades).getByRole('button', { name: /^Pool care/ }));
     expect(await screen.findByRole('heading', { name: /Pool care/ })).toBeInTheDocument();
     expect(screen.getByText('Pool cleaning')).toBeInTheDocument();
     expect(screen.queryByText('Lawn mowing')).not.toBeInTheDocument();

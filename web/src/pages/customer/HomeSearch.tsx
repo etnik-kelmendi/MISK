@@ -1,39 +1,38 @@
 import { useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
-import type { Category } from '../../api/types';
+import type { Category, Service } from '../../api/types';
 import { Icon } from '../../components/Icon';
+import { euro } from '../../lib/format';
 import { CATEGORY_COLORS } from './categoryColors';
 
 /** Results start from this many characters, so one letter does not list everything. */
 const MIN_QUERY = 2;
 const MAX_RESULTS = 8;
 
-interface Result {
+export interface SearchResult {
   key: string;
   to: string;
-  title: string;
-  detail: string;
+  service: Service;
   category: Category;
 }
 
-/** Trades and services whose name or description contains every word of the query (D68). */
-export function searchCatalogue(categories: Category[], query: string): Result[] {
+/**
+ * Services whose name, or whose trade's name, contains every word of the query (D68, D89). The catalogue
+ * only holds published trades and visible services, in the order the team set, so results follow it too.
+ */
+export function searchCatalogue(categories: Category[], query: string): SearchResult[] {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   const matches = (text: string) => words.every((word) => text.toLowerCase().includes(word));
-  const results: Result[] = [];
+  const results: SearchResult[] = [];
   for (const category of categories) {
-    if (matches(category.name)) {
-      results.push({ key: `c-${category.id}`, to: `/category/${category.slug}`, title: category.name, detail: '', category });
-    }
     for (const service of category.services) {
-      if (matches(`${service.name} ${service.description} ${category.name}`)) {
+      if (matches(`${service.name} ${category.name}`)) {
         results.push({
-          key: `s-${service.id}`,
+          key: service.id,
           // The service is already ticked on the trade's Services page.
           to: `/category/${category.slug}?service=${encodeURIComponent(service.id)}`,
-          title: service.name,
-          detail: category.name,
+          service,
           category,
         });
       }
@@ -42,7 +41,7 @@ export function searchCatalogue(categories: Category[], query: string): Result[]
   return results.slice(0, MAX_RESULTS);
 }
 
-/** "What do you need help with?": search the trades and services on the Home page. */
+/** "What do you need help with?": search the services and trades on the Home page. */
 export function HomeSearch({ categories }: { categories: Category[] }) {
   const { t } = useTranslation();
   const id = useId();
@@ -70,19 +69,26 @@ export function HomeSearch({ categories }: { categories: Category[] }) {
       {results && (
         <ul className="search-results" aria-label={t('home.searchResults')}>
           {results.length === 0 ? (
-            <li className="small muted pad-s">{t('home.searchNone', { query: trimmed })}</li>
+            <li className="small muted pad-s" role="status">
+              {t('home.searchNone')}
+            </li>
           ) : (
-            results.map((result) => {
-              const color = CATEGORY_COLORS[result.category.icon];
+            results.map(({ key, to, service, category }) => {
+              const color = CATEGORY_COLORS[category.icon];
               return (
-                <li key={result.key}>
-                  <Link to={result.to} className="search-hit">
+                <li key={key}>
+                  <Link to={to} className="search-hit">
                     <span className="ci" style={{ background: color.bg, color: color.fg }} aria-hidden="true">
-                      <Icon name={result.category.icon} />
+                      <Icon name={category.icon} />
                     </span>
                     <span className="grow">
-                      <span className="b small block">{result.title}</span>
-                      {result.detail && <span className="tiny muted block">{result.detail}</span>}
+                      <span className="b small block">{service.name}</span>
+                      <span className="tiny muted block">{category.name}</span>
+                    </span>
+                    <span className="small b brand-text nowrap">
+                      {service.pricing === 'hourly'
+                        ? t('category.perHour', { price: euro(service.priceCents) })
+                        : t('category.from', { price: euro(service.priceCents) })}
                     </span>
                     <Icon name="chevR" />
                   </Link>
