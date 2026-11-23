@@ -270,11 +270,20 @@ export async function loadBooking(db: Queryable, bookingId: string, viewer: View
       [bookingId],
     ),
   ]);
+  const lock = await db.query<{ at: Date | null; by: string | null }>(
+    `SELECT b.assignment_locked_at AS at, COALESCE(u.email, u.username) AS by
+     FROM bookings b LEFT JOIN users u ON u.id = b.assignment_locked_by WHERE b.id = $1`,
+    [bookingId],
+  );
   const proCents = proShareCents(b.priceCents, b.proSharePct) + proShareCents(approvedExtras, b.proSharePct);
   return {
     ...base,
     ...money,
     pro,
+    // The team confirmed this pro; the assignment is final until the pro gives the job back (D88).
+    assignmentLocked: lock.rows[0]?.at != null,
+    assignmentLockedAt: lock.rows[0]?.at ?? null,
+    assignmentLockedBy: lock.rows[0]?.by ?? null,
     cancelledBy: b.cancelledBy,
     proSharePct: b.proSharePct,
     customer: { id: b.customerId, firstName: b.customerName, phone: b.customerPhone },

@@ -273,9 +273,21 @@ describe('managing a plan', () => {
 
   it('needs the request at least 24 hours before the visit', async () => {
     const { subscription, visit } = await laterVisit();
-    await t.pool.query("UPDATE subscription_visits SET starts_at = now() + interval '23 hours', ends_at = now() + interval '24 hours' WHERE id = $1", [
-      visit.id,
-    ]);
+    // Move the visit to under 24 hours away. The pro may already have another visit at a given hour (it
+    // depends on the day the test runs), so take the first hour in that window that is free.
+    let moved = false;
+    for (let hours = 23; hours >= 2 && !moved; hours -= 1) {
+      try {
+        await t.pool.query(
+          'UPDATE subscription_visits SET starts_at = now() + make_interval(hours => $2), ends_at = now() + make_interval(hours => $2 + 1) WHERE id = $1',
+          [visit.id, hours],
+        );
+        moved = true;
+      } catch (error) {
+        if (!String(error).includes('subscription_visits_no_overlap')) throw error;
+      }
+    }
+    expect(moved).toBe(true);
     expect(await options(subscription.id, visit.id)).toEqual({ options: [], reason: 'too_late' });
     const target = new Date(Date.now() + 2 * DAY).toISOString();
     expect((await move(subscription.id, visit.id, target)).json()).toEqual({ error: 'visit_not_movable' });

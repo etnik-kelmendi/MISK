@@ -50,8 +50,10 @@ export async function proCancelJob(
       starts_at: Date;
       hours_left: number;
       pro_name: string | null;
+      was_locked: boolean;
     }>(
       `SELECT b.status, b.customer_id, b.service_name, b.starts_at, extract(epoch FROM b.starts_at - now()) / 3600 AS hours_left,
+         b.assignment_locked_at IS NOT NULL AS was_locked,
          (SELECT first_name FROM users WHERE id = b.pro_id) AS pro_name
        FROM bookings b WHERE b.id = $1 AND b.pro_id = $2 FOR UPDATE`,
       [bookingId, proId],
@@ -89,7 +91,14 @@ export async function proCancelJob(
     await setStatus(client, bookingId, 'searching', ', pro_id = NULL');
     const when = formatSlot(job.starts_at, deps.config.timezone);
     await enqueue(client, job.customer_id, 'pro_assigned', messages.proCancelledJob(job.service_name, when, job.pro_name ?? 'Your pro'));
-    await logAction(client, bookingId, null, 'pro_cancelled', { proName: job.pro_name, reason, note, late });
+    // The team's confirmed assignment (D88) ended with the pro: setStatus cleared the lock, so the team can pick again.
+    await logAction(client, bookingId, null, 'pro_cancelled', {
+      proName: job.pro_name,
+      reason,
+      note,
+      late,
+      ...(job.was_locked ? { assignmentUnlocked: true } : {}),
+    });
     return {
       late,
       holds: heldExtras.rows

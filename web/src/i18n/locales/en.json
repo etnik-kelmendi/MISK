@@ -72,6 +72,7 @@
     "pro_not_eligible": "This pro cannot take this job.",
     "not_refundable": "Only finished jobs that have not been refunded yet can be refunded.",
     "pro_busy": "This pro already has another job at that time.",
+    "assignment_locked": "This booking's pro was confirmed by the team and can't be changed.",
     "time_in_past": "Choose a time in the future.",
     "nothing_to_charge": "There is no open problem on this job, so there is nothing to charge.",
     "too_late_to_reschedule": "This booking starts in less than 24 hours, or is already under way, so it can't be moved here. You can still cancel it, or write to your pro.",
@@ -1020,7 +1021,17 @@
         "line": "{{km}} km away · rating {{rating}}",
         "button": "Assign",
         "buttonLabel": "Assign {{name}}",
-        "done": "{{name}} has the job. The customer and the pro were texted."
+        "confirmTitle": "Assign this job to {{name}}?",
+        "factPro": "Pro",
+        "factNearby": "Distance and rating",
+        "factJob": "Job",
+        "replaces": "{{name}} has the job now and will be told it is no longer theirs.",
+        "finalWarning": "The customer and the pro are texted. Once confirmed, this assignment is final and cannot be changed.",
+        "cancel": "Cancel",
+        "confirm": "Confirm Assignment",
+        "final": "Assigned by {{name}} on {{date}}. This assignment is final.",
+        "theTeam": "the team",
+        "unlocked": "The team's confirmed assignment ended, so the team can choose a pro again."
       },
       "move": {
         "title": "Change the time",

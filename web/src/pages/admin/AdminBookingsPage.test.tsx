@@ -87,6 +87,9 @@ function detail(overrides: Partial<AdminBooking> = {}): AdminBooking {
     payouts: [],
     actions: [],
     split: { proCents: 3731, miskCents: 1109 },
+    assignmentLocked: false,
+    assignmentLockedAt: null,
+    assignmentLockedBy: null,
     ...overrides,
   };
 }
@@ -405,9 +408,131 @@ describe('admin booking side panel', () => {
     await within(dialog).findByRole('button', { name: 'Assign Jonas' });
     // Only the pros to assign: no button to send the job out to every pro again.
     expect(within(dialog).queryByRole('button', { name: /Offer it to pros again/ })).not.toBeInTheDocument();
+    // Assign only asks: nothing is sent until the admin confirms.
     await user().click(within(dialog).getByRole('button', { name: 'Assign Jonas' }));
+    const confirm = await screen.findByRole('alertdialog', { name: 'Assign this job to Jonas?' });
+    expect(confirm).toHaveAttribute('aria-modal', 'true');
+    expect(api.calls).not.toContain(`POST /admin/bookings/${BOOKING_ID}/reassign`);
+    expect(confirm).toHaveTextContent('Lawn mowing');
+    expect(confirm).toHaveTextContent('2.4 km away · rating 4.8');
+    expect(confirm).toHaveTextContent('Mon 9 Nov, 10:00');
+    expect(within(confirm).getAllByRole('button').map((b) => b.textContent)).toEqual(['Cancel', 'Confirm Assignment']);
+    await user().click(within(confirm).getByRole('button', { name: 'Confirm Assignment' }));
+    expect(api.calls.filter((c) => c === `POST /admin/bookings/${BOOKING_ID}/reassign`)).toHaveLength(1);
     expect(api.bodies[`POST /admin/bookings/${BOOKING_ID}/reassign`]).toEqual({ proId: 'u-jonas' });
     expect(await within(dialog).findByText('Gave the job to Jonas')).toBeInTheDocument();
+  });
+
+  describe('confirming an assignment (D88)', () => {
+    const lockedAt = '2026-11-06T09:00:00.000Z';
+    const assigned = () =>
+      detail({
+        status: 'accepted',
+        pro: { id: 'u-jonas', firstName: 'Jonas', ratingAverage: 4.8, ratingCount: 3, phone: '+4915100000009' },
+        assignmentLocked: true,
+        assignmentLockedAt: lockedAt,
+        assignmentLockedBy: 'admin',
+      });
+
+    it('cancels without sending anything, keeps the drawer open on Esc, and gives the focus back', async () => {
+      const api = setUp();
+      renderAt(`/admin/bookings?open=b:${BOOKING_ID}`);
+      const drawer = await screen.findByRole('dialog', { name: 'B-1042' });
+      const assign = await within(drawer).findByRole('button', { name: 'Assign Jonas' });
+      await user().click(assign);
+      const confirm = await screen.findByRole('alertdialog');
+      expect(within(confirm).getByRole('button', { name: 'Cancel' })).toHaveFocus();
+
+      // Tab stays inside the pop-up.
+      await user().tab();
+      expect(within(confirm).getByRole('button', { name: 'Confirm Assignment' })).toHaveFocus();
+      await user().tab();
+      expect(within(confirm).getByRole('button', { name: 'Cancel' })).toHaveFocus();
+
+      await user().click(within(confirm).getByRole('button', { name: 'Cancel' }));
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+      expect(assign).toHaveFocus();
+
+      // Esc closes only the pop-up, not the drawer behind it.
+      await user().click(assign);
+      await screen.findByRole('alertdialog');
+      await user().keyboard('{Escape}');
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+      expect(screen.getByRole('dialog', { name: 'B-1042' })).toBeInTheDocument();
+      expect(assign).toHaveFocus();
+      expect(api.calls).not.toContain(`POST /admin/bookings/${BOOKING_ID}/reassign`);
+    });
+
+    it('removes the assign section after the confirmation and says the assignment is final', async () => {
+      const api = setUp();
+      let answer: (value: { body: unknown }) => void = () => undefined;
+      api.on(`POST /admin/bookings/${BOOKING_ID}/reassign`, () => new Promise((resolve) => (answer = resolve)));
+      renderAt(`/admin/bookings?open=b:${BOOKING_ID}`);
+      const drawer = await screen.findByRole('dialog', { name: 'B-1042' });
+      await user().click(await within(drawer).findByRole('button', { name: 'Assign Jonas' }));
+      const confirm = await screen.findByRole('alertdialog');
+      await user().click(within(confirm).getByRole('button', { name: 'Confirm Assignment' }));
+      // Disabled while sending, so a second click cannot send it twice.
+      expect(within(confirm).getByRole('button', { name: 'Confirm Assignment' })).toBeDisabled();
+      expect(within(confirm).getByRole('button', { name: 'Cancel' })).toBeDisabled();
+      answer({ body: { booking: assigned() } });
+
+      expect(await within(drawer).findByText(/Assigned by admin on .*This assignment is final\./)).toBeInTheDocument();
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+      expect(within(drawer).queryByRole('button', { name: /^Assign/ })).not.toBeInTheDocument();
+      expect(within(drawer).queryByRole('heading', { name: 'Change the pro' })).not.toBeInTheDocument();
+      expect(api.calls.filter((c) => c === `POST /admin/bookings/${BOOKING_ID}/reassign`)).toHaveLength(1);
+    });
+
+    it('shows no assign section for a booking whose pro the team already confirmed', async () => {
+      const api = setUp();
+      api.on(`GET /admin/bookings/${BOOKING_ID}`, { body: { booking: assigned() } });
+      renderAt(`/admin/bookings?open=b:${BOOKING_ID}`);
+      const drawer = await screen.findByRole('dialog', { name: 'B-1042' });
+      expect(await within(drawer).findByText(/Assigned by admin on .*This assignment is final\./)).toBeInTheDocument();
+      expect(within(drawer).queryByRole('button', { name: /^Assign/ })).not.toBeInTheDocument();
+      expect(api.calls).not.toContain(`GET /admin/bookings/${BOOKING_ID}/candidates`);
+    });
+
+    it('asks first when changing a pro who accepted by themselves, and then locks it', async () => {
+      const api = setUp();
+      api.on(`GET /admin/bookings/${BOOKING_ID}`, {
+        body: {
+          booking: detail({
+            status: 'accepted',
+            pro: { id: 'u-daniel', firstName: 'Daniel', ratingAverage: 4.9, ratingCount: 8, phone: null },
+          }),
+        },
+      });
+      api.on(`POST /admin/bookings/${BOOKING_ID}/reassign`, { body: { booking: assigned() } });
+      renderAt(`/admin/bookings?open=b:${BOOKING_ID}`);
+      const drawer = await screen.findByRole('dialog', { name: 'B-1042' });
+      expect(await within(drawer).findByRole('heading', { name: 'Change the pro' })).toBeInTheDocument();
+      await user().click(within(drawer).getByRole('button', { name: 'Assign Jonas' }));
+      const confirm = await screen.findByRole('alertdialog', { name: 'Assign this job to Jonas?' });
+      expect(confirm).toHaveTextContent('Daniel has the job now and will be told it is no longer theirs.');
+      expect(api.calls).not.toContain(`POST /admin/bookings/${BOOKING_ID}/reassign`);
+      await user().click(within(confirm).getByRole('button', { name: 'Confirm Assignment' }));
+      expect(await within(drawer).findByText(/This assignment is final\./)).toBeInTheDocument();
+    });
+
+    it("explains a refusal from the server in the pop-up and drops the assign section when it is closed", async () => {
+      const api = setUp();
+      api.on(`POST /admin/bookings/${BOOKING_ID}/reassign`, { status: 409, body: { error: 'assignment_locked' } });
+      renderAt(`/admin/bookings?open=b:${BOOKING_ID}`);
+      const drawer = await screen.findByRole('dialog', { name: 'B-1042' });
+      await user().click(await within(drawer).findByRole('button', { name: 'Assign Jonas' }));
+      const confirm = await screen.findByRole('alertdialog');
+      await user().click(within(confirm).getByRole('button', { name: 'Confirm Assignment' }));
+      expect(await within(confirm).findByRole('alert')).toHaveTextContent("This booking's pro was confirmed by the team and can't be changed.");
+      expect(within(confirm).getByRole('button', { name: 'Confirm Assignment' })).toBeEnabled();
+
+      // Another admin got there first: closing the pop-up shows the booking as it is now.
+      api.on(`GET /admin/bookings/${BOOKING_ID}`, { body: { booking: assigned() } });
+      await user().click(within(confirm).getByRole('button', { name: 'Cancel' }));
+      expect(await within(drawer).findByText(/This assignment is final\./)).toBeInTheDocument();
+      expect(within(drawer).queryByRole('button', { name: /^Assign/ })).not.toBeInTheDocument();
+    });
   });
 
   it('moves the booking to a new time on the market clock', async () => {

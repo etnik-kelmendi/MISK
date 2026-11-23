@@ -755,6 +755,76 @@ describe('admin booking actions', () => {
     expect(toCustomer.rowCount).toBe(1);
   });
 
+  it('makes an assignment by the team final, even against a second admin at the same moment', async () => {
+    const first = await approvedPro(t, '+4915100000101', { trades: [market.gardening] });
+    const created = await bookFirst();
+    const offer = await pendingOffer(first.cookie);
+    await call(t, 'POST', `/pro/offers/${offer?.id}/decline`, { cookie: first.cookie });
+    const second = await approvedPro(t, '+4915100000102', { trades: [market.gardening], firstName: 'Jonas' });
+    const third = await approvedPro(t, '+4915100000103', { trades: [market.gardening], firstName: 'Mia' });
+    const admin = await signInAdmin(t);
+    const view = async () => (await call(t, 'GET', `/admin/bookings/${created.id}`, { cookie: admin })).json().booking;
+    expect(await view()).toMatchObject({ assignmentLocked: false, assignmentLockedAt: null, assignmentLockedBy: null });
+
+    // Two admins press Assign at once: one wins, the other is refused.
+    const results = await Promise.all([
+      call(t, 'POST', `/admin/bookings/${created.id}/reassign`, { cookie: admin, body: { proId: second.proId } }),
+      call(t, 'POST', `/admin/bookings/${created.id}/reassign`, { cookie: admin, body: { proId: third.proId } }),
+    ]);
+    expect(results.map((r) => r.statusCode).sort()).toEqual([200, 409]);
+    expect(results.map((r) => (r.statusCode === 409 ? errorOf(r) : null)).filter(Boolean)).toEqual(['assignment_locked']);
+    const winner = results.find((r) => r.statusCode === 200)?.json().booking;
+    expect(winner).toMatchObject({ assignmentLocked: true, assignmentLockedBy: 'admin', assignmentLockedAt: expect.any(String) });
+
+    // Later tries, a change of pro and a restart of the search, are refused and change nothing.
+    const other = winner.pro.id === second.proId ? third : second;
+    const refused = await call(t, 'POST', `/admin/bookings/${created.id}/reassign`, { cookie: admin, body: { proId: other.proId } });
+    expect(refused.statusCode).toBe(409);
+    expect(errorOf(refused)).toBe('assignment_locked');
+    expect(errorOf(await call(t, 'POST', `/admin/bookings/${created.id}/reassign`, { cookie: admin, body: {} }))).toBe('assignment_locked');
+    const after = await view();
+    expect(after.pro.id).toBe(winner.pro.id);
+    expect(after.actions.map((a: { action: string }) => a.action)).toEqual(['assigned']);
+    // One message to the pro and one to the customer, as before.
+    const toPro = await t.pool.query("SELECT 1 FROM notifications WHERE body LIKE '%team gave you%'");
+    expect(toPro.rowCount).toBe(1);
+    const row = await t.pool.query('SELECT assignment_locked_at, assignment_locked_by FROM bookings WHERE id = $1', [created.id]);
+    expect(row.rows[0].assignment_locked_at).not.toBeNull();
+    expect(row.rows[0].assignment_locked_by).not.toBeNull();
+  });
+
+  it('releases the lock when the confirmed pro gives the job back, so the team can choose again', async () => {
+    const first = await approvedPro(t, '+4915100000101', { trades: [market.gardening] });
+    const created = await bookFirst();
+    const offer = await pendingOffer(first.cookie);
+    await call(t, 'POST', `/pro/offers/${offer?.id}/decline`, { cookie: first.cookie });
+    const second = await approvedPro(t, '+4915100000102', { trades: [market.gardening], firstName: 'Jonas' });
+    const admin = await signInAdmin(t);
+    await call(t, 'POST', `/admin/bookings/${created.id}/reassign`, { cookie: admin, body: { proId: second.proId } });
+
+    const gaveBack = await call(t, 'POST', `/pro/jobs/${created.id}/cancel`, { cookie: second.cookie, body: { reason: 'ill' } });
+    expect(gaveBack.statusCode).toBe(200);
+    const view = (await call(t, 'GET', `/admin/bookings/${created.id}`, { cookie: admin })).json().booking;
+    expect(view).toMatchObject({ status: 'searching', pro: null, assignmentLocked: false, assignmentLockedBy: null });
+    expect(view.actions[0]).toMatchObject({ action: 'pro_cancelled', details: { assignmentUnlocked: true } });
+
+    const again = await call(t, 'POST', `/admin/bookings/${created.id}/reassign`, { cookie: admin, body: { proId: first.proId } });
+    expect(again.statusCode).toBe(200);
+    expect(again.json().booking).toMatchObject({ assignmentLocked: true, pro: { id: first.proId } });
+  });
+
+  it('locks the assignment when the team changes a pro who accepted by themselves', async () => {
+    const pro = await approvedPro(t, '+4915100000101', { trades: [market.gardening] });
+    const created = await bookFirst();
+    const offer = await pendingOffer(pro.cookie);
+    await call(t, 'POST', `/pro/offers/${offer?.id}/accept`, { cookie: pro.cookie });
+    const admin = await signInAdmin(t);
+    expect((await call(t, 'GET', `/admin/bookings/${created.id}`, { cookie: admin })).json().booking.assignmentLocked).toBe(false);
+    const replacement = await approvedPro(t, '+4915100000102', { trades: [market.gardening] });
+    const changed = await call(t, 'POST', `/admin/bookings/${created.id}/reassign`, { cookie: admin, body: { proId: replacement.proId } });
+    expect(changed.json().booking).toMatchObject({ pro: { id: replacement.proId }, assignmentLocked: true });
+  });
+
   it("puts the job in the pro's Messages when the team assigns or cancels it, and sends cancellations by push", async () => {
     const first = await approvedPro(t, '+4915100000101', { trades: [market.gardening] });
     const created = await bookFirst();

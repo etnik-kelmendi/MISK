@@ -253,6 +253,11 @@ export interface AdminBooking extends BookingBase, Money {
   payouts: { amountCents: number; status: string; error: string | null; createdAt: string }[];
   actions: AdminAction[];
   split: { proCents: number; miskCents: number };
+  /** The team confirmed this pro, so the assignment is final until the pro gives the job back (D88). */
+  assignmentLocked: boolean;
+  assignmentLockedAt: string | null;
+  /** Who confirmed it. */
+  assignmentLockedBy: string | null;
   /** Issues the pro reported on site (D86), newest first. */
   issues?: AdminIssue[];
   /** The pro's private rating of the customer (D86). */
@@ -298,6 +303,8 @@ export interface AdminAction {
     /** Why the pro cancelled or what they reported (D86). */
     reason?: string;
     late?: boolean;
+    /** The pro gave back a job the team had confirmed them on, so the team can choose again (D88). */
+    assignmentUnlocked?: boolean;
   };
   createdAt: string;
   adminName: string | null;

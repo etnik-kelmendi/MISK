@@ -159,8 +159,10 @@ export async function adminBookingRoutes(app: FastifyInstance, ctx: AppContext) 
           starts_at: Date;
           flexible_window: string | null;
           time_confirmed_at: Date | null;
+          assignment_locked_at: Date | null;
         }>(
-          `SELECT status, pro_id, category_id, customer_id, service_name, starts_at, flexible_window, time_confirmed_at
+          `SELECT status, pro_id, category_id, customer_id, service_name, starts_at, flexible_window, time_confirmed_at,
+             assignment_locked_at
            FROM bookings WHERE id = $1 FOR UPDATE`,
           [bookingId],
         );
@@ -170,6 +172,10 @@ export async function adminBookingRoutes(app: FastifyInstance, ctx: AppContext) 
         }
         if (!REASSIGNABLE.includes(booking.status)) {
           throw conflict('invalid_status');
+        }
+        // A pro the team confirmed stays (D88): checked under the row lock, so two admins cannot both assign.
+        if (booking.assignment_locked_at) {
+          throw conflict('assignment_locked');
         }
         if (targetPro && targetPro === booking.customer_id) {
           throw conflict('pro_is_customer');
@@ -208,7 +214,10 @@ export async function adminBookingRoutes(app: FastifyInstance, ctx: AppContext) 
         }
         await client.query('SAVEPOINT assign');
         try {
-          await setStatus(client, bookingId, 'accepted', ', pro_id = $3', [targetPro]);
+          await setStatus(client, bookingId, 'accepted', ', pro_id = $3, assignment_locked_at = now(), assignment_locked_by = $4', [
+            targetPro,
+            adminId,
+          ]);
         } catch (error) {
           if (isExclusionViolation(error)) {
             throw conflict('pro_busy');

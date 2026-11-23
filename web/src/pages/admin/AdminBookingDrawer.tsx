@@ -2,6 +2,8 @@ import { useCallback, useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { useApi } from '../../api/ApiContext';
+import { ApiError } from '../../api/client';
+import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { useMarket } from '../../api/MarketContext';
 import type { AdminAction, AdminBooking, AdminVisit, BookingStatus, IssueReason, ProCancelReason } from '../../api/types';
 import { useResource } from '../../api/useResource';
@@ -171,6 +173,9 @@ function LogLine({ entry }: { entry: AdminAction }) {
   return (
     <li>
       {text}
+      {entry.action === 'pro_cancelled' && entry.details.assignmentUnlocked && (
+        <div className="small log-note">{t('admin.booking.assign.unlocked')}</div>
+      )}
       {(entry.action === 'pro_cancelled' || entry.action === 'issue_reported') && entry.details.note && (
         <div className="small log-note">{t('admin.booking.proNote', { note: entry.details.note })}</div>
       )}
@@ -243,22 +248,62 @@ function ProReports({ booking, onChanged }: { booking: AdminBooking; onChanged: 
   );
 }
 
-/** Pros free at the booking's time, nearest first, each with an Assign button. */
+/** Once the team has confirmed a pro the assignment is final (D88): no list, no buttons, only who and when. */
+function AssignmentFinal({ booking }: { booking: AdminBooking }) {
+  const { t } = useTranslation();
+  const { timezone } = useMarket();
+  return (
+    <p className="note small" role="status">
+      {t('admin.booking.assign.final', {
+        name: booking.assignmentLockedBy ?? t('admin.booking.assign.theTeam'),
+        date: booking.assignmentLockedAt ? dateTime(booking.assignmentLockedAt, timezone) : '',
+      })}
+    </p>
+  );
+}
+
+/**
+ * Pros free at the booking's time, nearest first, each with an Assign button. Assign only opens a pop-up; the
+ * pro is chosen when the admin confirms there, and the choice is final (D88).
+ */
 function AssignPro({ booking, onChanged }: { booking: AdminBooking; onChanged: (b: AdminBooking) => void }) {
   const { t } = useTranslation();
   const api = useApi();
+  const { timezone } = useMarket();
   const action = useAction();
-  const [done, setDone] = useState<string | null>(null);
+  const [pending, setPending] = useState<Candidate | null>(null);
+  const [opener, setOpener] = useState<HTMLElement | null>(null);
   const load = useCallback(() => api.get<{ candidates: Candidate[] }>(`/admin/bookings/${booking.id}/candidates`), [api, booking.id]);
   const candidates = useResource(load);
   const headingId = useId();
 
-  async function assign(proId: string, name: string) {
+  function ask(candidate: Candidate, button: HTMLElement) {
+    action.clearError();
+    setOpener(button);
+    setPending(candidate);
+  }
+
+  async function close() {
+    const wasLocked = action.error instanceof ApiError && action.error.code === 'assignment_locked';
+    setPending(null);
+    action.clearError();
+    if (wasLocked) {
+      // Someone else confirmed a pro first: show the booking as it is now, without the assign section.
+      try {
+        onChanged((await api.get<{ booking: AdminBooking }>(`/admin/bookings/${booking.id}`)).booking);
+      } catch {
+        // The drawer refreshes itself every few seconds anyway.
+      }
+    }
+  }
+
+  async function confirm() {
+    if (!pending) return;
+    const proId = pending.id;
     const result = await action.run(() => api.post<{ booking: AdminBooking }>(`/admin/bookings/${booking.id}/reassign`, { proId }));
     if (result) {
-      setDone(t('admin.booking.assign.done', { name }));
+      setPending(null);
       onChanged(result.booking);
-      candidates.reload();
     }
   }
 
@@ -287,9 +332,9 @@ function AssignPro({ booking, onChanged }: { booking: AdminBooking; onChanged: (
                 <button
                   type="button"
                   className="abtn"
-                  disabled={action.busy}
+                  aria-haspopup="dialog"
                   aria-label={t('admin.booking.assign.buttonLabel', { name: c.firstName ?? '' })}
-                  onClick={() => void assign(c.id, c.firstName ?? '')}
+                  onClick={(event) => ask(c, event.currentTarget)}
                 >
                   {t('admin.booking.assign.button')}
                 </button>
@@ -297,12 +342,36 @@ function AssignPro({ booking, onChanged }: { booking: AdminBooking; onChanged: (
             ))}
           </ul>
         ))}
-      {done && (
-        <p className="small ok" role="status">
-          {done}
-        </p>
+      {pending && (
+        <ConfirmDialog
+          title={t('admin.booking.assign.confirmTitle', { name: pending.firstName ?? '' })}
+          cancelLabel={t('admin.booking.assign.cancel')}
+          confirmLabel={t('admin.booking.assign.confirm')}
+          busy={action.busy}
+          returnFocusTo={opener}
+          onCancel={() => void close()}
+          onConfirm={() => void confirm()}
+        >
+          <dl className="kv">
+            <dt>{t('admin.booking.assign.factPro')}</dt>
+            <dd>{pending.firstName}</dd>
+            <dt>{t('admin.booking.assign.factNearby')}</dt>
+            <dd>
+              {t('admin.booking.assign.line', {
+                km: pending.distanceKm,
+                rating: pending.ratingAverage === null ? '–' : pending.ratingAverage.toFixed(1),
+              })}
+            </dd>
+            <dt>{t('admin.booking.assign.factJob')}</dt>
+            <dd>{booking.serviceName}</dd>
+            <dt>{t('admin.booking.when')}</dt>
+            <dd>{dateTime(booking.startsAt, timezone)}</dd>
+          </dl>
+          {booking.pro && <p className="small">{t('admin.booking.assign.replaces', { name: booking.pro.firstName ?? '' })}</p>}
+          <p className="small muted">{t('admin.booking.assign.finalWarning')}</p>
+          <ErrorText error={action.error} />
+        </ConfirmDialog>
       )}
-      <ErrorText error={action.error} />
     </section>
   );
 }
@@ -563,7 +632,8 @@ function BookingDetails({ booking, onChanged }: { booking: AdminBooking; onChang
         <ChargeNote booking={booking} />
       </section>
 
-      {REASSIGNABLE.has(booking.status) && (
+      {booking.assignmentLocked && booking.pro && <AssignmentFinal booking={booking} />}
+      {REASSIGNABLE.has(booking.status) && !booking.assignmentLocked && (
         <AssignPro key={`${booking.status}-${booking.pro?.id ?? ''}`} booking={booking} onChanged={onChanged} />
       )}
       {RESCHEDULABLE.has(booking.status) && <MoveBooking key={booking.id} booking={booking} onChanged={onChanged} />}

@@ -24,10 +24,13 @@ export type BookingStatus =
 
 /** Sets a booking's status and records it on the timeline in one step. */
 export async function setStatus(db: Queryable, bookingId: string, status: BookingStatus, extraSql = '', extraValues: unknown[] = []) {
-  await db.query(`UPDATE bookings SET status = $2, updated_at = now()${extraSql} WHERE id = $1`, [
-    bookingId,
-    status,
-    ...extraValues,
-  ]);
+  // A confirmed assignment (D88) belongs to that pro: when the pro leaves the booking, the lock goes with them.
+  const releasesPro = extraSql.includes('pro_id = NULL');
+  await db.query(
+    `UPDATE bookings SET status = $2, updated_at = now()${extraSql}${
+      releasesPro ? ', assignment_locked_at = NULL, assignment_locked_by = NULL' : ''
+    } WHERE id = $1`,
+    [bookingId, status, ...extraValues],
+  );
   await db.query('INSERT INTO booking_events (booking_id, status) VALUES ($1, $2)', [bookingId, status]);
 }

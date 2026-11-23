@@ -306,9 +306,10 @@ describe('Job page pop-ups (D86)', () => {
     await user().click(within(sheet).getByRole('radio', { name: /Hedge trimming/ }));
     await user().type(within(sheet).getByLabelText('Note for Sara (optional)'), 'The front hedge is overgrown');
     await user().click(within(sheet).getByRole('button', { name: 'Send to Sara for approval' }));
-    expect(api.bodies['POST /pro/jobs/b1/extras']).toEqual({ itemId: 'service:svc-hedge', note: 'The front hedge is overgrown' });
+    // The request is sent after the click resolves, so wait for it rather than checking at once.
+    await waitFor(() => expect(api.bodies['POST /pro/jobs/b1/extras']).toEqual({ itemId: 'service:svc-hedge', note: 'The front hedge is overgrown' }));
     expect(await screen.findByText('Waiting for Sara to approve Hedge trimming +€58.50.')).toBeInTheDocument();
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 
   it('reports an issue on site to MISK support', async () => {
