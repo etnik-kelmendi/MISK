@@ -344,7 +344,7 @@ describe('acting on a pro', () => {
     await post(`/admin/plans/${planId}/status`, { published: true });
     const subscribed = await call(t, 'POST', '/subscriptions', {
       cookie: customer,
-      body: { planId, size: 'M', days: [4], timeWindow: 'afternoon', address: '12 Linden Street', postcode: '10115', withAddon: false },
+      body: { planId, size: 'M', days: [4], timeWindow: 'afternoon', address: '12 Linden Street', postcode: '10115', withAddon: false, acceptTerms: true },
     });
     expect(subscribed.json().subscription.proName).toBe('Leaving');
 

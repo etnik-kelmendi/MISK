@@ -56,7 +56,7 @@ interface Visit {
 async function subscribe(): Promise<{ id: string; visits: Visit[] }> {
   const response = await call(t, 'POST', '/subscriptions', {
     cookie: customer,
-    body: { planId, size: 'M', days: [2], timeWindow: 'morning', address: '12 Linden Street', postcode: '10115', withAddon: true },
+    body: { planId, size: 'M', days: [2], timeWindow: 'morning', address: '12 Linden Street', postcode: '10115', withAddon: true, acceptTerms: true },
   });
   expect(response.statusCode).toBe(201);
   return response.json().subscription;
@@ -326,6 +326,19 @@ describe('pausing a plan (D78)', () => {
     // Running it again changes nothing.
     expect(await settlePausesAfterPlanEnd(t.deps)).toBe(0);
     expect(t.fake.balance.filter((c) => c.kind === 'reversal')).toHaveLength(1);
+
+    // Keep my plan (D90): the plan goes on, so the credit taken back is given again, once.
+    expect((await call(t, 'POST', `/subscriptions/${subscription.id}/keep`, { cookie: customer })).statusCode).toBe(200);
+    expect(t.fake.balance.map((c) => [c.kind, c.amountCents])).toEqual([
+      ['credit', 2 * VISIT_VALUE],
+      ['reversal', n * VISIT_VALUE],
+      ['credit', n * VISIT_VALUE],
+    ]);
+    expect(await settlePausesAfterPlanEnd(t.deps)).toBe(0);
+    expect((await t.pool.query('SELECT reversed_cents FROM subscription_pauses')).rows).toEqual([{ reversed_cents: 0 }]);
+    // Cancelling again takes it back again, as a new change.
+    await call(t, 'POST', `/subscriptions/${subscription.id}/cancel`, { cookie: customer });
+    expect(t.fake.balance.filter((c) => c.kind === 'reversal').map((c) => c.amountCents)).toEqual([n * VISIT_VALUE, n * VISIT_VALUE]);
   });
 
   it('pays the pro nothing for a month fully covered by credit', async () => {

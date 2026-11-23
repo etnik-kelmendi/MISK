@@ -12,37 +12,19 @@ import { ResourceState } from '../../components/ResourceState';
 import { dateTime, dayName, euro, packagePrice, PACKAGE_DISCOUNT_PCT } from '../../lib/format';
 import { useAction } from '../../lib/useAction';
 import { CardPayment, confirmSavedCard } from '../../payments/CardPayment';
+import {
+  initialOption,
+  paymentMethodBody,
+  PaymentOptionList,
+  walletOf,
+  type PaymentMethods,
+  type PaymentOption as Option,
+} from '../../payments/PaymentOptions';
 import { WalletButton, type Wallet } from '../../payments/WalletButton';
 import type { When } from './ChooseTimeStep';
 import { CATEGORY_COLORS } from './categoryColors';
 import { sizeGroup, type Details } from './JobDetailsStep';
 
-type Choice = 'card' | 'new_card' | 'apple_pay' | 'google_pay';
-
-interface SavedCard {
-  id: string;
-  brand: string;
-  last4: string;
-  expMonth: number;
-  expYear: number;
-}
-
-interface PaymentMethods {
-  cards: SavedCard[];
-  cardsAvailable: boolean;
-  last: { choice: Choice; cardId: string | null } | null;
-  publishableKey: string | null;
-}
-
-/** The option a value of the payment list stands for: a saved card by id, or a kind. */
-type Option = { choice: 'card'; cardId: string } | { choice: Exclude<Choice, 'card'> };
-const optionKey = (option: Option) => (option.choice === 'card' ? `card:${option.cardId}` : option.choice);
-
-const BRAND: Record<string, { label: string; bg: string }> = {
-  visa: { label: 'VISA', bg: '#1A1F71' },
-  mastercard: { label: 'MC', bg: '#EB001B' },
-  amex: { label: 'AMEX', bg: '#2E77BC' },
-};
 
 /** "about 2 h 30 min" for a visit length. */
 function lengthText(minutes: number, t: TFunction): string {
@@ -52,19 +34,7 @@ function lengthText(minutes: number, t: TFunction): string {
   return rest === 0 ? t('review.hours', { count: hours }) : t('review.hoursMinutes', { hours, minutes: rest });
 }
 
-/**
- * The option that starts selected: the way the customer paid last time while it is still possible, else
- * their newest saved card, else a new card (D73).
- */
-export function initialOption(methods: PaymentMethods): Option {
-  const last = methods.last;
-  if (last?.choice === 'card' && last.cardId && methods.cards.some((card) => card.id === last.cardId)) {
-    return { choice: 'card', cardId: last.cardId };
-  }
-  if (last && last.choice !== 'card') return { choice: last.choice };
-  const first = methods.cards[0];
-  return first ? { choice: 'card', cardId: first.id } : { choice: 'new_card' };
-}
+export { initialOption };
 
 function PayForm({
   methods,
@@ -95,7 +65,7 @@ function PayForm({
   const price = packagePrice(services, details.size);
   const total = price.jobCents + feeCents;
   const key = methods.publishableKey;
-  const wallet: Wallet | null = option.choice === 'apple_pay' || option.choice === 'google_pay' ? option.choice : null;
+  const wallet: Wallet | null = walletOf(option);
   const open = (id: string) => navigate(`/bookings/${id}`, { replace: true });
 
   /** Makes the booking with the chosen way to pay, then sends the photos. */
@@ -107,7 +77,7 @@ function PayForm({
       postcode: details.postcode,
       notes: details.notes,
       ...(when.kind === 'slot' ? { startsAt: when.slot.startsAt } : { flexibleWindow: when.window, day: when.day }),
-      paymentMethod: option.choice === 'card' ? { type: 'card', cardId: option.cardId } : { type: option.choice },
+      paymentMethod: paymentMethodBody(option),
       ...(picked ? { preferredProId: picked.id } : {}),
     });
     // The booking is made; its photos follow. One that fails can be added again on the booking page.
@@ -145,17 +115,6 @@ function PayForm({
   const group = sizeGroup(category);
   const hourlyOnly = services.every((service) => service.pricing === 'hourly');
   const names = services.map((service) => service.name).join(' + ');
-  const options: { option: Option; title: string; detail: string; badge: { label: string; bg: string } }[] = [
-    ...methods.cards.map((card) => ({
-      option: { choice: 'card', cardId: card.id } as Option,
-      title: t('review.card', { brand: BRAND[card.brand]?.label === 'MC' ? 'Mastercard' : card.brand.charAt(0).toUpperCase() + card.brand.slice(1), last4: card.last4 }),
-      detail: t('review.expires', { date: `${String(card.expMonth).padStart(2, '0')}/${String(card.expYear).slice(-2)}` }),
-      badge: BRAND[card.brand] ?? { label: card.brand.toUpperCase().slice(0, 4), bg: '#3A4A43' },
-    })),
-    { option: { choice: 'apple_pay' }, title: t('review.applePay'), detail: '', badge: { label: 'Pay', bg: '#000' } },
-    { option: { choice: 'google_pay' }, title: t('review.googlePay'), detail: '', badge: { label: 'G Pay', bg: '#4285F4' } },
-    { option: { choice: 'new_card' }, title: t('review.newCard'), detail: t('review.newCardText'), badge: { label: '+', bg: '#3A4A43' } },
-  ];
 
   if (cardStep) {
     return (
@@ -224,28 +183,7 @@ function PayForm({
           )}
         </section>
 
-        <fieldset className="stack tight">
-          <legend className="h-sm">{t('review.payment')}</legend>
-          {!methods.cardsAvailable && <p className="small muted">{t('review.cardsUnavailable')}</p>}
-          {options.map(({ option: o, title, detail, badge }) => {
-            const k = optionKey(o);
-            const chosen = optionKey(option) === k;
-            const notHere = (o.choice === 'apple_pay' || o.choice === 'google_pay') && unavailable.includes(o.choice);
-            return (
-              <label key={k} className={`paym ${chosen ? 'on' : ''}`}>
-                <input type="radio" name="payment" className="visually-hidden" checked={chosen} onChange={() => setOption(o)} />
-                <span className="logo-b" style={{ background: badge.bg }} aria-hidden="true">
-                  {badge.label}
-                </span>
-                <span className="grow">
-                  <span className="b small block">{title}</span>
-                  {(detail || notHere) && <span className="tiny muted block">{notHere ? t('review.walletUnavailable') : detail}</span>}
-                </span>
-                <span className="radio" aria-hidden="true" />
-              </label>
-            );
-          })}
-        </fieldset>
+        <PaymentOptionList methods={methods} option={option} onChange={setOption} unavailable={unavailable} legend={t('review.payment')} />
 
         <p className="info">
           <Icon name="shield" />

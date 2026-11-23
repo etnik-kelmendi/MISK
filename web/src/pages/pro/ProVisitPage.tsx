@@ -20,6 +20,8 @@ function VisitView({ visit, onDone }: { visit: ProVisit; onDone: (v: ProVisit) =
   const [done, setDone] = useState<string[]>(visit.tasksDone);
   const { run, busy, error } = useAction();
   const completed = visit.status === 'completed';
+  // The customer skipped it (D90): nothing to do, the pro is not expected.
+  const skipped = visit.status === 'skipped';
 
   async function complete() {
     const result = await run(() => api.post<{ visit: Pick<ProVisit, 'status' | 'tasksDone'> }>(`/pro/visits/${visit.id}/complete`, { tasksDone: done }));
@@ -34,9 +36,13 @@ function VisitView({ visit, onDone }: { visit: ProVisit; onDone: (v: ProVisit) =
         <div className="card">
           <div className="row between">
             <h2 className="b">{visit.planName}</h2>
-            <span className="badge a">
-              <Icon name="repeat" /> {t('visit.plan')}
-            </span>
+            {skipped ? (
+              <span className="badge grey">{t('visit.skipped')}</span>
+            ) : (
+              <span className="badge a">
+                <Icon name="repeat" /> {t('visit.plan')}
+              </span>
+            )}
           </div>
           <p className="small muted">
             {dateTime(visit.startsAt, timezone)} · {visit.address}, {visit.postcode}
@@ -45,7 +51,12 @@ function VisitView({ visit, onDone }: { visit: ProVisit; onDone: (v: ProVisit) =
           {visit.notes && <p className="small">“{visit.notes}”</p>}
           <p className="small muted">{t('visit.earns', { amount: euro(visit.earningsCents) })}</p>
         </div>
-        <fieldset className="card stack" disabled={completed}>
+        {skipped && (
+          <p className="info amber" role="status">
+            <Icon name="calendar" /> {t('visit.skippedByCustomer')}
+          </p>
+        )}
+        <fieldset className="card stack" disabled={completed || skipped}>
           <legend className="b small">{t('visit.checklist')}</legend>
           {visit.tasks.map((task) => (
             <label key={task} className="row small check-row">

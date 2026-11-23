@@ -5,6 +5,7 @@ import { withTransaction } from '../db.js';
 import { conflict, notFound } from '../errors.js';
 import { isForeignKeyViolation, uuidParams } from '../http.js';
 import { logActivity } from '../settings/activity.js';
+import { planPriceTable } from '../subscriptions/service.js';
 
 export const FREQUENCIES = ['every_2_weeks', 'weekly', 'twice_weekly', 'three_times_weekly'] as const;
 export type Frequency = (typeof FREQUENCIES)[number];
@@ -172,12 +173,19 @@ export async function planRoutes(app: FastifyInstance, ctx: AppContext) {
     return found.rows[0];
   }
 
-  // Published plans of active categories, for the customer and pro apps.
+  // Published plans of active categories, for the customer and pro apps, with every price the Plan builder can
+  // show (D90): the server's own pricing rule, so the live price is exactly what a subscription is charged.
   app.get('/plans', async () => {
-    const result = await pool.query(
-      `SELECT ${PLAN_COLUMNS} FROM ${PLAN_FROM} WHERE p.status = 'published' AND c.active ORDER BY c.sort_order, p.name`,
+    const result = await pool.query<{ priceCents: number; frequency: Frequency }>(
+      `SELECT ${PLAN_COLUMNS} FROM ${PLAN_FROM}
+       WHERE p.status = 'published' AND p.deleted_at IS NULL AND c.active ORDER BY c.sort_order, p.name`,
     );
-    return { plans: result.rows };
+    return {
+      plans: result.rows.map((plan) => {
+        const prices = planPriceTable(plan);
+        return { ...plan, prices, fromCents: prices[plan.frequency].S };
+      }),
+    };
   });
 
   app.get('/admin/plans', { preHandler: guards.admin }, async () => {

@@ -869,6 +869,18 @@ export interface Plan extends PlanInput {
   updatedAt: string;
 }
 
+/** A published plan as customers see it (D90), with the server's price of every frequency and size. */
+export interface PublicPlan extends Plan {
+  priceCents: number;
+  /** Monthly price in cents per frequency and size, without the extra. */
+  prices: Record<Frequency, Record<JobSize, number>>;
+  /** The small size at the plan's own frequency: "from €…/month". */
+  fromCents: number;
+}
+
+/** When the first visit of a new plan is (D90). */
+export type PlanStart = 'asap' | 'next_week' | 'in_2_weeks';
+
 export type TimeWindow = 'morning' | 'afternoon';
 export type SubscriptionStatus = 'awaiting_payment' | 'active' | 'past_due' | 'cancelled';
 export type VisitStatus = 'planned' | 'skipped' | 'completed' | 'cancelled';
@@ -885,6 +897,10 @@ export interface SubscriptionVisit {
   pendingMove: { toStartsAt: string; toEndsAt: string; respondBy: string } | null;
   /** The pause that called this visit off (D78); absent or null when it was not paused. */
   pausedBy?: string | null;
+  /** When the customer skipped it (D90). */
+  skippedAt?: string | null;
+  /** Skipped visits of the plan in this visit's calendar month (D90). */
+  skipsUsedInMonth?: number;
 }
 
 /** A pause of a monthly plan (D78). Days are 'YYYY-MM-DD' in the market time zone; `endsOn` is the first day after it. */
@@ -924,6 +940,8 @@ export interface PauseOptions {
 /** The days a visit can move to, or why it cannot move (D77). */
 export interface VisitMoveOptions {
   options: { startsAt: string; endsAt: string }[];
+  /** The nearby days, each saying whether the pro is free then (D90); only free ones can be asked for. */
+  days?: { startsAt: string; endsAt: string; free: boolean }[];
   reason: 'not_movable' | 'too_late' | 'move_pending' | 'no_free_day' | null;
 }
 
@@ -974,6 +992,20 @@ export interface Subscription {
   createdAt: string;
   proName: string | null;
   cancelableFrom: string | null;
+  categoryIcon?: IconName | null;
+  /** The first visit's day, 'YYYY-MM-DD' (D90); null for plans from before it was kept. */
+  firstVisitOn?: string | null;
+  /** The next visit still to come, or null. */
+  nextVisitAt?: string | null;
+  /** When the minimum term ends (D90). */
+  minTermEndsAt?: string;
+  /** When the plan would end if cancelled now: the minimum term's end or 30 days' notice, whichever is later (D90). */
+  cancelEndsAt?: string;
+  /** At most this many skipped visits a calendar month (D90). */
+  skipsPerMonth?: number;
+  skipsLeftThisMonth?: number;
+  /** The card or wallet the plan is billed to; only on a single plan (D90). */
+  paymentMethod?: { brand: string; last4: string | null; wallet: string | null } | null;
   visits: SubscriptionVisit[];
   /** Newest first (D78). */
   pauses: SubscriptionPause[];

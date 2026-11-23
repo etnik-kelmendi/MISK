@@ -102,7 +102,7 @@ export function ProWeekPage() {
                   <ul className="stack">
                     {shown.map((item) => (
                       <li key={item.key}>
-                        <Link to={item.href} className={`job link-card ${item.kind === 'visit' ? 'rec' : ''}`}>
+                        <Link to={item.href} className={`job link-card ${item.kind === 'visit' ? 'rec' : ''} ${item.status === 'skipped' ? 'skipped' : ''}`}>
                           <span className="jt">{time(item.startsAt, timezone)}</span>
                           <span className="grow">
                             <span className="b small block">{item.title}</span>
@@ -110,7 +110,10 @@ export function ProWeekPage() {
                           </span>
                           <span className="right">
                             <span className="b small block">{euro(item.earningsCents)}</span>
-                            {item.kind === 'visit' ? (
+                            {item.status === 'skipped' ? (
+                              // Skipped by the customer (D90): listed, but not expected.
+                              <span className="badge grey">{t('visit.skipped')}</span>
+                            ) : item.kind === 'visit' ? (
                               <span className="badge a">
                                 <Icon name="repeat" /> {t('visit.plan')}
                               </span>

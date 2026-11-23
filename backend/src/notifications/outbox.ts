@@ -30,6 +30,8 @@ export type NotificationKind =
   | 'visit_move_requested'
   | 'visit_move_answered'
   | 'visit_move_withdrawn'
+  | 'visit_skipped'
+  | 'visit_unskipped'
   | 'plan_paused'
   | 'plan_pause_called_off'
   | 'payout_sent'
@@ -77,6 +79,8 @@ const SUBJECTS: Partial<Record<NotificationKind, string>> = {
   visit_move_requested: 'A customer asks to move a plan visit',
   visit_move_answered: 'About moving your MISK plan visit',
   visit_move_withdrawn: 'A plan visit stays at its time',
+  visit_skipped: 'A customer skipped a plan visit',
+  visit_unskipped: 'A skipped plan visit is back',
   plan_paused: 'A MISK plan is paused',
   plan_pause_called_off: 'A MISK plan pause is called off',
 };

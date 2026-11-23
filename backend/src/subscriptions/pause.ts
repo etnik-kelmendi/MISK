@@ -567,8 +567,9 @@ export async function callOffPause(
 
 /**
  * A plan cancelled after a pause was planned ends before some paused visits: those would not have taken
- * place anyway, so their credit is taken back. Safe to run again: each pause records what it took back.
- * Runs right after a cancellation and in the planning job, which retries a failed attempt.
+ * place anyway, so their credit is taken back. When the customer then keeps the plan after all ("Keep my
+ * plan", D90), the credit taken back is given again. Safe to run again: each pause records what it took back.
+ * Runs right after a cancellation or keep, and in the planning job, which retries a failed attempt.
  */
 export async function settlePausesAfterPlanEnd(deps: BookingDeps, subscriptionId?: string): Promise<number> {
   const due = await deps.pool.query<{
@@ -577,37 +578,46 @@ export async function settlePausesAfterPlanEnd(deps: BookingDeps, subscriptionId
     stripe_customer_id: string | null;
     reversed_cents: number;
     target_cents: number;
+    /** How many times this has changed the pause's credit before, for a new idempotency key each time. */
+    credit_changes: number;
   }>(
-    `SELECT pz.id, s.plan_name, u.stripe_customer_id, pz.reversed_cents,
-       LEAST(pz.credit_cents, pz.visit_value_cents * (
-         SELECT count(*)::int FROM subscription_visits v WHERE v.paused_by = pz.id AND v.status = 'cancelled' AND v.ends_at > s.ends_at
-       )) AS target_cents
-     FROM subscription_pauses pz JOIN subscriptions s ON s.id = pz.subscription_id JOIN users u ON u.id = s.customer_id
-     WHERE pz.status = 'active' AND s.ends_at IS NOT NULL AND pz.ends_at > s.ends_at AND pz.credit_cents > pz.reversed_cents
-       AND ($1::uuid IS NULL OR s.id = $1)
+    `SELECT * FROM (
+       SELECT pz.id, s.plan_name, u.stripe_customer_id, pz.reversed_cents, pz.credit_changes,
+         CASE WHEN s.ends_at IS NULL THEN 0 ELSE LEAST(pz.credit_cents, pz.visit_value_cents * (
+           SELECT count(*)::int FROM subscription_visits v WHERE v.paused_by = pz.id AND v.status = 'cancelled' AND v.ends_at > s.ends_at
+         )) END AS target_cents
+       FROM subscription_pauses pz JOIN subscriptions s ON s.id = pz.subscription_id JOIN users u ON u.id = s.customer_id
+       WHERE pz.status = 'active' AND (s.ends_at IS NOT NULL OR pz.reversed_cents > 0) AND ($1::uuid IS NULL OR s.id = $1)
+     ) due
+     WHERE target_cents <> reversed_cents
      LIMIT 50`,
     [subscriptionId ?? null],
   );
   let settled = 0;
   for (const pause of due.rows) {
-    const amountCents = pause.target_cents - pause.reversed_cents;
-    if (amountCents <= 0 || !pause.stripe_customer_id) {
+    const amountCents = Math.abs(pause.target_cents - pause.reversed_cents);
+    if (amountCents === 0 || !pause.stripe_customer_id) {
       continue;
     }
+    const giveBack = pause.target_cents < pause.reversed_cents;
     try {
-      await deps.gateway.reverseCustomerCredit({
+      const input = {
         customerRef: pause.stripe_customer_id,
         amountCents,
-        description: `MISK ${pause.plan_name}: paused visits after the plan ends`,
-        idempotencyKey: `pause-end-${pause.id}-${pause.target_cents}`,
-      });
-      await deps.pool.query('UPDATE subscription_pauses SET reversed_cents = $3 WHERE id = $1 AND reversed_cents = $2', [
-        pause.id,
-        pause.reversed_cents,
-        pause.target_cents,
-      ]);
+        description: giveBack
+          ? `MISK ${pause.plan_name}: paused visits, the plan goes on`
+          : `MISK ${pause.plan_name}: paused visits after the plan ends`,
+        // Each change once, however often this runs; a later cancel or keep is a new change.
+        idempotencyKey: `pause-settle-${pause.id}-${pause.credit_changes + 1}`,
+      };
+      await (giveBack ? deps.gateway.creditCustomer(input) : deps.gateway.reverseCustomerCredit(input));
+      await deps.pool.query(
+        `UPDATE subscription_pauses SET reversed_cents = $3, credit_changes = credit_changes + 1
+         WHERE id = $1 AND reversed_cents = $2 AND credit_changes = $4`,
+        [pause.id, pause.reversed_cents, pause.target_cents, pause.credit_changes],
+      );
       settled += 1;
-      deps.log.info({ event: 'pause_credit_after_end_reversed', pauseId: pause.id, amountCents });
+      deps.log.info({ event: giveBack ? 'pause_credit_given_again' : 'pause_credit_after_end_reversed', pauseId: pause.id, amountCents });
     } catch (error) {
       deps.log.error({ event: 'pause_credit_after_end_failed', pauseId: pause.id, err: error });
     }

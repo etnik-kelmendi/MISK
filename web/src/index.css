@@ -940,3 +940,49 @@ button.online:focus-visible { outline: 3px solid var(--info); outline-offset: 2p
 .trade-move { display: grid; gap: 2px; }
 .iconbtn.small-icon { width: 28px; height: 28px; font-size: 14px; }
 .iconbtn.small-icon:disabled { opacity: 0.35; cursor: default; }
+
+/* D90: the Plans page, the Plan builder and My plan. */
+.plan-offer { display: grid; gap: 10px; }
+.plan-offer h3 { font-size: 15px; }
+.plan-icon { width: 40px; height: 40px; border-radius: 12px; flex: none; }
+.plan-price { font-size: 17px; }
+.plan-tasks .i { color: var(--brand); }
+.plan-choose { height: 42px; font-size: 14px; text-decoration: none; }
+.my-plan-card { background: linear-gradient(135deg, #fff6e4, #fff); }
+.included-box { background: var(--brand-soft); box-shadow: none; color: #0a4d37; display: grid; gap: 6px; }
+.table-scroll { overflow-x: auto; margin: 0 -16px; padding: 0 16px 4px; -webkit-overflow-scrolling: touch; }
+.table-scroll:focus-visible { outline: 3px solid var(--info); outline-offset: 2px; }
+.ctable { border-collapse: separate; border-spacing: 0; font-size: 13px; background: var(--card); border-radius: 14px; min-width: 100%; }
+.ctable th, .ctable td { padding: 10px; vertical-align: top; text-align: left; min-width: 140px; border-bottom: 1px solid var(--line-2); }
+.ctable thead th { font-weight: 800; text-align: center; }
+.ctable thead th .plan-icon { margin: 0 auto 4px; display: grid; place-items: center; }
+.ctable tbody th { color: var(--muted); font-weight: 700; min-width: 100px; position: sticky; left: 0; background: var(--card); }
+.ctable tr:last-child td { border-bottom: 0; }
+.plancards { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(132px, 1fr); gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+.plancard { display: grid; gap: 4px; background: var(--card); border-radius: 14px; padding: 12px; box-shadow: inset 0 0 0 1.5px var(--line); cursor: pointer; }
+.plancard.on { box-shadow: inset 0 0 0 2px var(--brand); background: #fbfefc; }
+.plancard:focus-within { outline: 3px solid var(--info); outline-offset: 2px; }
+.plancard .ci { width: 36px; height: 36px; border-radius: 10px; }
+.radio-seg { display: flex; flex-wrap: wrap; width: 100%; }
+.radio-seg label { flex: 1 1 0; text-align: center; padding: 9px 10px; border-radius: 9px; font-weight: 700; font-size: 13px; color: var(--muted); cursor: pointer; white-space: nowrap; }
+.radio-seg.wrap-2 label { flex: 1 1 45%; }
+.radio-seg label.on { background: var(--brand); color: #fff; }
+.radio-seg label:focus-within { outline: 3px solid var(--info); outline-offset: 2px; }
+.terms-list dd { margin: 2px 0 0; color: var(--ink-2); }
+.done-card { display: grid; gap: 6px; padding: 22px 16px; }
+.done-card h2:focus { outline: none; }
+.ink { color: var(--ink); }
+.visit .vt { min-width: 0; }
+.visit-actions { flex: none; }
+.visit .mini-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.moved-badge { margin-left: 6px; }
+.choice.busy { opacity: 0.6; }
+.choice .badge { flex: none; }
+.holiday-card { align-items: center; gap: 12px; flex-wrap: wrap; }
+.holiday-card .toggle:disabled { opacity: 0.5; cursor: not-allowed; }
+.holiday-reason { flex-basis: 100%; }
+.lgroup { background: var(--card); border-radius: 14px; box-shadow: 0 1px 3px rgba(15, 26, 21, 0.06); overflow: hidden; }
+.lrow { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 48px; padding: 12px 14px; font-weight: 700; font-size: 14px; text-align: left; }
+.lrow.danger-row { color: var(--danger); }
+.lrow:focus-visible { outline: 3px solid var(--info); outline-offset: -3px; }
+.job.skipped { opacity: 0.6; }

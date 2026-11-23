@@ -24,6 +24,8 @@ export interface SubscriptionStart {
   clientSecret: string | null;
   /** True when the first month is already paid. */
   active: boolean;
+  /** The provider's first invoice, so the immediate payment and its paid-invoice webhook are recorded once. */
+  invoiceId: string | null;
 }
 
 export interface PaymentGateway {
@@ -75,6 +77,8 @@ export interface PaymentGateway {
     amountCents: number;
     idempotencyKey: string;
     metadata: Record<string, string>;
+    /** A card the customer saved before (D90): the first month is charged on it at once. */
+    paymentMethodId?: string;
   }): Promise<SubscriptionStart>;
   /** The browser secret of an unpaid first month, so the customer can finish paying after a reload. */
   subscriptionClientSecret(subscriptionId: string): Promise<string | null>;
@@ -85,6 +89,10 @@ export interface PaymentGateway {
    * up to that moment is charged pro rata.
    */
   cancelSubscriptionAt(subscriptionId: string, at: Date): Promise<void>;
+  /** Takes back a planned end (cancelSubscriptionAt), so billing simply goes on: "Keep my plan" (D90). */
+  resumeSubscription(subscriptionId: string): Promise<void>;
+  /** The card or wallet a plan is billed to, for My plan (D90); null when it has none yet. */
+  subscriptionPaymentMethod(subscriptionId: string): Promise<PaymentMethodInfo | null>;
   /** Pauses or resumes monthly charges, e.g. for a seasonal plan in winter. */
   setBillingPaused(subscriptionId: string, paused: boolean): Promise<void>;
   /**

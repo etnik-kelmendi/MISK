@@ -69,6 +69,21 @@ describe('plans', () => {
     expect((await t.app.inject({ method: 'GET', url: '/plans' })).json().plans).toEqual([]);
   });
 
+  it('lists only published plans of active trades, with the price of every frequency and size (D90)', async () => {
+    const live = (await call(t, 'POST', '/admin/plans', { cookie: admin, body: { ...plan(), frequency: 'twice_weekly', priceCents: 9000 } })).json().plan;
+    await call(t, 'POST', `/admin/plans/${live.id}/status`, { cookie: admin, body: { published: true } });
+    await call(t, 'POST', '/admin/plans', { cookie: admin, body: { ...plan(), name: 'Still a draft' } });
+    const plans = (await t.app.inject({ method: 'GET', url: '/plans' })).json().plans;
+    expect(plans.map((p: { name: string }) => p.name)).toEqual(['Weekly lawn care']);
+    // The plan's own frequency and a medium home cost its price; small is 15% less ("from"), large 35% more.
+    expect(plans[0]).toMatchObject({ fromCents: 7650, prices: { twice_weekly: { S: 7650, M: 9000, L: 12150 }, weekly: { M: 5000 } } });
+    expect(plans[0].prices.every_2_weeks).toEqual({ S: 2550, M: 3000, L: 4050 });
+    expect(plans[0].prices.three_times_weekly).toEqual({ S: 10625, M: 12500, L: 16875 });
+
+    await t.pool.query('UPDATE categories SET active = false WHERE id = $1', [market.gardening]);
+    expect((await t.app.inject({ method: 'GET', url: '/plans' })).json().plans).toEqual([]);
+  });
+
   it('runs seasonal plans from April to October', async () => {
     const created = (await call(t, 'POST', '/admin/plans', { cookie: admin, body: plan() })).json().plan;
     expect(created).toMatchObject({ seasonal: true, seasonFrom: 4, seasonTo: 10 });

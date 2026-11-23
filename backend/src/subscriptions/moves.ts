@@ -137,6 +137,47 @@ export async function moveTargets(
   return result.rows;
 }
 
+export interface MoveDay extends MoveTarget {
+  /** The pro is free then, so the customer can ask for it. */
+  free: boolean;
+}
+
+/**
+ * The nearby days the Move sheet shows (D90): every other day of the visit's week after today, at the same time,
+ * inside the plan (before its end, outside pauses, not a time the plan already has), each saying whether the pro
+ * is free then. Only free days can be asked for; `moveTargets` decides which those are.
+ */
+export async function moveDays(
+  db: Queryable,
+  visit: Pick<MovableVisit, 'id' | 'subscription_id' | 'pro_id' | 'starts_at' | 'ends_at' | 'category_id' | 'postcode' | 'plan_ends_at'>,
+  timezone: string,
+): Promise<MoveDay[]> {
+  const minutes = Math.round((visit.ends_at.getTime() - visit.starts_at.getTime()) / 60_000);
+  const [candidates, free] = await Promise.all([
+    db.query<MoveTarget>(
+      `WITH local AS (SELECT $1::timestamptz AT TIME ZONE $2 AS start),
+       slots AS (
+         SELECT ((d::date + local.start::time) AT TIME ZONE $2) AS starts_at,
+                ((d::date + local.start::time) AT TIME ZONE $2) + make_interval(mins => $3::int) AS ends_at
+         FROM local, generate_series(date_trunc('week', local.start), date_trunc('week', local.start) + interval '6 days', interval '1 day') AS d
+         WHERE d::date <> local.start::date AND d::date > (now() AT TIME ZONE $2)::date
+       )
+       SELECT sl.starts_at AS "startsAt", sl.ends_at AS "endsAt" FROM slots sl
+       WHERE ($6::timestamptz IS NULL OR sl.ends_at <= $6)
+         AND NOT EXISTS (
+           SELECT 1 FROM subscription_visits other WHERE other.subscription_id = $4 AND other.id <> $5 AND other.starts_at = sl.starts_at)
+         AND NOT EXISTS (
+           SELECT 1 FROM subscription_pauses pz
+           WHERE pz.subscription_id = $4 AND pz.status = 'active' AND sl.starts_at >= pz.starts_at AND sl.starts_at < pz.ends_at)
+       ORDER BY sl.starts_at`,
+      [visit.starts_at, timezone, minutes, visit.subscription_id, visit.id, visit.plan_ends_at],
+    ),
+    moveTargets(db, visit, timezone),
+  ]);
+  const freeTimes = new Set(free.map((target) => target.startsAt.getTime()));
+  return candidates.rows.map((day) => ({ ...day, free: freeTimes.has(day.startsAt.getTime()) }));
+}
+
 /**
  * Whether `to` is a time a visit at `from` may ask for at all: another day of the same Monday-to-Sunday week
  * (market time zone), after today, at the same time of day.

@@ -55,7 +55,20 @@ export function createFakeGateway(options: { instantHolds?: boolean } = {}) {
   }
   const schedules = new Map<string, 'weekly' | 'monthly' | 'manual'>();
   const manualPayouts: string[] = [];
-  const subscriptions = new Map<string, { id: string; amountCents: number; status: 'incomplete' | 'active' | 'cancelled'; cancelAtPeriodEnd: boolean; cancelAt: Date | null; paused: boolean; metadata: Record<string, string> }>();
+  const subscriptions = new Map<
+    string,
+    {
+      id: string;
+      amountCents: number;
+      status: 'incomplete' | 'active' | 'cancelled';
+      cancelAtPeriodEnd: boolean;
+      cancelAt: Date | null;
+      paused: boolean;
+      metadata: Record<string, string>;
+      /** The saved card the plan is billed to (D90), when the customer chose one. */
+      paymentMethodId: string | null;
+    }
+  >();
   let instantHolds = options.instantHolds ?? true;
   // Every customer has one saved test card, like a returning customer (D73).
   const defaultCards = (): SavedCard[] => [{ id: 'pm_card_visa', brand: 'visa', last4: '4242', expMonth: 8, expYear: 2030 }];
@@ -151,6 +164,9 @@ export function createFakeGateway(options: { instantHolds?: boolean } = {}) {
       if (failures.has('subscription')) {
         throw new Error('fake subscription failure');
       }
+      if (input.paymentMethodId && !cards.some((card) => card.id === input.paymentMethodId)) {
+        throw new Error(`fake: no saved card ${input.paymentMethodId}`);
+      }
       const id = `sub_${randomUUID()}`;
       subscriptions.set(id, {
         id,
@@ -160,8 +176,28 @@ export function createFakeGateway(options: { instantHolds?: boolean } = {}) {
         cancelAt: null,
         paused: false,
         metadata: input.metadata,
+        paymentMethodId: input.paymentMethodId ?? null,
       });
-      return { subscriptionId: id, clientSecret: instantHolds ? null : `${id}_secret`, active: instantHolds };
+      return { subscriptionId: id, clientSecret: instantHolds ? null : `${id}_secret`, active: instantHolds, invoiceId: `in_first_${id}` };
+    },
+    async resumeSubscription(subscriptionId) {
+      const subscription = subscriptions.get(subscriptionId);
+      if (subscription) {
+        subscription.cancelAt = null;
+        subscription.cancelAtPeriodEnd = false;
+      }
+    },
+    async subscriptionPaymentMethod(subscriptionId) {
+      if (failures.has('paymentMethod')) {
+        throw new Error('fake payment method failure');
+      }
+      const subscription = subscriptions.get(subscriptionId);
+      if (!subscription || subscription.status === 'incomplete') {
+        return null;
+      }
+      // Billed to the saved card chosen, or the card form's default test card.
+      const card = cards.find((c) => c.id === subscription.paymentMethodId) ?? defaultCards()[0];
+      return card ? { brand: card.brand, last4: card.last4, wallet: null } : null;
     },
     subscriptionClientSecret: async (subscriptionId) =>
       subscriptions.get(subscriptionId)?.status === 'incomplete' ? `${subscriptionId}_secret` : null,

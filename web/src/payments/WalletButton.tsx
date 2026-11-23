@@ -14,9 +14,14 @@ interface Props {
   onDone: () => void;
   /** The wallet cannot be used in this browser or on this device. */
   onUnavailable: () => void;
+  /**
+   * 'hold' reserves the amount for a booking, taken 24 hours after the job (D73); 'subscription' pays a monthly
+   * plan's first month at once and keeps the card for the next months (D90).
+   */
+  purpose?: 'hold' | 'subscription';
 }
 
-function Button({ wallet, onApproved, onDone, onUnavailable }: Omit<Props, 'publishableKey' | 'amountCents'>) {
+function Button({ wallet, onApproved, onDone, onUnavailable }: Omit<Props, 'publishableKey' | 'amountCents' | 'purpose'>) {
   const { t } = useTranslation();
   const stripe = useStripe();
   const elements = useElements();
@@ -33,7 +38,7 @@ function Button({ wallet, onApproved, onDone, onUnavailable }: Omit<Props, 'publ
     try {
       const clientSecret = await onApproved();
       if (clientSecret) {
-        // Reserves the money: the payment was made with manual capture, so nothing is taken yet.
+        // A booking's payment only reserves the money (manual capture); a plan's first month is paid at once.
         const { error } = await stripe.confirmPayment({
           elements,
           clientSecret,
@@ -81,14 +86,19 @@ function Button({ wallet, onApproved, onDone, onUnavailable }: Omit<Props, 'publ
 }
 
 /**
- * The Apple Pay or Google Pay button for Review & pay (D73). The amount is reserved on the card the
- * customer picks in their wallet, and only taken 24 hours after the job.
+ * The Apple Pay or Google Pay button for Review & pay (D73) and the Plan builder (D90). For a booking the amount
+ * is reserved on the card the customer picks in their wallet, and only taken 24 hours after the job; for a plan
+ * the first month is paid and the card is kept for the monthly charges.
  */
-export function WalletButton({ publishableKey, amountCents, ...rest }: Props) {
+export function WalletButton({ publishableKey, amountCents, purpose = 'hold', ...rest }: Props) {
   return (
     <Elements
       stripe={stripeFor(publishableKey)}
-      options={{ mode: 'payment', amount: amountCents, currency: 'eur', captureMethod: 'manual', setupFutureUsage: 'on_session' }}
+      options={
+        purpose === 'subscription'
+          ? { mode: 'subscription', amount: amountCents, currency: 'eur' }
+          : { mode: 'payment', amount: amountCents, currency: 'eur', captureMethod: 'manual', setupFutureUsage: 'on_session' }
+      }
     >
       <Button {...rest} />
     </Elements>

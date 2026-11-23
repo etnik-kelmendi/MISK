@@ -192,7 +192,11 @@ export function createStripeGateway(config: StripeConfig): PaymentGateway {
         {
           customer: input.customerRef,
           items: [{ price_data: { currency: CURRENCY, product: input.productId, unit_amount: input.amountCents, recurring: { interval: 'month' } } }],
-          payment_behavior: 'default_incomplete',
+          // A saved card is charged at once (the bank may still ask the customer to confirm); otherwise the
+          // customer pays the first month in the browser with a card or a wallet.
+          ...(input.paymentMethodId
+            ? { default_payment_method: input.paymentMethodId, payment_behavior: 'allow_incomplete' as const }
+            : { payment_behavior: 'default_incomplete' as const }),
           payment_settings: { save_default_payment_method: 'on_subscription' },
           metadata: input.metadata,
           expand: ['latest_invoice.confirmation_secret'],
@@ -205,7 +209,21 @@ export function createStripeGateway(config: StripeConfig): PaymentGateway {
         subscriptionId: subscription.id,
         clientSecret: active || typeof invoice === 'string' ? null : (invoice?.confirmation_secret?.client_secret ?? null),
         active,
+        invoiceId: typeof invoice === 'string' ? invoice : (invoice?.id ?? null),
       };
+    },
+
+    async resumeSubscription(subscriptionId) {
+      await stripe.subscriptions.update(subscriptionId, { cancel_at: '', cancel_at_period_end: false });
+    },
+
+    async subscriptionPaymentMethod(subscriptionId) {
+      const subscription = await stripe.subscriptions.retrieve(subscriptionId, { expand: ['default_payment_method'] });
+      const method = subscription.default_payment_method;
+      if (!method || typeof method === 'string' || !method.card) {
+        return null;
+      }
+      return { brand: method.card.brand, last4: method.card.last4 || null, wallet: method.card.wallet?.type ?? null };
     },
 
     async subscriptionClientSecret(subscriptionId) {

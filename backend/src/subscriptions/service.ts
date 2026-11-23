@@ -13,9 +13,78 @@ export const WINDOW_HOUR = { morning: 8, afternoon: 13 } as const;
 export type TimeWindow = keyof typeof WINDOW_HOUR;
 export type PlanSize = 'S' | 'M' | 'L';
 
-/** The plan's price is for a medium home or garden: small is 15% less, large 35% more (the demo's rule). */
+/** The size part of a plan's price, in percent of a medium home or garden (the demo's rule). */
+export const SIZE_PRICE_PCT: Record<PlanSize, number> = { S: 85, M: 100, L: 135 };
+/**
+ * The frequency part of a plan's price, in percent of once a week (the design's rule, D90). A plan's own price
+ * is for its own frequency; another frequency the customer picks in the Plan builder scales it by these.
+ */
+export const FREQUENCY_PRICE_PCT: Record<Frequency, number> = {
+  every_2_weeks: 60,
+  weekly: 100,
+  twice_weekly: 180,
+  three_times_weekly: 250,
+};
+export const PLAN_SIZES: readonly PlanSize[] = ['S', 'M', 'L'];
+
+/**
+ * The one pricing rule for monthly plans (D90): the plan's price (a medium home at the plan's own frequency)
+ * scaled by the chosen frequency and size, rounded once to whole cents. The extra is added on top by
+ * `monthlyPrice`. The Plan builder shows exactly these numbers: `/plans` sends the whole table.
+ */
+export function planPrice(plan: { priceCents: number; frequency: Frequency }, choice: { frequency: Frequency; size: PlanSize }): number {
+  return Math.round(
+    (plan.priceCents * FREQUENCY_PRICE_PCT[choice.frequency] * SIZE_PRICE_PCT[choice.size]) / (FREQUENCY_PRICE_PCT[plan.frequency] * 100),
+  );
+}
+
+/** What a customer pays a month for a plan with their choices, extra included. */
+export function monthlyPrice(
+  plan: { priceCents: number; frequency: Frequency; addonPriceCents: number | null },
+  choice: { frequency: Frequency; size: PlanSize; withAddon: boolean },
+): number {
+  return planPrice(plan, choice) + (choice.withAddon ? (plan.addonPriceCents ?? 0) : 0);
+}
+
+/** Every frequency and size of a plan, priced by `planPrice`, for the Plan builder's live price. */
+export function planPriceTable(plan: { priceCents: number; frequency: Frequency }): Record<Frequency, Record<PlanSize, number>> {
+  return Object.fromEntries(
+    (Object.keys(FREQUENCY_PRICE_PCT) as Frequency[]).map((frequency) => [frequency, Object.fromEntries(PLAN_SIZES.map((size) => [size, planPrice(plan, { frequency, size })]))]),
+  ) as Record<Frequency, Record<PlanSize, number>>;
+}
+
+/** The plan's price is for a medium home or garden at its own frequency: small is 15% less, large 35% more. */
 export function planSizePrice(priceCents: number, size: PlanSize): number {
-  return Math.round((priceCents * { S: 85, M: 100, L: 135 }[size]) / 100);
+  return planPrice({ priceCents, frequency: 'weekly' }, { frequency: 'weekly', size });
+}
+
+/** The Plan builder's Start choices (D90): the first visit is on a chosen day from tomorrow plus this many days. */
+export const START_OFFSET_DAYS = { asap: 0, next_week: 7, in_2_weeks: 14 } as const;
+export type StartOption = keyof typeof START_OFFSET_DAYS;
+
+/** Midday UTC of a calendar day: the same calendar day in every European time zone, for week arithmetic. */
+export const dayAnchor = (day: string): Date => new Date(`${day}T12:00:00Z`);
+
+/**
+ * The day of a new plan's first visit (D90): the first of the chosen weekdays from tomorrow plus the Start
+ * option's days, in the market time zone, in season for a seasonal plan and within the planning window.
+ * Null when there is none, e.g. a seasonal plan whose season ends first.
+ */
+export async function firstVisitDay(
+  db: Queryable,
+  input: { days: number[]; start: StartOption; seasonal: boolean; seasonFrom: number | null; seasonTo: number | null },
+  timezone: string,
+): Promise<string | null> {
+  const result = await db.query<{ day: string }>(
+    `WITH today AS (SELECT (now() AT TIME ZONE $1)::date AS d)
+     SELECT to_char(day, 'YYYY-MM-DD') AS day
+     FROM today, generate_series(today.d + 1 + $2::int, today.d + $3::int, interval '1 day') AS day
+     WHERE extract(isodow FROM day)::int = ANY ($4::int[])
+       AND (NOT $5::boolean OR extract(month FROM day)::int BETWEEN $6::int AND $7::int)
+     ORDER BY day LIMIT 1`,
+    [timezone, START_OFFSET_DAYS[input.start], PLANNING_DAYS, input.days, input.seasonal, input.seasonFrom ?? 1, input.seasonTo ?? 12],
+  );
+  return result.rows[0]?.day ?? null;
 }
 
 export interface VisitPattern {
@@ -30,6 +99,8 @@ export interface VisitPattern {
   anchor: Date;
   /** No visit after this moment, e.g. when a cancelled plan's last paid month ends. */
   until: Date | null;
+  /** No visit before this local day ('YYYY-MM-DD'): the plan's first visit day (D90). */
+  from?: string | null;
 }
 
 /**
@@ -47,7 +118,8 @@ export async function plannedStarts(
   const result = await db.query<{ starts_at: Date }>(
     `WITH local_today AS (SELECT (now() AT TIME ZONE $1)::date AS d),
      bounds AS (
-       SELECT COALESCE($12::date, local_today.d + 1) AS first, COALESCE($13::date, local_today.d + $2::int) AS last FROM local_today
+       SELECT GREATEST(COALESCE($12::date, local_today.d + 1), COALESCE($14::date, local_today.d + 1)) AS first,
+         COALESCE($13::date, local_today.d + $2::int) AS last FROM local_today
      )
      SELECT (day + make_interval(hours => $3::int)) AT TIME ZONE $1 AS starts_at
      FROM bounds, generate_series(bounds.first, bounds.last, interval '1 day') AS day
@@ -70,6 +142,7 @@ export async function plannedStarts(
       pattern.visitMinutes,
       days?.first ?? null,
       days?.last ?? null,
+      pattern.from ?? null,
     ],
   );
   return result.rows.map((row) => row.starts_at);
@@ -123,10 +196,12 @@ export interface SubscriptionRow {
   started_at: Date | null;
   created_at: Date;
   ends_at: Date | null;
+  /** The first visit's local day, 'YYYY-MM-DD' (D90); null for plans from before it was kept. */
+  first_visit_on: string | null;
 }
 
 export const SUBSCRIPTION_PATTERN = `id, pro_id, days, frequency, time_window, visit_minutes, seasonal, season_from, season_to,
-  started_at, created_at, ends_at`;
+  started_at, created_at, ends_at, to_char(first_visit_on, 'YYYY-MM-DD') AS first_visit_on`;
 
 export const patternOf = (row: SubscriptionRow): VisitPattern => ({
   days: row.days,
@@ -136,8 +211,10 @@ export const patternOf = (row: SubscriptionRow): VisitPattern => ({
   seasonal: row.seasonal,
   seasonFrom: row.season_from,
   seasonTo: row.season_to,
-  anchor: row.started_at ?? row.created_at,
+  // Every-2-weeks plans count their weeks from the first visit (D90), older plans from when they started.
+  anchor: row.first_visit_on ? dayAnchor(row.first_visit_on) : (row.started_at ?? row.created_at),
   until: row.ends_at,
+  from: row.first_visit_on,
 });
 
 /**

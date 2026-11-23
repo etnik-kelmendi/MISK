@@ -135,53 +135,6 @@ function PauseSheet({
   );
 }
 
-/** The plan's pause that has not finished: its days and credit, and Call off pause until it starts (D78). */
-function PauseCard({ subscription, pause, onChanged }: { subscription: Subscription; pause: SubscriptionPause; onChanged: (s: Subscription) => void }) {
-  const { t } = useTranslation();
-  const api = useApi();
-  const [confirming, setConfirming] = useState(false);
-  const { run, busy, error } = useAction();
-  const pro = subscription.proName ?? t('subscription.yourPro');
-
-  async function callOff() {
-    const result = await run(() => api.post<{ subscription: Subscription }>(`/subscriptions/${subscription.id}/pause/${pause.id}/cancel`));
-    if (result) {
-      setConfirming(false);
-      onChanged(result.subscription);
-    }
-  }
-
-  return (
-    <section className="card stack pause-card" aria-label={t('subscription.pause.cardLabel')}>
-      <p className="b">
-        {pause.status === 'running'
-          ? t('subscription.pause.runningUntil', { date: calendarDay(pause.endsOn) })
-          : t('subscription.pause.card', { from: calendarDay(pause.startsOn), to: calendarDay(pause.endsOn) })}
-      </p>
-      {pause.creditCents > 0 && <p className="small">{t('subscription.pause.credited', { amount: euro(pause.creditCents) })}</p>}
-      {pause.status === 'upcoming' &&
-        (confirming ? (
-          <div role="alertdialog" aria-labelledby="call-off-pause" className="stack">
-            <p id="call-off-pause">{t('subscription.pause.callOffQuestion', { pro })}</p>
-            <div className="row gap8">
-              <button type="button" className="btn btn-ghost" onClick={() => setConfirming(false)}>
-                {t('subscription.pause.keep')}
-              </button>
-              <button type="button" className="btn btn-danger" disabled={busy} onClick={() => void callOff()}>
-                {t('subscription.pause.callOffConfirm')}
-              </button>
-            </div>
-          </div>
-        ) : (
-          <button type="button" className="btn btn-ghost" onClick={() => setConfirming(true)}>
-            {t('subscription.pause.callOff')}
-          </button>
-        ))}
-      <ErrorText error={error} />
-    </section>
-  );
-}
-
 /** What happened when the customer called a pause off: how many visits came back. */
 function CalledOffNote({ pause, pro }: { pause: SubscriptionPause; pro: string }) {
   const { t } = useTranslation();
@@ -193,45 +146,151 @@ function CalledOffNote({ pause, pro }: { pause: SubscriptionPause; pro: string }
   );
 }
 
-/** "Pause plan" for an active plan, with the reason when it cannot be paused now (D78). */
-function PauseStarter({ subscription, onChanged }: { subscription: Subscription; onChanged: (s: Subscription) => void }) {
+/**
+ * The Holiday pause card of My plan (D78, D90): a switch that is on while a pause is planned or running. Turning it
+ * on opens the pause sheet within the plan's own rules; turning it off calls an upcoming pause off after asking. A
+ * running pause cannot be called off, and a plan whose rules allow no pauses has no switch.
+ */
+export function PlanPause({ subscription, onChanged }: { subscription: Subscription; onChanged: (s: Subscription) => void }) {
   const { t } = useTranslation();
   const api = useApi();
-  const reasonId = useId();
+  const titleId = useId();
+  const textId = useId();
+  const current = openPause(subscription);
+  const [calledOff, setCalledOff] = useState<string | null>(null);
+  const [sheet, setSheet] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const callOff = useAction();
+  const pro = subscription.proName ?? t('subscription.yourPro');
+  const active = subscription.status === 'active';
+  // The plan's own terms allow no pauses (D85): no switch, only the reason.
+  const allowed = subscription.maxPauseWeeks > 0;
   const load = useCallback(() => api.get<PauseOptions>(`/subscriptions/${subscription.id}/pause-options`), [api, subscription.id]);
-  const { state, reload } = useResource(load);
-  const [open, setOpen] = useState(false);
+  const needsOptions = active && allowed && !current;
+  const withdrawn = calledOff ? subscription.pauses.find((pause) => pause.id === calledOff && pause.status === 'withdrawn') : undefined;
 
-  if (state.status === 'error') {
-    return (
-      <p className="small muted">
-        {t('subscription.pause.loadFailed')}{' '}
-        <button type="button" className="link" onClick={reload}>
-          {t('common.retry')}
-        </button>
-      </p>
-    );
+  if (!current && !active) return null;
+
+  const description = current
+    ? current.status === 'running'
+      ? t('subscription.holiday.running', { date: calendarDay(current.endsOn) })
+      : t('subscription.holiday.upcoming', { from: calendarDay(current.startsOn), to: calendarDay(current.endsOn) })
+    : allowed
+      ? t('subscription.holiday.off', {
+          count: subscription.maxPauseWeeks,
+          notice: subscription.pauseNoticeDays === 0 ? t('planRules.noticeNone') : t('planRules.notice', { count: subscription.pauseNoticeDays }),
+        })
+      : t('subscription.pause.reasons.pauses_not_allowed');
+
+  async function confirmCallOff() {
+    if (!current) return;
+    const result = await callOff.run(() => api.post<{ subscription: Subscription }>(`/subscriptions/${subscription.id}/pause/${current.id}/cancel`));
+    if (result) {
+      setConfirming(false);
+      setCalledOff(current.id);
+      onChanged(result.subscription);
+    }
   }
+
+  return (
+    <section className="stack" aria-labelledby={titleId}>
+      <div className="card row between holiday-card">
+        <div className="grow">
+          <h2 id={titleId} className="b">
+            {t('subscription.holiday.title')}
+          </h2>
+          <p id={textId} className="small muted">
+            {description}
+          </p>
+          {current && current.creditCents > 0 && (
+            <p className="small">{t('subscription.pause.credited', { amount: euro(current.creditCents - current.reversedCents) })}</p>
+          )}
+        </div>
+        {allowed &&
+          (current ? (
+            <button
+              type="button"
+              role="switch"
+              aria-checked="true"
+              aria-labelledby={titleId}
+              aria-describedby={textId}
+              className="toggle on"
+              // A running pause cannot be called off (D78).
+              disabled={current.status !== 'upcoming' || callOff.busy}
+              onClick={() => setConfirming(true)}
+            />
+          ) : (
+            <PauseSwitch subscription={subscription} load={load} enabled={needsOptions} titleId={titleId} open={sheet} setOpen={setSheet} onPaused={onChanged} />
+          ))}
+      </div>
+      {confirming && current && (
+        <div role="alertdialog" aria-labelledby="call-off-pause" className="card stack">
+          <p id="call-off-pause">{t('subscription.pause.callOffQuestion', { pro })}</p>
+          <div className="row gap8">
+            <button type="button" className="btn btn-ghost" onClick={() => setConfirming(false)}>
+              {t('subscription.pause.keep')}
+            </button>
+            <button type="button" className="btn btn-danger" disabled={callOff.busy} onClick={() => void confirmCallOff()}>
+              {t('subscription.pause.callOffConfirm')}
+            </button>
+          </div>
+        </div>
+      )}
+      <ErrorText error={callOff.error} />
+      {withdrawn && <CalledOffNote pause={withdrawn} pro={pro} />}
+    </section>
+  );
+}
+
+/** The switch while no pause is planned: it opens the pause sheet, or says why the plan cannot be paused now. */
+function PauseSwitch({
+  subscription,
+  load,
+  enabled,
+  titleId,
+  open,
+  setOpen,
+  onPaused,
+}: {
+  subscription: Subscription;
+  load: () => Promise<PauseOptions>;
+  enabled: boolean;
+  titleId: string;
+  open: boolean;
+  setOpen: (open: boolean) => void;
+  onPaused: (next: Subscription) => void;
+}) {
+  const { t } = useTranslation();
+  const reasonId = useId();
+  const { state, reload } = useResource(load);
   const options = state.status === 'ready' ? state.data : null;
   const ready =
-    options && !options.reason && options.earliestStartOn && options.latestStartOn
+    enabled && options && !options.reason && options.earliestStartOn && options.latestStartOn
       ? { ...options, earliestStartOn: options.earliestStartOn, latestStartOn: options.latestStartOn }
       : null;
   return (
     <>
       <button
         type="button"
-        className="btn btn-ghost"
-        aria-haspopup="dialog"
-        disabled={!ready}
+        role="switch"
+        aria-checked="false"
+        aria-labelledby={titleId}
         aria-describedby={options?.reason ? reasonId : undefined}
+        className="toggle"
+        disabled={!ready}
         onClick={() => setOpen(true)}
-      >
-        {t('subscription.pause.button')}
-      </button>
+      />
       {options?.reason && (
-        <p id={reasonId} className="small muted">
+        <p id={reasonId} className="small muted holiday-reason">
           {t(`subscription.pause.reasons.${options.reason}`, { count: options.maxPauseWeeks })}
+        </p>
+      )}
+      {state.status === 'error' && (
+        <p className="small muted holiday-reason">
+          {t('subscription.pause.loadFailed')}{' '}
+          <button type="button" className="link" onClick={reload}>
+            {t('common.retry')}
+          </button>
         </p>
       )}
       {open && ready && (
@@ -241,47 +300,10 @@ function PauseStarter({ subscription, onChanged }: { subscription: Subscription;
           onClose={() => setOpen(false)}
           onPaused={(next) => {
             setOpen(false);
-            onChanged(next);
+            onPaused(next);
           }}
         />
       )}
     </>
-  );
-}
-
-/** The pause part of My plan: the open pause, or the Pause plan button for an active plan (D78). */
-export function PlanPause({ subscription, onChanged }: { subscription: Subscription; onChanged: (s: Subscription) => void }) {
-  const { t } = useTranslation();
-  const current = openPause(subscription);
-  const [calledOff, setCalledOff] = useState<string | null>(null);
-  const withdrawn = calledOff ? subscription.pauses.find((pause) => pause.id === calledOff && pause.status === 'withdrawn') : undefined;
-  if (current) {
-    return (
-      <PauseCard
-        subscription={subscription}
-        pause={current}
-        onChanged={(next) => {
-          setCalledOff(current.id);
-          onChanged(next);
-        }}
-      />
-    );
-  }
-  if (subscription.status !== 'active') {
-    return null;
-  }
-  // The plan's own terms allow no pauses (D85): no Pause action, only the reason.
-  if (subscription.maxPauseWeeks === 0) {
-    return (
-      <section className="stack" aria-label={t('subscription.pause.sectionLabel')}>
-        <p className="small muted">{t('subscription.pause.reasons.pauses_not_allowed')}</p>
-      </section>
-    );
-  }
-  return (
-    <section className="stack" aria-label={t('subscription.pause.sectionLabel')}>
-      {withdrawn && <CalledOffNote pause={withdrawn} pro={subscription.proName ?? t('subscription.yourPro')} />}
-      <PauseStarter subscription={subscription} onChanged={onChanged} />
-    </section>
   );
 }

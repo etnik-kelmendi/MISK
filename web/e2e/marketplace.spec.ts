@@ -255,16 +255,19 @@ test.describe.serial('MISK marketplace', () => {
   test('a customer subscribes to the plan the team published, and the pro sees it', async ({ browser }) => {
     const customer = await signInByPhone(browser, CUSTOMER_PHONE);
     await customer.goto('/plans');
-    await customer.getByRole('link', { name: /Weekly lawn care/ }).click();
+    await customer.getByRole('link', { name: /Choose weekly lawn care/ }).click();
     await expect(customer.getByRole('region', { name: 'Your monthly price' })).toContainText('€49');
     await customer.getByRole('checkbox', { name: 'Tue' }).check({ force: true });
     await customer.getByLabel('Street and house number').fill('12 Linden Street');
     await customer.getByLabel('Postcode').selectOption('10115');
+    await customer.getByRole('checkbox', { name: 'I agree to the subscription terms' }).check();
     await expectAccessible(customer);
     await customer.getByRole('button', { name: 'Subscribe · €49/month' }).click();
-    await expect(customer.getByText('Daniel is your regular pro')).toBeVisible();
+    await expect(customer.getByText('Weekly lawn care is active')).toBeVisible();
+    await customer.getByRole('button', { name: 'See my visits' }).click();
     await expect(customer.getByRole('button', { name: /^Move the visit on/ }).first()).toBeVisible();
-    await expect(customer.getByRole('button', { name: 'Cancel plan' })).toBeDisabled();
+    await expect(customer.getByRole('button', { name: /^Skip the visit on/ }).first()).toBeVisible();
+    await expect(customer.getByRole('button', { name: 'Cancel subscription' })).toBeEnabled();
     await expectAccessible(customer);
     await customer.context().close();
 

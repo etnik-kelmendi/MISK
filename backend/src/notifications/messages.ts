@@ -121,6 +121,11 @@ export const messages = {
     `MISK: ${pro} did not confirm the new time in time. Your ${plan} visit stays at ${from}.`,
   visitMoveWithdrawn: (customer: string, plan: string, from: string) =>
     `MISK: ${customer} withdrew the request to move the ${plan} visit. It stays at ${from}.`,
+  // Skipping one plan visit (D90): the pro is not expected then, and is told when the customer wants it back.
+  visitSkipped: (customer: string, plan: string, when: string) =>
+    `MISK: ${customer} skipped the ${plan} visit on ${when}. You are not expected then.`,
+  visitUnskipped: (customer: string, plan: string, when: string) =>
+    `MISK: ${customer} wants the ${plan} visit on ${when} after all. It is back in your plan.`,
   // Pausing a plan (D78).
   planPaused: (plan: string, from: string, to: string, creditCents: number) =>
     creditCents > 0
