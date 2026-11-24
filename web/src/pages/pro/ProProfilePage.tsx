@@ -12,6 +12,7 @@ import { useUser } from '../../auth/AuthContext';
 import { ResourceState } from '../../components/ResourceState';
 import { useAction } from '../../lib/useAction';
 import { ApplicationForm } from './ApplicationForm';
+import { AvailabilitySection } from './AvailabilitySection';
 
 /** The pro's profile photo (D83): customers see it on their booking, in the chat and when they rate the job. */
 function ProPhoto({ profile, onChange }: { profile: ProProfile; onChange: (p: ProProfile) => void }) {
@@ -157,6 +158,9 @@ export function ProProfilePage() {
             <div className="stack">
               <ProPhoto profile={profile} onChange={onChange} />
               <Payouts profile={profile} onChange={onChange} />
+              {profile.availability && ['approved', 'pending_approval'].includes(profile.status) && (
+                <AvailabilitySection availability={profile.availability} onChange={(availability) => onChange({ ...profile, availability })} />
+              )}
               <p className="small muted">{t(`apply.statusLine.${profile.status}`)}</p>
               <ApplicationForm profile={profile} onChange={onChange} />
             </div>

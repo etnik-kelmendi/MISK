@@ -76,8 +76,9 @@ if (demo) {
   );
   const proId = pro.rows[0]?.id;
   await pool.query(
-    `INSERT INTO pro_profiles (user_id, status, home_postcode, radius_km, working_days, stripe_account_id, payouts_enabled)
-     VALUES ($1, 'approved', '10115', 15, '{1,2,3,4,5,6,7}', 'acct_e2e', true)`,
+    // Around the clock, so browser tests get offers whatever time they run (D94).
+    `INSERT INTO pro_profiles (user_id, status, home_postcode, radius_km, working_days, stripe_account_id, payouts_enabled, work_start, work_end)
+     VALUES ($1, 'approved', '10115', 15, '{1,2,3,4,5,6,7}', 'acct_e2e', true, '00:00', '24:00')`,
     [proId],
   );
   await pool.query('INSERT INTO pro_trades (pro_id, category_id) VALUES ($1, $2)', [proId, categoryId]);

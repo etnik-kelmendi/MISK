@@ -36,6 +36,7 @@ export type NotificationKind =
   | 'plan_paused'
   | 'plan_pause_called_off'
   | 'payout_sent'
+  | 'support_alert'
   | 'waitlist_open'
   | 'admin_test';
 
@@ -84,6 +85,7 @@ const SUBJECTS: Partial<Record<NotificationKind, string>> = {
   visit_unskipped: 'A skipped plan visit is back',
   plan_paused: 'A MISK plan is paused',
   plan_pause_called_off: 'A MISK plan pause is called off',
+  support_alert: 'MISK support: a pro needs help on site',
 };
 
 /** How one message overrides the usual channels and email (see enqueue). */

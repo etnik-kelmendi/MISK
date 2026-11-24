@@ -4,6 +4,7 @@ import { isExclusionViolation } from '../http.js';
 import { proShareCents } from '../catalogue/pricing.js';
 import { formatDay, formatSlot, messages } from '../notifications/messages.js';
 import { enqueue } from '../notifications/outbox.js';
+import { onlineNowSql } from '../pros/working-hours.js';
 import { eligibleProFilter, SLOT_STEP_MINUTES } from './availability.js';
 import { setStatus, type BookingDeps } from './events.js';
 
@@ -93,7 +94,9 @@ export async function offerNext(deps: BookingDeps, bookingId: string): Promise<'
     const next = booking.started
       ? { rows: [] }
       : await client.query<{ user_id: string; online: boolean }>(
-          `SELECT p.user_id, p.online FROM pro_profiles p
+          // Online means the switch is on and the pro is inside their working hours, not on a day off or a
+          // holiday, unless they chose "Go online" for today (D94).
+          `SELECT p.user_id, ${onlineNowSql('$5')} AS online FROM pro_profiles p
            WHERE ${
              booking.flexible_window
                ? // A flexible job goes to pros free at one of its possible starts at least.
@@ -104,7 +107,7 @@ export async function offerNext(deps: BookingDeps, bookingId: string): Promise<'
              AND NOT EXISTS (SELECT 1 FROM booking_offers o WHERE o.booking_id = $6 AND o.pro_id = p.user_id)
              AND NOT ${LATE_CANCEL_PAUSED}
            ORDER BY
-             p.online DESC,
+             ${onlineNowSql('$5')} DESC,
              -- The pro the customer picked on Home gets the first offer when free and online (D89).
              (p.user_id IS NOT DISTINCT FROM $9::uuid) DESC,
              COALESCE((SELECT avg(stars) FROM ratings r WHERE r.pro_id = p.user_id), $7) DESC,
@@ -178,6 +181,7 @@ export async function dispatchTick(deps: BookingDeps): Promise<number> {
        OR (b.flexible_window IS NOT NULL AND b.time_confirmed_at IS NULL AND b.confirm_by <= now()))`,
   );
   await setOfflineAfterMissedOffers(deps);
+  await withdrawOffersOfOfflinePros(deps);
   const waiting = await deps.pool.query<{ id: string }>(
     `SELECT b.id FROM bookings b
      WHERE b.status = 'searching'
@@ -188,6 +192,25 @@ export async function dispatchTick(deps: BookingDeps): Promise<number> {
     await offerNext(deps, id);
   }
   return waiting.rows.length;
+}
+
+/**
+ * Unanswered offers of pros who are offline now, because their working hours ended, a day off or holiday
+ * began, or they switched off, go to the next pro at once (D94). Returns how many offers moved on.
+ */
+export async function withdrawOffersOfOfflinePros(deps: BookingDeps): Promise<number> {
+  const withdrawn = await deps.pool.query<{ booking_id: string; pro_id: string }>(
+    `UPDATE booking_offers o SET status = 'withdrawn', responded_at = now()
+     FROM pro_profiles p
+     WHERE p.user_id = o.pro_id AND o.status = 'pending' AND NOT ${onlineNowSql('$1')}
+     RETURNING o.booking_id, o.pro_id`,
+    [deps.config.timezone],
+  );
+  for (const { booking_id, pro_id } of withdrawn.rows) {
+    deps.log.info({ event: 'offer_withdrawn_pro_offline', bookingId: booking_id, proId: pro_id });
+    await offerNext(deps, booking_id);
+  }
+  return withdrawn.rowCount ?? 0;
 }
 
 /**

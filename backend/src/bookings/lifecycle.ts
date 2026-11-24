@@ -241,6 +241,65 @@ export async function settleLateCancellation(deps: BookingDeps, bookingId: strin
   await payPro(deps, bookingId);
 }
 
+/**
+ * What a customer no-show (D94) costs and pays: the call-out fee plus paid waiting at the door, never more than
+ * the money held for the job. The pro gets the whole fee and their share of the waiting time.
+ */
+export function noShowAmounts(input: { feeCents: number; waitingCents: number; heldCents: number; proSharePct: number }) {
+  const chargeCents = Math.min(input.feeCents + input.waitingCents, input.heldCents);
+  const proCents = Math.min(input.feeCents + proShareCents(input.waitingCents, input.proSharePct), chargeCents);
+  return { chargeCents, proCents };
+}
+
+/**
+ * Takes the call-out fee of a customer no-show from the held money, releases the rest, and pays the pro (D94).
+ * Safe to call again: each step is recorded.
+ */
+export async function settleNoShow(deps: BookingDeps, bookingId: string): Promise<void> {
+  const found = await deps.pool.query<{
+    payment_intent_id: string | null;
+    payment_status: string;
+    pro_id: string;
+    price_cents: number;
+    fee_cents: number;
+    pro_share_pct: number;
+    no_show_fee_cents: number;
+    no_show_waiting_cents: number | null;
+  }>(
+    `SELECT payment_intent_id, payment_status, pro_id, price_cents, fee_cents, pro_share_pct, no_show_fee_cents, no_show_waiting_cents
+     FROM bookings WHERE id = $1 AND status = 'cancelled' AND no_show_at IS NOT NULL AND pro_id IS NOT NULL`,
+    [bookingId],
+  );
+  const booking = found.rows[0];
+  if (!booking) {
+    return;
+  }
+  if (booking.payment_status === 'held' && booking.payment_intent_id) {
+    const { chargeCents, proCents } = noShowAmounts({
+      feeCents: booking.no_show_fee_cents,
+      waitingCents: booking.no_show_waiting_cents ?? 0,
+      heldCents: booking.price_cents + booking.fee_cents,
+      proSharePct: booking.pro_share_pct,
+    });
+    if (chargeCents <= 0) {
+      // A call-out fee of 0 set in Settings: nothing is taken.
+      await releaseHolds(deps, [{ intentId: booking.payment_intent_id, table: 'bookings' }]);
+      return;
+    }
+    const { chargeId } = await deps.gateway.capture(booking.payment_intent_id, chargeCents);
+    await withTransaction(deps.pool, async (client) => {
+      await client.query("UPDATE bookings SET payment_status = 'captured' WHERE id = $1", [bookingId]);
+      await client.query(
+        `INSERT INTO payouts (booking_id, pro_id, payment_intent_id, charge_id, amount_cents)
+         VALUES ($1, $2, $3, $4, $5) ON CONFLICT (payment_intent_id) DO NOTHING`,
+        [bookingId, booking.pro_id, booking.payment_intent_id, chargeId, proCents],
+      );
+    });
+    deps.log.info({ event: 'no_show_settled', bookingId, chargeCents, proCents });
+  }
+  await payPro(deps, bookingId);
+}
+
 /** Cancels bookings whose payment was never completed, freeing their slot. Returns how many. */
 export async function expireUnpaid(deps: BookingDeps): Promise<number> {
   const stale = await deps.pool.query<{ id: string }>(
@@ -326,6 +385,16 @@ export async function settleBooking(deps: BookingDeps, bookingId: string): Promi
     });
   }
 
+  // Waiting time the customer's card refused is paid to the pro by MISK (D94).
+  await deps.pool.query(
+    `INSERT INTO payouts (booking_id, pro_id, payment_intent_id, charge_id, amount_cents)
+     SELECT e.booking_id, $2, 'misk-waiting-' || e.id, NULL, floor(e.price_cents * $3::numeric / 100)::int
+     FROM extra_requests e
+     WHERE e.booking_id = $1 AND e.kind = 'waiting' AND e.status = 'approved' AND e.funded_by = 'misk'
+     ON CONFLICT (payment_intent_id) DO NOTHING`,
+    [bookingId, booking.pro_id, booking.pro_share_pct],
+  );
+
   await payPro(deps, bookingId);
 }
 
@@ -347,7 +416,7 @@ export async function payPro(deps: BookingDeps, bookingId: string): Promise<void
     deps.log.error({ event: 'payout_blocked', bookingId, reason: 'pro_has_no_payout_account' });
     return;
   }
-  const pending = await deps.pool.query<{ id: string; charge_id: string; amount_cents: number }>(
+  const pending = await deps.pool.query<{ id: string; charge_id: string | null; amount_cents: number }>(
     `SELECT id, charge_id, amount_cents FROM payouts WHERE booking_id = $1 AND status IN ('pending', 'failed')`,
     [bookingId],
   );
@@ -356,7 +425,8 @@ export async function payPro(deps: BookingDeps, bookingId: string): Promise<void
       const { transferId } = await deps.gateway.transfer({
         accountId: booking.stripe_account_id,
         amountCents: payout.amount_cents,
-        sourceChargeId: payout.charge_id,
+        // A payout MISK funds itself (D94) has no charge and is paid from MISK's balance.
+        ...(payout.charge_id ? { sourceChargeId: payout.charge_id } : {}),
         transferGroup: `booking-${bookingId}`,
         idempotencyKey: `payout-${payout.id}`,
       });
@@ -393,6 +463,8 @@ export async function settleTick(deps: BookingDeps): Promise<number> {
      WHERE b.status = 'completed' AND ${READY_TO_CHARGE} AND (
        b.payment_status = 'held'
        OR EXISTS (SELECT 1 FROM extra_requests e WHERE e.booking_id = b.id AND e.status = 'approved' AND e.payment_status = 'held')
+       OR EXISTS (SELECT 1 FROM extra_requests e WHERE e.booking_id = b.id AND e.kind = 'waiting' AND e.status = 'approved'
+                  AND e.funded_by = 'misk' AND NOT EXISTS (SELECT 1 FROM payouts p WHERE p.payment_intent_id = 'misk-waiting-' || e.id))
        OR EXISTS (SELECT 1 FROM payouts p WHERE p.booking_id = b.id AND p.status IN ('pending', 'failed')
                   AND p.updated_at < now() - interval '10 minutes')
      )
@@ -420,7 +492,23 @@ export async function settleTick(deps: BookingDeps): Promise<number> {
       deps.log.error({ event: 'late_cancel_settle_failed', bookingId: id, err: error });
     }
   }
-  return due.rows.length + lateCancels.rows.length;
+  // Customer no-shows (D94): the call-out fee is taken and the pro paid.
+  const noShows = await deps.pool.query<{ id: string }>(
+    `SELECT b.id FROM bookings b
+     WHERE b.status = 'cancelled' AND b.no_show_at IS NOT NULL AND (
+       b.payment_status = 'held'
+       OR EXISTS (SELECT 1 FROM payouts p WHERE p.booking_id = b.id AND p.status IN ('pending', 'failed')
+                  AND p.updated_at < now() - interval '10 minutes'))
+     LIMIT 50`,
+  );
+  for (const { id } of noShows.rows) {
+    try {
+      await settleNoShow(deps, id);
+    } catch (error) {
+      deps.log.error({ event: 'no_show_settle_failed', bookingId: id, err: error });
+    }
+  }
+  return due.rows.length + lateCancels.rows.length + noShows.rows.length;
 }
 
 /** A card reservation is renewed once it is this old: they last about seven days (D74). */

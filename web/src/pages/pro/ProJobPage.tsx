@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link, useParams, useSearchParams } from 'react-router';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { useApi } from '../../api/ApiContext';
 import { useMarket } from '../../api/MarketContext';
 import { CUSTOMER_RATING_TAGS, type BookingStatus, type CustomerRatingTag, type ProCancelReason, type ProJob } from '../../api/types';
@@ -10,12 +10,12 @@ import { FieldError } from '../../components/FieldError';
 import { Icon, type IconKey } from '../../components/Icon';
 import { Avatar, IMAGE_TYPES, MAX_FILE_BYTES, PhotoGrid } from '../../components/Photos';
 import { ResourceState } from '../../components/ResourceState';
-import { dateTime, euro, time } from '../../lib/format';
+import { dateTime, euro, longDate, time } from '../../lib/format';
 import { useAction } from '../../lib/useAction';
 import { usePolling } from '../../lib/usePolling';
 import { useValidation } from '../../lib/useValidation';
 import { AppHeader } from '../../shells/Shells';
-import { CancelJobSheet, ChatSheet, customerName, ExtraWorkSheet, IssueSheet, JOB_SHEETS, type JobSheet } from './JobSheets';
+import { CancelJobSheet, ChatSheet, CUSTOMER_COMMENT_MAX, customerName, ExtraWorkSheet, IssueSheet, JOB_SHEETS, type JobSheet } from './JobSheets';
 
 const STEPS: BookingStatus[] = ['accepted', 'on_the_way', 'working', 'completed'];
 /** The phone's position is sent at most this often while the pro is on the way (D83). */
@@ -155,7 +155,7 @@ function Checklist({ job, onChanged }: { job: ProJob; onChanged: (job: ProJob) =
 function ExtraState({ job }: { job: ProJob }) {
   const { t } = useTranslation();
   const name = customerName(job, t);
-  const latest = job.extras.at(-1);
+  const latest = job.extras.filter((extra) => extra.kind !== 'waiting').at(-1);
   if (!latest) return null;
   const values = { name, item: latest.description, price: euro(latest.priceCents) };
   if (latest.status === 'pending' || latest.status === 'awaiting_payment') {
@@ -182,13 +182,87 @@ function ExtraState({ job }: { job: ProJob }) {
   return null;
 }
 
-/** "How was Sara as a customer?" (D86): stars and tags, which only MISK sees. */
+/** Paid waiting at a locked door (D94): added to the pro's earnings, whoever pays it. */
+function WaitingPaid({ job }: { job: ProJob }) {
+  const { t } = useTranslation();
+  const waiting = job.extras.filter((extra) => extra.kind === 'waiting' && extra.status === 'approved');
+  if (waiting.length === 0) return null;
+  const cents = waiting.reduce((sum, extra) => sum + extra.priceCents, 0);
+  const share = job.proSharePct ?? 100;
+  return (
+    <p className="info" role="status">
+      <Icon name="clock" /> <span>{t('job.waitingPaid', { price: euro(Math.floor((cents * share) / 100)) })}</span>
+    </p>
+  );
+}
+
+/** Re-renders every second, for a moment that is coming up. */
+function useNow(active: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [active]);
+  return now;
+}
+
+/**
+ * "Issue reported. MISK support is on it" (D94). After a "not home" or "can't get in" report the pro can leave
+ * with the call-out fee once 15 minutes have passed.
+ */
+function IssueState({ job, onChanged }: { job: ProJob; onChanged: (job: ProJob) => void }) {
+  const { t } = useTranslation();
+  const api = useApi();
+  const { timezone } = useMarket();
+  const leave = useAction();
+  const leaveAt = job.leaveAt ? new Date(job.leaveAt).getTime() : null;
+  const now = useNow(leaveAt !== null);
+  if (!job.openIssue) return null;
+  const fee = euro(job.callOutFeeCents ?? 0);
+  return (
+    <section className="info amber stack-tight" role="status" aria-labelledby="issue-heading">
+      <Icon name="bell" />
+      <span className="stack-tight">
+        <b id="issue-heading" className="block">
+          {t('job.issueReported')}
+        </b>
+        <span className="block small">{t('job.issueReason', { reason: t(`issue.reasons.${job.openIssue.reason}`) })}</span>
+        {job.stopped && <span className="block small">{t('job.stopped')}</span>}
+        {leaveAt !== null && job.leaveAt && now < leaveAt && (
+          <span className="block small">{t('job.leaveWait', { fee, time: time(job.leaveAt, timezone) })}</span>
+        )}
+        {leaveAt !== null && now >= leaveAt && (
+          <span>
+            <button
+              type="button"
+              className="mini-btn"
+              disabled={leave.busy}
+              onClick={() =>
+                void leave
+                  .run(() => api.post<{ job: ProJob }>(`/pro/jobs/${encodeURIComponent(job.id)}/no-show`))
+                  .then((result) => result && onChanged(result.job))
+              }
+            >
+              <Icon name="logout" /> {t('job.leave', { fee })}
+            </button>
+          </span>
+        )}
+        <ErrorText error={leave.error} />
+      </span>
+    </section>
+  );
+}
+
+/** "How was Sara as a customer?" (D86): stars, tags and an optional comment (D94), which only MISK sees. */
 function RateCustomer({ job, onChanged }: { job: ProJob; onChanged: (job: ProJob) => void }) {
   const { t } = useTranslation();
   const api = useApi();
   const name = customerName(job, t);
   const [stars, setStars] = useState(0);
   const [tags, setTags] = useState<CustomerRatingTag[]>([]);
+  const [comment, setComment] = useState('');
+  const [commenting, setCommenting] = useState(false);
   const { run, busy, error } = useAction();
   const form = useValidation({ stars: stars === 0 && t('validation.starsMissing') }, { stars: 'customer-star-1' });
 
@@ -205,7 +279,13 @@ function RateCustomer({ job, onChanged }: { job: ProJob; onChanged: (job: ProJob
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!form.check()) return;
-    const result = await run(() => api.post<{ job: ProJob }>(`/pro/jobs/${encodeURIComponent(job.id)}/customer-rating`, { stars, tags }));
+    const result = await run(() =>
+      api.post<{ job: ProJob }>(`/pro/jobs/${encodeURIComponent(job.id)}/customer-rating`, {
+        stars,
+        tags,
+        ...(comment.trim() ? { comment: comment.trim() } : {}),
+      }),
+    );
     if (result) onChanged(result.job);
   }
 
@@ -252,9 +332,29 @@ function RateCustomer({ job, onChanged }: { job: ProJob; onChanged: (job: ProJob
           ))}
         </div>
       </fieldset>
+      {commenting ? (
+        <div className="field">
+          <label htmlFor="customer-comment">{t('customerRating.comment')}</label>
+          <textarea
+            id="customer-comment"
+            rows={2}
+            maxLength={CUSTOMER_COMMENT_MAX}
+            placeholder={t('customerRating.commentPlaceholder')}
+            value={comment}
+            onChange={(event) => setComment(event.target.value)}
+          />
+        </div>
+      ) : (
+        <div>
+          <button type="button" className="mini-btn" aria-expanded={false} onClick={() => setCommenting(true)}>
+            <Icon name="plus" /> {t('customerRating.addComment')}
+          </button>
+        </div>
+      )}
       <ErrorText error={error} />
+      {stars === 0 && <p className="tiny muted">{t('customerRating.pickStars')}</p>}
       <div>
-        <button type="submit" className="mini-btn pro-btn" disabled={busy}>
+        <button type="submit" className="mini-btn pro-btn" disabled={busy || stars === 0}>
           {t('customerRating.send')}
         </button>
       </div>
@@ -272,7 +372,8 @@ function MainButton({ job, onChanged }: { job: ProJob; onChanged: (job: ProJob) 
   const step = useAction();
   const photoInput = useRef<HTMLInputElement>(null);
   const [tooBig, setTooBig] = useState(false);
-  const next = NEXT[job.status];
+  // "Unsafe to work" stops the job (D94): no next step until MISK support resolves it.
+  const next = job.stopped ? undefined : NEXT[job.status];
   const completion = job.photos.filter((p) => p.kind === 'completion');
   const tasks = job.tasks ?? [];
   const done = tasks.filter((task) => task.done).length;
@@ -295,7 +396,13 @@ function MainButton({ job, onChanged }: { job: ProJob; onChanged: (job: ProJob) 
   }
 
   let button;
-  if (next) {
+  if (job.stopped) {
+    button = (
+      <p className="info red" role="status">
+        <Icon name="alert" /> <span>{t('job.stopped')}</span>
+      </p>
+    );
+  } else if (next) {
     button = (
       <button
         type="button"
@@ -390,6 +497,7 @@ function JobView({
   const street = job.address.split(',')[0] ?? job.address;
   const unread = job.unreadMessages ?? 0;
   const onHold = job.problemReportedAt !== null && job.problemResolvedAt === null;
+  const payoutDay = job.payoutOn ? longDate(job.payoutOn, 'UTC') : null;
 
   const open = (kind: JobSheet) => setParams({ sheet: kind });
   const close = useCallback(() => setParams({}, { replace: true }), [setParams]);
@@ -420,13 +528,20 @@ function JobView({
           )}
         </section>
 
-        {job.openIssue && (
-          <p className="info amber" role="status">
-            <Icon name="bell" />
-            <span>
-              <b>{t('job.issueOpen', { reason: t(`issue.reasons.${job.openIssue.reason}`) })}</b> {t('job.issueOpenHint')}
-            </span>
-          </p>
+        <IssueState job={job} onChanged={onChanged} />
+
+        {job.noShow && (
+          <section className="card stack-tight" role="status" aria-labelledby="no-show-heading">
+            <h2 id="no-show-heading" className="b">
+              {t('job.noShowTitle')}
+            </h2>
+            <p className="earn">{euro(job.earningsCents)}</p>
+            <p className="small muted">
+              {payoutDay
+                ? t('job.noShowText', { amount: euro(job.earningsCents), date: payoutDay })
+                : t('job.noShowTextNoDate', { amount: euro(job.earningsCents) })}
+            </p>
+          </section>
         )}
 
         <section className="card customer-line" aria-label={t('offer.customer')}>
@@ -470,6 +585,7 @@ function JobView({
         {active && (
           <>
             <ExtraState job={job} />
+            <WaitingPaid job={job} />
             <div className="job-actions" role="group" aria-label={t('job.actions')}>
               <button type="button" className="mini-btn" onClick={() => open('extra')}>
                 <Icon name="plus" /> {t('job.addExtra')}
@@ -536,9 +652,23 @@ function JobView({
                   </span>
                 )}
               </div>
-              <p className="tiny muted">{onHold ? t('job.earningsOnHoldHint', { name }) : t('job.earningsPendingHint', { name })}</p>
+              <p className="tiny muted">
+                {onHold
+                  ? t('job.earningsOnHoldHint', { name })
+                  : payoutDay
+                    ? t('job.earningsPendingHint', { date: payoutDay })
+                    : t('job.earningsPendingHintNoDate')}
+              </p>
             </section>
-            <PhotoGrid ids={completion} label={t('job.photos')} />
+            <WaitingPaid job={job} />
+            {completion.length > 0 && (
+              <section aria-labelledby="your-photos-heading" className="stack-tight">
+                <h2 id="your-photos-heading" className="h-sm">
+                  {t('job.yourPhotos')}
+                </h2>
+                <PhotoGrid ids={completion} label={t('job.photos')} />
+              </section>
+            )}
             <RateCustomer job={job} onChanged={onChanged} />
           </>
         )}
@@ -560,6 +690,7 @@ function JobView({
         <IssueSheet
           job={job}
           onClose={close}
+          onSendExtra={() => open('extra')}
           onSent={(next) => {
             onChanged(next);
             close();
@@ -580,27 +711,6 @@ function JobView({
   );
 }
 
-/** After the pro gave the job back (D86): what happens now, since the job is no longer theirs. */
-function Cancelled({ job, reason, late }: { job: ProJob; reason: ProCancelReason; late: boolean }) {
-  const { t } = useTranslation();
-  return (
-    <div className="body">
-      <section className="card center stack" role="status" aria-labelledby="cancelled-heading">
-        <h2 id="cancelled-heading" className="b">
-          {t('job.cancelledTitle')}
-        </h2>
-        <p className="small muted">{t('job.cancelledText', { reason: t(`proCancel.reasons.${reason}`), name: customerName(job, t) })}</p>
-        {late && <p className="small">{t('job.cancelledLate')}</p>}
-        <div>
-          <Link to="/pro" className="mini-btn green">
-            {t('job.backToJobs')}
-          </Link>
-        </div>
-      </section>
-    </div>
-  );
-}
-
 /** The Job sub-page of the pro app (D86): one accepted job while the pro does it. */
 export function ProJobPage() {
   const { t } = useTranslation();
@@ -608,26 +718,23 @@ export function ProJobPage() {
   const api = useApi();
   const load = useCallback(() => api.get<{ job: ProJob }>(`/pro/jobs/${encodeURIComponent(id)}`), [api, id]);
   const { state, reload, update } = useResource(load);
-  const [cancelled, setCancelled] = useState<{ job: ProJob; reason: ProCancelReason; late: boolean } | null>(null);
+  const navigate = useNavigate();
   // Picks up the customer's answer to extra work, cancellations and new messages.
-  usePolling(reload, 15_000, !cancelled && state.status === 'ready' && ACTIVE.includes(state.data.job.status));
+  usePolling(reload, 15_000, state.status === 'ready' && ACTIVE.includes(state.data.job.status));
 
   return (
     <>
       <AppHeader title={t('job.title')} back="/pro" />
-      {cancelled ? (
-        <Cancelled job={cancelled.job} reason={cancelled.reason} late={cancelled.late} />
-      ) : (
-        <ResourceState state={state} reload={reload}>
-          {({ job }) => (
-            <JobView
-              job={job}
-              onChanged={(next) => update(() => ({ job: next }))}
-              onCancelled={(result) => setCancelled({ job, ...result })}
-            />
-          )}
-        </ResourceState>
-      )}
+      <ResourceState state={state} reload={reload}>
+        {({ job }) => (
+          <JobView
+            job={job}
+            onChanged={(next) => update(() => ({ job: next }))}
+            // The job is no longer this pro's: the Jobs page shows "You cancelled this job" (D94).
+            onCancelled={() => navigate('/pro', { replace: true })}
+          />
+        )}
+      </ResourceState>
     </>
   );
 }

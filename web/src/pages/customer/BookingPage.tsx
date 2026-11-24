@@ -466,7 +466,11 @@ function BookingView({
   const open = booking.status !== 'completed' && booking.status !== 'cancelled';
   const name = proName(booking, t('problem.yourPro'));
   const unread = booking.unreadMessages ?? 0;
-  const hasReceipt = booking.status === 'completed' || booking.lateCancel;
+  const hasReceipt = booking.status === 'completed' || booking.lateCancel || Boolean(booking.noShow);
+  // Paid waiting at a locked door (D94), a line of its own on the price.
+  const waitingCents = booking.extras
+    .filter((extra) => extra.kind === 'waiting' && extra.status === 'approved')
+    .reduce((sum, extra) => sum + extra.priceCents, 0);
   const now = useNow();
   const late = booking.status === 'accepted' && now > new Date(booking.startsAt).getTime() + LATE_AFTER_MS;
   const tracking = booking.status !== 'cancelled' && booking.status !== 'awaiting_payment';
@@ -589,9 +593,20 @@ function BookingView({
           </section>
         )}
 
-        {booking.extras.map((extra) => (
-          <ExtraCard key={extra.id} booking={booking} extra={extra} onChanged={onChanged} />
-        ))}
+        {booking.extras
+          .filter((extra) => extra.kind !== 'waiting')
+          .map((extra) => (
+            <ExtraCard key={extra.id} booking={booking} extra={extra} onChanged={onChanged} />
+          ))}
+
+        {booking.noShow && (
+          <section className="card stack-tight" role="status" aria-labelledby="no-show-heading">
+            <h2 id="no-show-heading" className="b">
+              {t('booking.noShowTitle')}
+            </h2>
+            <p className="small">{t('booking.noShowText', { amount: euro(booking.noShow.chargeCents) })}</p>
+          </section>
+        )}
 
         <PhotoGrid ids={proPhotos} label={t('booking.proPhotos')} />
 
@@ -630,19 +645,34 @@ function BookingView({
         )}
 
         <section className="card" aria-label={t('book.price')}>
-          <p className="line">
-            <span>{booking.serviceName}</span>
-            <span>{euro(booking.priceCents)}</span>
-          </p>
-          <p className="line">
-            <span className="muted">{t('book.fee')}</span>
-            <span>{euro(booking.feeCents)}</span>
-          </p>
-          {booking.extrasCents > 0 && (
+          {booking.noShow ? (
             <p className="line">
-              <span className="muted">{t('booking.extras')}</span>
-              <span>{euro(booking.extrasCents)}</span>
+              <span>{t('booking.noShowTitle')}</span>
+              <span>{euro(booking.noShow.chargeCents)}</span>
             </p>
+          ) : (
+            <>
+              <p className="line">
+                <span>{booking.serviceName}</span>
+                <span>{euro(booking.priceCents)}</span>
+              </p>
+              <p className="line">
+                <span className="muted">{t('book.fee')}</span>
+                <span>{euro(booking.feeCents)}</span>
+              </p>
+              {booking.extrasCents - waitingCents > 0 && (
+                <p className="line">
+                  <span className="muted">{t('booking.extras')}</span>
+                  <span>{euro(booking.extrasCents - waitingCents)}</span>
+                </p>
+              )}
+              {waitingCents > 0 && (
+                <p className="line">
+                  <span className="muted">{t('booking.waitingTime')}</span>
+                  <span>{euro(waitingCents)}</span>
+                </p>
+              )}
+            </>
           )}
           <p className="line total">
             <span>{t('book.total')}</span>
@@ -655,6 +685,10 @@ function BookingView({
             </button>
           )}
         </section>
+
+        {open && (booking.callOutFeeCents ?? 0) > 0 && (
+          <p className="tiny muted">{t('booking.callOutTerms', { fee: euro(booking.callOutFeeCents ?? 0) })}</p>
+        )}
 
         {open && (
           <section aria-label={t('booking.yourPhotos')}>

@@ -158,4 +158,17 @@ export const messages = {
   // The first month of a plan billed from its first visit day (D91) was not paid: its visits wait for the payment.
   planFirstPaymentFailed: (plan: string) =>
     `MISK: the first monthly payment for your ${plan} has not gone through, so your visits are on hold until it does. Please check your card in the app.`,
+  // The Job page keeps its promises (D94).
+  proRunningLate: (proName: string, minutes: number, arrival: string) =>
+    `MISK: sorry, ${proName} is running about ${minutes} minutes late and now expects to arrive at ${arrival}. Follow them live in the app.`,
+  supportAlert: (number: string, reason: string, address: string, urgent: boolean) =>
+    `${urgent ? 'URGENT ' : ''}MISK support: the pro on ${number} at ${address} reports "${reason}". ${
+      urgent ? 'Call the pro now.' : 'See Bookings, Needs action.'
+    }`,
+  noShowCustomer: (service: string, when: string, chargedCents: number) =>
+    `MISK: your pro waited for you for your ${service} on ${when} but could not get in, so the job is cancelled. A call-out fee of ${formatEuro(chargedCents)} is charged and the rest of the held money released.`,
+  noShowPro: (service: string, earnCents: number) =>
+    `MISK: the ${service} job is closed as a customer no-show. You get ${formatEuro(earnCents)} with your next payout.`,
+  waitingCharged: (service: string, minutes: number, cents: number) =>
+    `MISK: your pro waited ${minutes} minutes to get in for your ${service}. As your booking terms say, this waiting time (${formatEuro(cents)}) is added to the job.`,
 };

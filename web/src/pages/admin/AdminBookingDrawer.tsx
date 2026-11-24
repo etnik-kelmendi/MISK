@@ -167,6 +167,19 @@ function LogLine({ entry }: { entry: AdminAction }) {
         });
       case 'issue_resolved':
         return t('admin.booking.logAction.issue_resolved', { reason: t(`issue.reasons.${(entry.details.reason ?? 'other') as IssueReason}`) });
+      // On site (D94).
+      case 'no_show':
+        return t('admin.booking.logAction.no_show', {
+          reason: t(`issue.reasons.${(entry.details.reason ?? 'customer_not_home') as IssueReason}`),
+          charged: euro(entry.details.chargeCents ?? 0),
+          paid: euro(entry.details.proCents ?? 0),
+        });
+      case 'waiting_paid':
+        return t(entry.details.fundedBy === 'misk' ? 'admin.booking.logAction.waiting_paid_misk' : 'admin.booking.logAction.waiting_paid', {
+          amount: euro(entry.details.cents ?? 0),
+        });
+      case 'late_warning':
+        return t('admin.booking.logAction.late_warning', { minutes: entry.details.lateMinutes ?? 0 });
       default:
         return t(`admin.booking.logAction.${entry.action}`);
     }

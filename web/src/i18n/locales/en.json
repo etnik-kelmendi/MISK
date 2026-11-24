@@ -214,7 +214,14 @@
     "plan_ending": "Your plan ends before this visit.",
     "visit_paused": "This visit falls in your pause.",
     "pro_no_longer_free": "Your pro is no longer free at that time, so the visit stays skipped.",
-    "not_cancelled": "This plan is not cancelled."
+    "not_cancelled": "This plan is not cancelled.",
+    "hours_invalid": "The finish time must be after the start time.",
+    "holiday_invalid": "Choose a holiday from today, with the last day on or after the first.",
+    "holiday_too_long": "A holiday can be at most 92 days. Add another one for a longer break.",
+    "too_many_holidays": "You can plan at most 20 holidays.",
+    "job_stopped": "This job is stopped because you reported it unsafe. MISK support has to resolve it first.",
+    "no_door_issue": "First report that the customer is not home or that you can't get in.",
+    "wait_longer": "Please wait the full 15 minutes before you leave."
   },
   "nav": {
     "customer": "Main menu",
@@ -482,7 +489,11 @@
     "tasksDone": "{{done}} of {{total}} tasks done",
     "taskDone": "done",
     "taskTodo": "not done yet",
-    "proIssue": "{{name}} asked MISK support for help with this job. Support may contact you."
+    "proIssue": "{{name}} asked MISK support for help with this job. Support may contact you.",
+    "noShowTitle": "Your pro could not get in",
+    "noShowText": "Your pro waited for you but could not get in, so the job was cancelled. A call-out fee of {{amount}} was charged and the rest of the held money released.",
+    "callOutTerms": "If you're not home when your pro arrives, MISK calls you. After 15 minutes the pro can leave and a {{fee}} call-out fee is charged. If the pro can't get in, their waiting time is added to the job.",
+    "waitingTime": "Waiting time at the door"
   },
   "timeline": {
     "searching": "Booking confirmed",
@@ -809,11 +820,28 @@
     "offlineTitle": "You're offline",
     "offlineText": "No new job offers come in. Accepted jobs and plan visits stay in your schedule.",
     "goOnline": "Go online",
-    "offlineAuto": "Offers only come for your working days, and you go offline automatically after 3 missed offers in a row.",
+    "offlineAuto": "You also go offline automatically outside your working hours, on days off, during a holiday, and after 3 missed offers in a row.",
     "offersPaused": "New job offers are paused until {{date}}, because you cancelled 3 jobs late within 30 days.",
     "laterToday": "Later today",
     "nothingToday": "Nothing else planned for today.",
-    "seeWeek": "See my week"
+    "seeWeek": "See my week",
+    "offlineReason": {
+      "outside_hours": "Outside your working hours",
+      "day_off": "Day off",
+      "holiday": "On holiday until {{date}}"
+    },
+    "offlineReasonHours": "Your hours are {{from}}–{{to}}.",
+    "goOnlineToday": "Going online now lasts until the end of today.",
+    "onlineToday": "You chose to be online until midnight, outside your usual hours.",
+    "cancelledCard": {
+      "title": "You cancelled this job",
+      "job": "{{service}}, {{when}}",
+      "reason": "Reason: {{reason}}",
+      "offeredTo": "It was offered to {{name}}, and the customer was told automatically.",
+      "finding": "Finding another pro. The customer was told automatically.",
+      "late": "Less than 24 hours before the start, so it counts as a late cancellation.",
+      "dismiss": "Close this notice"
+    }
   },
   "offer": {
     "new": "New job request",
@@ -834,7 +862,8 @@
     "noStart": "You are not free at any time in this window.",
     "acceptAt": "Accept, start {{time}}",
     "customerRated": "{{name}} · ★ {{rating}} customer",
-    "customerNew": "{{name}} · new customer"
+    "customerNew": "{{name}} · new customer",
+    "sizeAndLength": "{{size}} · {{duration}}"
   },
   "job": {
     "title": "Job",
@@ -875,28 +904,33 @@
     "checklist": "Checklist",
     "checklistLater": "You can tick off the tasks once you start the job.",
     "tasksDone": "{{done}} of {{total}} done",
-    "extraWaiting": "Waiting for {{name}} to approve {{item}} +{{price}}.",
+    "extraWaiting": "Waiting for the customer to approve {{item}} +{{price}}",
     "extraApproved": "{{name}} approved {{item}} +{{price}}. It's added to this job.",
     "extraDeclined": "{{name}} declined {{item}}.",
     "actions": "Other actions",
     "reportIssue": "Report an issue",
     "cancelJob": "Cancel job",
-    "issueOpen": "Issue reported: {{reason}}.",
-    "issueOpenHint": "MISK support has it and will contact you.",
     "youllEarn": "You'll earn",
     "earningsPending": "Pending",
     "earningsOnHold": "On hold",
     "earningsPaid": "Paid",
-    "earningsPendingHint": "Released 24 h after the job if {{name}} doesn't report a problem, then paid out with your next payout.",
+    "earningsPendingHint": "Released 24 hours after the job if the customer doesn't report a problem, then paid out on {{date}}",
     "earningsOnHoldHint": "{{name}} reported a problem, so the payment is on hold until MISK support resolves it.",
     "earningsPaidHint": "Sent to your bank account with your payout.",
     "addPhotosComplete": "Add photos & complete",
     "completePartly": "Complete with {{done}} of {{total}} tasks done",
     "seeWeek": "See my week",
-    "cancelledTitle": "You cancelled this job",
-    "cancelledText": "Reason: {{reason}}. It goes back to other pros nearby, and {{name}} was told automatically.",
-    "cancelledLate": "It was less than 24 hours before the start, so it counts as a late cancellation.",
-    "backToJobs": "Back to jobs"
+    "issueReported": "Issue reported. MISK support is on it",
+    "issueReason": "You reported: {{reason}}.",
+    "stopped": "Work is stopped because you reported it unsafe. MISK support has it at the top of its list. Continue only once support has resolved it.",
+    "leaveWait": "If nobody lets you in, you can leave with the {{fee}} call-out fee at {{time}}. MISK is contacting the customer.",
+    "leave": "Leave and get the {{fee}} call-out fee",
+    "noShowTitle": "Closed as a customer no-show",
+    "noShowText": "You get {{amount}} with your payout on {{date}}. The customer was told why.",
+    "noShowTextNoDate": "You get {{amount}} with your next payout. The customer was told why.",
+    "earningsPendingHintNoDate": "Released 24 hours after the job if the customer doesn't report a problem, then paid out with your next payout",
+    "waitingPaid": "Waiting time at the door: +{{price}} is added to your earnings.",
+    "yourPhotos": "Your photos"
   },
   "week": {
     "title": "My week",
@@ -1128,7 +1162,8 @@
       "showingAll": "Showing all {{count}}.",
       "viewAll": "View all ({{count}})",
       "showRecent": "Show the {{count}} most recent",
-      "proIssue": "Pro reported an issue"
+      "proIssue": "Pro reported an issue",
+      "urgent": "Urgent: unsafe to work"
     },
     "booking": {
       "close": "Close",
@@ -1226,7 +1261,11 @@
         "pro_cancelled": "{{name}} gave the job back ({{reason}}); it was offered to other pros",
         "pro_cancelled_late": "{{name}} gave the job back late ({{reason}}); it was offered to other pros",
         "issue_reported": "{{name}} reported an issue: {{reason}}",
-        "issue_resolved": "Marked the pro's issue as resolved: {{reason}}"
+        "issue_resolved": "Marked the pro's issue as resolved: {{reason}}",
+        "no_show": "The pro left after \"{{reason}}\": customer no-show, {{charged}} charged, {{paid}} to the pro",
+        "waiting_paid": "Waiting at the door added to the job: {{amount}}, charged to the customer",
+        "waiting_paid_misk": "Waiting at the door: {{amount}}, paid by MISK because the customer's card refused it",
+        "late_warning": "Customer warned automatically: the pro runs {{minutes}} minutes late"
       },
       "history": "Status history",
       "offers": "Offers to pros",
@@ -1711,7 +1750,13 @@
         "hoursBadge": "{{hours}} h",
         "cancelText": "Up to {{hours}} hours before the visit. After that the customer pays the full price, split like a finished job: <b>{{split}}</b>.",
         "splitShort": "Pro {{pro}}% · MISK {{misk}}%",
-        "tipsText": "Split the same way as job payments, so it follows the commission above. The customer app shows how much of a tip goes to the pro."
+        "tipsText": "Split the same way as job payments, so it follows the commission above. The customer app shows how much of a tip goes to the pro.",
+        "noShowFee": "Call-out fee (customer not home)",
+        "noShowFeeHint": "A customer who is not home, or does not let the pro in, pays this. The pro gets all of it. Shown to customers on their booking.",
+        "waitingCap": "Paid waiting at a locked door, at most",
+        "waitingCapHint": "When a pro can't get in, their waiting is added to the job at the job's own rate, up to this many minutes.",
+        "waitingCapInvalid": "Enter whole minutes from 0 to {{max}}.",
+        "minutesShort": "min"
       },
       "area": {
         "mapLabel": "Map of service zones",
@@ -2925,10 +2970,10 @@
       "thanks": "Thanks!",
       "home": "I'll be home in time",
       "gate": "The gate is open",
-      "onMyWay": "I'm on my way",
-      "arrived": "I'm here",
-      "late": "Running 10 min late",
-      "done": "All done, have a look!"
+      "onMyWay": "On my way",
+      "arrived": "I've arrived",
+      "late": "Running 10 minutes late",
+      "done": "All done!"
     },
     "closedDone": "This job is done, so the chat is read-only.",
     "closedCancelled": "This booking was cancelled, so the chat is read-only.",
@@ -2936,7 +2981,8 @@
     "photoFrom": "Photo from {{name}}",
     "yourPhoto": "Your photo",
     "photos": "Photos in the chat",
-    "openPhoto": "Open the photo"
+    "openPhoto": "Open the photo",
+    "waitingTime": "{{description}} +{{price}}, as the booking terms say"
   },
   "services": {
     "kind": "One-off job or monthly plan",
@@ -3090,16 +3136,20 @@
     },
     "send": "Send rating",
     "thanks_one": "You rated {{name}} {{count}} star. Thanks, this helps match good customers with pros.",
-    "thanks_other": "You rated {{name}} {{count}} stars. Thanks, this helps match good customers with pros."
+    "thanks_other": "You rated {{name}} {{count}} stars. Thanks, this helps match good customers with pros.",
+    "addComment": "Add comment",
+    "comment": "Comment (optional)",
+    "commentPlaceholder": "Anything MISK should know about this customer?",
+    "pickStars": "Choose 1 to 5 stars to send your rating."
   },
   "proExtra": {
-    "intro": "Pick from the MISK price list. {{name}} approves it in their app before you start, and it's added to the job.",
+    "intro": "Pick from the MISK price list. The customer approves it in their app before you start",
     "list": "MISK price list",
     "takes": "About {{duration}}",
     "note": "Note for {{name}} (optional)",
     "notePlaceholder": "e.g. The front hedge is overgrown",
-    "share": "You earn {{pct}}% of extra work, the same as the job.",
-    "send": "Send to {{name}} for approval",
+    "share": "You earn {{pct}}% of extra work, the same as the job",
+    "send": "Send to customer for approval",
     "pickOne": "Choose an item from the price list.",
     "waitFirst": "Wait for {{name}} to answer the open request first.",
     "empty": "The price list has nothing for this job."
@@ -3115,24 +3165,26 @@
       "other": "Something else"
     },
     "hints": {
-      "customer_not_home": "We text {{name}} that you're at the door, and MISK support follows up with you.",
-      "no_access": "Gate locked or code not working. We text {{name}} straight away, and MISK support follows up with you.",
-      "bigger_job": "Send a priced extra request from the price list, or ask MISK to re-price the job. Nothing extra is charged without {{name}}'s OK.",
-      "unsafe": "Stop work. MISK support sees it at the top of its list and contacts you.",
-      "other": "Describe it and MISK support picks it up."
+      "customer_not_home": "MISK calls the customer. After 15 minutes you can leave and get a {{fee}} call-out fee.",
+      "no_access": "MISK contacts the customer straight away. Your waiting time is paid.",
+      "bigger_job": "Send extra work, or ask MISK to change the price.",
+      "unsafe": "Stop working. MISK support calls you within 5 minutes.",
+      "other": "Describe the problem."
     },
     "details": "Details (optional)",
     "detailsRequired": "Details",
     "detailsPlaceholder": "What's going on?",
     "send": "Send to MISK support",
     "reasonMissing": "Choose what's wrong.",
-    "detailsMissing": "Describe what's wrong."
+    "detailsMissing": "Describe what's wrong.",
+    "sendExtra": "Send extra work",
+    "askPrice": "Ask MISK to change the price"
   },
   "proCancel": {
     "title": "Cancel this job?",
-    "lead": "The job goes straight back to other pros, and {{name}} is told automatically.",
-    "early": "More than 24 h before: no penalty, but it counts in your acceptance rate.",
-    "late": "Less than 24 h before: a late cancellation. 3 in 30 days pause new jobs for a week.",
+    "lead": "The job goes straight back to other pros, and the customer is told automatically",
+    "early": "More than 24 hours before: no penalty, but it counts in your acceptance rate",
+    "late": "Less than 24 hours before: a late cancellation. 3 in 30 days pauses new jobs for a week",
     "nowLate": "This job starts in less than 24 hours, so cancelling now is a late cancellation.",
     "reason": "Reason",
     "reasons": {
@@ -3356,5 +3408,25 @@
     "onlyFree": "Showing the times {{name}} is free.",
     "noTimes": "{{name}} has no free time in the next days, so your job goes to the next best-rated pro.",
     "summary": "{{name}} gets this job first"
+  },
+  "availability": {
+    "title": "Availability",
+    "hours": "Working hours",
+    "start": "Start",
+    "finish": "Finish",
+    "save": "Save hours",
+    "saved": "Saved",
+    "hoursHint": "You go offline automatically outside these hours, so no offers come in.",
+    "daysOff": "Days off are the days that are not your working days. Change your working days below.",
+    "holidays": "Holidays",
+    "noHolidays": "No holidays planned.",
+    "holidayRange": "{{from}} – {{to}}",
+    "remove": "Remove",
+    "removeHoliday": "Remove the holiday {{from}} – {{to}}",
+    "from": "First day",
+    "to": "Last day",
+    "addHoliday": "Add holiday",
+    "holidayHint": "No offers come in during a holiday, and no jobs are offered for those days. Accepted jobs and plan visits stay.",
+    "holidayMissing": "Choose the first and the last day."
   }
 }

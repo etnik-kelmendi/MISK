@@ -51,7 +51,8 @@ export function ChatPage() {
         const name = proName(booking, t('problem.yourPro'));
         const events: ChatEvent[] = [
           ...statusEvents(booking, 'customer', name, t),
-          ...booking.extras.map((extra) => ({
+          // Paid waiting at a locked door (D94) is on the booking, not something to approve in the chat.
+          ...booking.extras.filter((extra) => extra.kind !== 'waiting').map((extra) => ({
             key: `x-${extra.id}`,
             at: extra.createdAt,
             node: <ExtraCard booking={booking} extra={extra} onChanged={(next) => update(() => ({ booking: next }))} />,

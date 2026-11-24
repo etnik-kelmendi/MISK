@@ -1,4 +1,5 @@
 import type { Queryable } from '../db.js';
+import { onHolidaySql, onlineNowSql } from '../pros/working-hours.js';
 
 /** Local start hours of bookable slots (from the demo). */
 export const SLOT_HOURS = [8, 10, 12, 14, 16, 18];
@@ -38,8 +39,8 @@ export interface Slot {
 
 /**
  * SQL that keeps only pros who can take a job in category `cat` at postcode `pc` between `s` and `e`:
- * approved, able to receive payouts, doing that trade, within travel distance, working that weekday,
- * and with no job or pending offer at an overlapping time. The caller supplies the alias `p`
+ * approved, able to receive payouts, doing that trade, within travel distance, working that weekday and not
+ * on holiday that day (D94), and with no job or pending offer at an overlapping time. The caller supplies the alias `p`
  * for `pro_profiles` and the four expressions.
  */
 export function eligibleProFilter(
@@ -64,6 +65,7 @@ export function eligibleProFilter(
         AND distance_km(home.lat, home.lng, dest.lat, dest.lng) <= p.radius_km
     )
     AND extract(isodow FROM ((${s}) AT TIME ZONE ${tz}))::smallint = ANY (p.working_days)
+    AND NOT ${onHolidaySql(s, tz)}
     AND NOT EXISTS (
       SELECT 1 FROM bookings busy
       WHERE busy.pro_id = p.user_id AND busy.status IN ('accepted', 'on_the_way', 'working')
@@ -112,7 +114,7 @@ export async function findSlots(db: Queryable, query: SlotQuery, onlyStart?: Dat
             AND tstzrange(h.starts_at, h.ends_at) && tstzrange(s.starts_at, s.ends_at)) AS demand,
        CASE WHEN $12::uuid IS NOT NULL THEN EXISTS (
          SELECT 1 FROM pro_profiles p
-         WHERE p.user_id = $12::uuid AND p.online
+         WHERE p.user_id = $12::uuid AND ${onlineNowSql('$4')}
            AND ${eligibleProFilter('$1', '$2', 's.starts_at', 's.ends_at', '$4', '$10::uuid', '$11::uuid')}
        ) END AS "preferredFree"
      FROM slots s

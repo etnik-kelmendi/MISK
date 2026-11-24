@@ -347,6 +347,7 @@ export function AdminBookingsPage() {
                                 <span className="b">{euro(item.valueCents)}</span>
                               </span>
                               {item.problem && <span className="small unassigned">{t('admin.bookings.problem')}</span>}
+                              {item.urgent && <span className="badge r">{t('admin.bookings.urgent')}</span>}
                               {item.proIssue && <span className="small unassigned">{t('admin.bookings.proIssue')}</span>}
                             </button>
                           ))}
@@ -408,6 +409,7 @@ export function AdminBookingsPage() {
                       <td>
                         <ItemStatus item={item} />
                         {item.problem && <div className="small unassigned">{t('admin.bookings.problem')}</div>}
+                        {item.urgent && <div className="badge r">{t('admin.bookings.urgent')}</div>}
                         {item.proIssue && <div className="small unassigned">{t('admin.bookings.proIssue')}</div>}
                       </td>
                       <td>{euro(item.valueCents)}</td>

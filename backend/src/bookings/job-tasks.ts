@@ -33,7 +33,7 @@ export async function loadTasks(db: Queryable, bookingId: string): Promise<JobTa
     [bookingId],
   );
   const extras = await db.query<{ id: string; description: string }>(
-    "SELECT id, description FROM extra_requests WHERE booking_id = $1 AND status = 'approved' ORDER BY created_at",
+    "SELECT id, description FROM extra_requests WHERE booking_id = $1 AND status = 'approved' AND kind = 'work' ORDER BY created_at",
     [bookingId],
   );
   const checks = await db.query<{ key: string }>('SELECT task_key AS key FROM booking_task_checks WHERE booking_id = $1', [bookingId]);

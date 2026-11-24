@@ -28,7 +28,10 @@ export type AdminAction =
   // What the pro did on the job (D86); these have no admin.
   | 'pro_cancelled'
   | 'issue_reported'
-  | 'issue_resolved';
+  | 'issue_resolved'
+  | 'no_show'
+  | 'waiting_paid'
+  | 'late_warning';
 
 /** Every change the team makes to a booking is written down, with who made it. */
 export async function logAction(

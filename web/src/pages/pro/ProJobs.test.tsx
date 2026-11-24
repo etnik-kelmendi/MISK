@@ -233,14 +233,19 @@ describe('Job page (D86)', () => {
     renderAt('/pro/jobs/b1');
     const form = await screen.findByRole('form', { name: 'How was Sara as a customer?' });
     expect(within(form).getByText('Only MISK sees this. It helps match customers and pros.')).toBeInTheDocument();
-    await user().click(within(form).getByRole('button', { name: 'Send rating' }));
-    expect(await within(form).findByText('Choose from 1 to 5 stars.')).toBeInTheDocument();
+    // The tags are exactly the design's, and "Send rating" does not work without stars.
+    for (const tag of ['Easy access', 'Clear instructions', 'Friendly', 'Was home on time']) {
+      expect(within(form).getByRole('checkbox', { name: tag })).toBeInTheDocument();
+    }
+    expect(within(form).getByRole('button', { name: 'Send rating' })).toBeDisabled();
     expect(api.calls).not.toContain('POST /pro/jobs/b1/customer-rating');
 
     await user().click(within(form).getByRole('radio', { name: '4 stars' }));
     await user().click(within(form).getByRole('checkbox', { name: 'Friendly' }));
+    await user().click(within(form).getByRole('button', { name: 'Add comment' }));
+    await user().type(within(form).getByLabelText('Comment (optional)'), 'Lovely dog');
     await user().click(within(form).getByRole('button', { name: 'Send rating' }));
-    expect(api.bodies['POST /pro/jobs/b1/customer-rating']).toEqual({ stars: 4, tags: ['friendly'] });
+    await waitFor(() => expect(api.bodies['POST /pro/jobs/b1/customer-rating']).toEqual({ stars: 4, tags: ['friendly'], comment: 'Lovely dog' }));
     expect(await screen.findByText('You rated Sara 4 stars. Thanks, this helps match good customers with pros.')).toBeInTheDocument();
   });
 });
@@ -254,14 +259,18 @@ describe('Job page pop-ups (D86)', () => {
     });
     api.on('POST /pro/jobs/b1/messages', {
       status: 201,
-      body: { message: { id: '2', from: 'pro', body: "I'm on my way", createdAt: '2026-11-06T08:55:00.000Z', readAt: null } },
+      body: { message: { id: '2', from: 'pro', body: 'On my way', createdAt: '2026-11-06T08:55:00.000Z', readAt: null } },
     });
     const { unmount } = renderAt('/pro/jobs/b1');
     await user().click(await screen.findByRole('button', { name: 'Chat with Sara, 1 new' }));
     const sheet = await screen.findByRole('dialog', { name: 'Sara' });
     expect(await within(sheet).findByText('The gate is open')).toBeInTheDocument();
-    await user().click(within(sheet).getByRole('button', { name: "I'm on my way" }));
-    expect(api.bodies['POST /pro/jobs/b1/messages']).toEqual({ body: "I'm on my way" });
+    // The quick replies are exactly the design's.
+    for (const reply of ["I've arrived", 'Running 10 minutes late', 'All done!']) {
+      expect(within(sheet).getByRole('button', { name: reply })).toBeInTheDocument();
+    }
+    await user().click(within(sheet).getByRole('button', { name: 'On my way' }));
+    await waitFor(() => expect(api.bodies['POST /pro/jobs/b1/messages']).toEqual({ body: 'On my way' }));
     await user().click(within(sheet).getByRole('button', { name: 'Close' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     unmount();
@@ -294,27 +303,28 @@ describe('Job page pop-ups (D86)', () => {
     renderAt('/pro/jobs/b1');
     await user().click(await screen.findByRole('button', { name: 'Add extra work' }));
     const sheet = await screen.findByRole('dialog', { name: 'Add extra work' });
-    expect(within(sheet).getByText(/Pick from the MISK price list. Sara approves it/)).toBeInTheDocument();
+    expect(within(sheet).getByText('Pick from the MISK price list. The customer approves it in their app before you start')).toBeInTheDocument();
     expect(await within(sheet).findByText('+€58.50')).toBeInTheDocument();
     expect(within(sheet).getByText('About 1 h 30 min')).toBeInTheDocument();
-    expect(within(sheet).getByText('You earn 82% of extra work, the same as the job.')).toBeInTheDocument();
+    expect(within(sheet).getByText('You earn 82% of extra work, the same as the job')).toBeInTheDocument();
+    expect(within(sheet).getByPlaceholderText('e.g. The front hedge is overgrown')).toBeInTheDocument();
 
-    await user().click(within(sheet).getByRole('button', { name: 'Send to Sara for approval' }));
-    expect(await within(sheet).findByText('Choose an item from the price list.')).toBeInTheDocument();
+    // The button stays off until an item is chosen.
+    expect(within(sheet).getByRole('button', { name: 'Send to customer for approval' })).toBeDisabled();
     expect(api.calls).not.toContain('POST /pro/jobs/b1/extras');
 
     await user().click(within(sheet).getByRole('radio', { name: /Hedge trimming/ }));
     await user().type(within(sheet).getByLabelText('Note for Sara (optional)'), 'The front hedge is overgrown');
-    await user().click(within(sheet).getByRole('button', { name: 'Send to Sara for approval' }));
+    await user().click(within(sheet).getByRole('button', { name: 'Send to customer for approval' }));
     // The request is sent after the click resolves, so wait for it rather than checking at once.
     await waitFor(() => expect(api.bodies['POST /pro/jobs/b1/extras']).toEqual({ itemId: 'service:svc-hedge', note: 'The front hedge is overgrown' }));
-    expect(await screen.findByText('Waiting for Sara to approve Hedge trimming +€58.50.')).toBeInTheDocument();
+    expect(await screen.findByText('Waiting for the customer to approve Hedge trimming +€58.50')).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 
   it('reports an issue on site to MISK support', async () => {
     const api = fakeApi(users.pro);
-    const current = job({ status: 'on_the_way' });
+    const current = job({ status: 'on_the_way', callOutFeeCents: 1500 });
     api.on('GET /pro/jobs/b1', { body: { job: current } });
     api.on('POST /pro/jobs/b1/issue', {
       status: 201,
@@ -323,10 +333,14 @@ describe('Job page pop-ups (D86)', () => {
     renderAt('/pro/jobs/b1');
     await user().click(await screen.findByRole('button', { name: 'Report an issue' }));
     const sheet = await screen.findByRole('dialog', { name: 'Report an on-site issue' });
-    expect(within(sheet).getByRole('radio', { name: /Customer not home/ })).toBeInTheDocument();
-    expect(within(sheet).getByRole('radio', { name: /Unsafe to work/ })).toBeInTheDocument();
-    await user().click(within(sheet).getByRole('button', { name: 'Send to MISK support' }));
-    expect(await within(sheet).findByText("Choose what's wrong.")).toBeInTheDocument();
+    // Five reasons, each with what happens next.
+    expect(within(sheet).getByRole('radio', { name: /Customer not home.*MISK calls the customer\. After 15 minutes you can leave and get a €15 call-out fee\./ })).toBeInTheDocument();
+    expect(within(sheet).getByRole('radio', { name: /Can't get in.*MISK contacts the customer straight away\. Your waiting time is paid\./ })).toBeInTheDocument();
+    expect(within(sheet).getByRole('radio', { name: /Job bigger than described.*Send extra work, or ask MISK to change the price\./ })).toBeInTheDocument();
+    expect(within(sheet).getByRole('radio', { name: /Unsafe to work.*Stop working\. MISK support calls you within 5 minutes\./ })).toBeInTheDocument();
+    expect(within(sheet).getByRole('radio', { name: /Something else.*Describe the problem\./ })).toBeInTheDocument();
+    // "Send to MISK support" stays off until a reason is chosen.
+    expect(within(sheet).getByRole('button', { name: 'Send to MISK support' })).toBeDisabled();
 
     await user().click(within(sheet).getByRole('radio', { name: /Something else/ }));
     await user().click(within(sheet).getByRole('button', { name: 'Send to MISK support' }));
@@ -336,7 +350,8 @@ describe('Job page pop-ups (D86)', () => {
     await user().type(within(sheet).getByLabelText('Details'), 'Dog in the garden');
     await user().click(within(sheet).getByRole('button', { name: 'Send to MISK support' }));
     expect(api.bodies['POST /pro/jobs/b1/issue']).toEqual({ reason: 'other', details: 'Dog in the garden' });
-    expect(await screen.findByText('Issue reported: Something else.')).toBeInTheDocument();
+    expect(await screen.findByText('Issue reported. MISK support is on it')).toBeInTheDocument();
+    expect(screen.getByText('You reported: Something else.')).toBeInTheDocument();
   });
 
   it('shows the rules before cancelling and needs a reason; the job then goes back to other pros', async () => {
@@ -346,21 +361,44 @@ describe('Job page pop-ups (D86)', () => {
     renderAt('/pro/jobs/b1');
     await user().click(await screen.findByRole('button', { name: 'Cancel job' }));
     const sheet = await screen.findByRole('dialog', { name: 'Cancel this job?' });
-    expect(within(sheet).getByText('The job goes straight back to other pros, and Sara is told automatically.')).toBeInTheDocument();
-    expect(within(sheet).getByText('More than 24 h before: no penalty, but it counts in your acceptance rate.')).toBeInTheDocument();
-    expect(within(sheet).getByText('Less than 24 h before: a late cancellation. 3 in 30 days pause new jobs for a week.')).toBeInTheDocument();
+    expect(within(sheet).getByText('The job goes straight back to other pros, and the customer is told automatically')).toBeInTheDocument();
+    expect(within(sheet).getByText('More than 24 hours before: no penalty, but it counts in your acceptance rate')).toBeInTheDocument();
+    expect(within(sheet).getByText('Less than 24 hours before: a late cancellation. 3 in 30 days pauses new jobs for a week')).toBeInTheDocument();
     expect(within(sheet).getByText('This job starts in less than 24 hours, so cancelling now is a late cancellation.')).toBeInTheDocument();
+    expect(within(sheet).getByRole('button', { name: 'Keep job' })).toBeInTheDocument();
 
-    await user().click(within(sheet).getByRole('button', { name: 'Cancel job' }));
-    expect(await within(sheet).findByText('Choose a reason.')).toBeInTheDocument();
+    // The red "Cancel job" stays off until a reason is chosen.
+    expect(within(sheet).getByRole('button', { name: 'Cancel job' })).toBeDisabled();
     expect(api.calls).not.toContain('POST /pro/jobs/b1/cancel');
 
+    // Afterwards the Jobs page says what happened (D94).
+    api.on('GET /pro/profile', { body: { profile } });
+    api.on('GET /pro/offers', { body: { offers: [] } });
+    api.on('GET /pro/jobs', { body: { jobs: [] } });
+    api.on('GET /pro/visits', { body: { visits: [] } });
+    api.on('GET /pro/cancellations', {
+      body: {
+        cancellations: [
+          {
+            id: 'c1',
+            bookingId: 'b1',
+            reason: 'ill',
+            note: null,
+            late: true,
+            createdAt: '2026-11-05T09:00:00.000Z',
+            serviceName: 'Lawn mowing',
+            startsAt: '2026-11-06T09:00:00.000Z',
+            nextProName: 'Leon',
+          },
+        ],
+      },
+    });
     await user().click(within(sheet).getByRole('radio', { name: "I'm ill" }));
     await user().click(within(sheet).getByRole('button', { name: 'Cancel job' }));
-    expect(api.bodies['POST /pro/jobs/b1/cancel']).toEqual({ reason: 'ill' });
+    await waitFor(() => expect(api.bodies['POST /pro/jobs/b1/cancel']).toEqual({ reason: 'ill' }));
     expect(await screen.findByRole('heading', { name: 'You cancelled this job' })).toBeInTheDocument();
-    expect(screen.getByText("Reason: I'm ill. It goes back to other pros nearby, and Sara was told automatically.")).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Back to jobs' })).toHaveAttribute('href', '/pro');
+    expect(screen.getByText("Reason: I'm ill")).toBeInTheDocument();
+    expect(screen.getByText('It was offered to Leon, and the customer was told automatically.')).toBeInTheDocument();
   });
 
   it('closes the pop-up and keeps the job with Keep job', async () => {

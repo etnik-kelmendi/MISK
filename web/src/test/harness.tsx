@@ -101,6 +101,8 @@ export function fakeApi(user: User | null): FakeApi {
   routes.set('GET /favourites/pros', { body: { pros: [] } });
   // A pro has no requests to move a plan visit unless a test says so (D77).
   routes.set('GET /pro/visit-moves', { body: { moves: [] } });
+  // No "You cancelled this job" notices on the Jobs page unless a test says so (D94).
+  routes.set('GET /pro/cancellations', { body: { cancellations: [] } });
   routes.set('GET /auth/me', user ? { body: { user } } : { status: 401, body: { error: 'unauthenticated' } });
 
   vi.stubGlobal(

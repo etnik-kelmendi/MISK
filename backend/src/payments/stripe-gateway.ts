@@ -224,8 +224,12 @@ export function createStripeGateway(config: StripeConfig): PaymentGateway {
       await stripe.transfers.createReversal(transferId, {}, { idempotencyKey: `reverse-${transferId}` });
     },
 
-    async capture(intentId) {
-      const intent = await stripe.paymentIntents.capture(intentId, {}, { idempotencyKey: `capture-${intentId}` });
+    async capture(intentId, amountCents) {
+      const intent = await stripe.paymentIntents.capture(
+        intentId,
+        amountCents === undefined ? {} : { amount_to_capture: amountCents },
+        { idempotencyKey: amountCents === undefined ? `capture-${intentId}` : `capture-${intentId}-${amountCents}` },
+      );
       return { chargeId: chargeIdOf(intent) };
     },
 

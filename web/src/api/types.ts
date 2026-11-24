@@ -143,6 +143,17 @@ export interface Extra {
   durationMinutes?: number | null;
   status: ExtraStatus;
   createdAt: string;
+  /** 'waiting': paid waiting at a locked door (D94), a line nobody approves; 'work' otherwise. */
+  kind?: 'work' | 'waiting';
+  /** Who pays a line (D94): MISK pays waiting time the customer's card refused. Only the pro and the team see it. */
+  fundedBy?: 'customer' | 'misk';
+}
+
+/** A customer no-show (D94): the pro left with the call-out fee. */
+export interface NoShow {
+  at: string;
+  chargeCents: number;
+  waitingCents: number;
 }
 
 export interface BookingBase {
@@ -173,6 +184,8 @@ export interface BookingBase {
   rating: { stars: number; tags: string[]; review?: string | null } | null;
   /** The job's checklist (D86): the booked services' tasks, then approved extra work. */
   tasks?: JobTask[];
+  /** Set when the customer was not home and the pro left with the call-out fee (D94). */
+  noShow?: NoShow | null;
 }
 
 /** One line of a job's checklist (D86). */
@@ -258,6 +271,8 @@ export interface CustomerBooking extends BookingBase, Money {
   confirmBy?: string | null;
   /** The pro asked MISK support for help on site (D86). */
   proIssueOpen?: boolean;
+  /** The call-out fee a customer who is not home pays (D94), from Settings. */
+  callOutFeeCents?: number;
 }
 
 export interface ProJob extends BookingBase {
@@ -273,9 +288,44 @@ export interface ProJob extends BookingBase {
   /** The pro can give the job back until work starts; under 24 hours before the start it is late (D86). */
   canCancel?: boolean;
   cancelIsLate?: boolean;
-  /** The pro's private rating of the customer (D86). */
-  customerRating?: { stars: number; tags: CustomerRatingTag[] } | null;
+  /** The pro's private rating of the customer (D86), with an optional comment (D94). */
+  customerRating?: { stars: number; tags: CustomerRatingTag[]; comment?: string | null } | null;
   canRateCustomer?: boolean;
+  /** "Unsafe to work" was reported: the job is stopped until MISK support resolves it (D94). */
+  stopped?: boolean;
+  /** From this moment the pro can leave with the call-out fee (D94); null without a door report. */
+  leaveAt?: string | null;
+  noShowWaitMinutes?: number;
+  callOutFeeCents?: number;
+  /** The day the earnings reach the pro's bank, YYYY-MM-DD (D94); null until the job is done. */
+  payoutOn?: string | null;
+}
+
+/** Working hours, holidays and whether offers come in right now (D94). */
+export type AutoOfflineReason = 'holiday' | 'day_off' | 'outside_hours';
+export interface ProAvailability {
+  /** "HH:MM"; the end may be "24:00". */
+  workStart: string;
+  workEnd: string;
+  holidays: { id: string; startsOn: string; endsOn: string }[];
+  onlineNow: boolean;
+  /** Why the pro is offline although the switch is on; `until` is the last holiday day. */
+  autoOffline: { reason: AutoOfflineReason; until: string | null } | null;
+  overrideUntil: string | null;
+}
+
+/** "You cancelled this job" on the Jobs page (D94). */
+export interface ProCancellation {
+  id: string;
+  bookingId: string;
+  reason: ProCancelReason;
+  note: string | null;
+  late: boolean;
+  createdAt: string;
+  serviceName: string;
+  startsAt: string;
+  /** First name of the pro the job was offered to next, or null while MISK is still finding one. */
+  nextProName: string | null;
 }
 
 /** What the team sees about a customer in the booking and plan visit panels. */
@@ -347,7 +397,11 @@ export type AdminActionKind =
   | 'charged_after_problem'
   | 'pro_cancelled'
   | 'issue_reported'
-  | 'issue_resolved';
+  | 'issue_resolved'
+  // On site (D94): the customer was not home, waiting at a locked door was paid, the customer was told the pro runs late.
+  | 'no_show'
+  | 'waiting_paid'
+  | 'late_warning';
 
 /** One change the team made to a booking. */
 export interface AdminAction {
@@ -367,6 +421,12 @@ export interface AdminAction {
     late?: boolean;
     /** The pro gave back a job the team had confirmed them on, so the team can choose again (D88). */
     assignmentUnlocked?: boolean;
+    /** On site (D94): what a no-show charged and paid, waiting time and who paid it, how late the pro was. */
+    chargeCents?: number;
+    proCents?: number;
+    cents?: number;
+    fundedBy?: 'customer' | 'misk';
+    lateMinutes?: number;
   };
   createdAt: string;
   adminName: string | null;
@@ -498,6 +558,8 @@ export interface Offer {
   startOptions?: string[] | null;
   /** The customer's stars from earlier pros (D86). */
   customerRating?: number | null;
+  /** How long the job takes, in minutes (D94). */
+  durationMinutes?: number;
 }
 
 export interface JobListItem {
@@ -566,6 +628,8 @@ export interface ProProfile {
   editable?: boolean;
   /** False when every chosen trade needs no trade certificate. */
   certificateRequired?: boolean;
+  /** Working hours, holidays and whether offers come in right now (D94). */
+  availability?: ProAvailability;
 }
 
 export type ApplicationStepKey = 'sent' | 'documents' | 'background' | 'decision';
@@ -791,6 +855,8 @@ export interface AdminBookingListItem {
   problem: boolean;
   /** The pro reported an issue on site that the team has not resolved (D86). */
   proIssue?: boolean;
+  /** A pro reported "Unsafe to work": the top of Needs action (D94). */
+  urgent?: boolean;
   tab: Exclude<AdminTab, 'all'>;
 }
 
@@ -1091,6 +1157,9 @@ export interface PlatformSettings {
   nextPayoutOn: string;
   freeCancelHours: number;
   chargeDelayHours: number;
+  /** What a customer who is not home pays the pro, and the most waiting at a door paid (D94). */
+  noShowFeeCents: number;
+  waitingCapMinutes: number;
 }
 
 export interface Zone {

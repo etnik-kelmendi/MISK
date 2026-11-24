@@ -62,8 +62,15 @@ export async function settingsRoutes(app: FastifyInstance, ctx: AppContext) {
   // ---------- Fees & payments ----------
 
   async function loadSettings() {
-    const found = await pool.query<{ serviceFeeCents: number; proSharePct: number; payoutInterval: PayoutInterval }>(
-      `SELECT service_fee_cents AS "serviceFeeCents", pro_share_pct AS "proSharePct", payout_interval AS "payoutInterval"
+    const found = await pool.query<{
+      serviceFeeCents: number;
+      proSharePct: number;
+      payoutInterval: PayoutInterval;
+      noShowFeeCents: number;
+      waitingCapMinutes: number;
+    }>(
+      `SELECT service_fee_cents AS "serviceFeeCents", pro_share_pct AS "proSharePct", payout_interval AS "payoutInterval",
+         no_show_fee_cents AS "noShowFeeCents", waiting_cap_minutes AS "waitingCapMinutes"
        FROM settings`,
     );
     const s = onlyRow(found);
@@ -78,7 +85,9 @@ export async function settingsRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.get('/admin/settings', { preHandler: guards.admin }, async () => ({ settings: await loadSettings() }));
 
-  app.patch<{ Body: { serviceFeeCents?: number; commissionPct?: number; payoutInterval?: PayoutInterval } }>(
+  app.patch<{
+    Body: { serviceFeeCents?: number; commissionPct?: number; payoutInterval?: PayoutInterval; noShowFeeCents?: number; waitingCapMinutes?: number };
+  }>(
     '/admin/settings',
     {
       preHandler: guards.admin,
@@ -91,25 +100,47 @@ export async function settingsRoutes(app: FastifyInstance, ctx: AppContext) {
             serviceFeeCents: { type: 'integer', minimum: 0, maximum: 10_000 },
             commissionPct: { type: 'integer', minimum: COMMISSION_MIN, maximum: COMMISSION_MAX },
             payoutInterval: { type: 'string', enum: PAYOUT_INTERVALS },
+            // The call-out fee a customer who is not home pays the pro, and the most waiting at a door paid (D94).
+            noShowFeeCents: { type: 'integer', minimum: 0, maximum: 10_000 },
+            waitingCapMinutes: { type: 'integer', minimum: 0, maximum: 120 },
           },
         },
       },
     },
     // Fee and commission are copied onto each booking when it is made, so changes only affect new bookings.
     async (request) => {
-      const { serviceFeeCents, commissionPct, payoutInterval } = request.body;
+      const { serviceFeeCents, commissionPct, payoutInterval, noShowFeeCents, waitingCapMinutes } = request.body;
       const adminId = currentUser(request).id;
       await withTransaction(pool, async (client) => {
         const before = onlyRow(
-          await client.query<{ fee: number; share: number; interval: PayoutInterval }>(
-            'SELECT service_fee_cents AS fee, pro_share_pct AS share, payout_interval AS interval FROM settings FOR UPDATE',
+          await client.query<{ fee: number; share: number; interval: PayoutInterval; noShowFee: number; waitingCap: number }>(
+            `SELECT service_fee_cents AS fee, pro_share_pct AS share, payout_interval AS interval,
+               no_show_fee_cents AS "noShowFee", waiting_cap_minutes AS "waitingCap" FROM settings FOR UPDATE`,
           ),
         );
         await client.query(
           `UPDATE settings SET service_fee_cents = COALESCE($1, service_fee_cents),
-             pro_share_pct = COALESCE($2, pro_share_pct), payout_interval = COALESCE($3, payout_interval), updated_at = now()`,
-          [serviceFeeCents ?? null, commissionPct === undefined ? null : 100 - commissionPct, payoutInterval ?? null],
+             pro_share_pct = COALESCE($2, pro_share_pct), payout_interval = COALESCE($3, payout_interval),
+             no_show_fee_cents = COALESCE($4, no_show_fee_cents), waiting_cap_minutes = COALESCE($5, waiting_cap_minutes), updated_at = now()`,
+          [
+            serviceFeeCents ?? null,
+            commissionPct === undefined ? null : 100 - commissionPct,
+            payoutInterval ?? null,
+            noShowFeeCents ?? null,
+            waitingCapMinutes ?? null,
+          ],
         );
+        if (noShowFeeCents !== undefined && noShowFeeCents !== before.noShowFee) {
+          await logActivity(client, { adminId, area: 'fees', action: 'no_show_fee', details: { from: before.noShowFee, to: noShowFeeCents } });
+        }
+        if (waitingCapMinutes !== undefined && waitingCapMinutes !== before.waitingCap) {
+          await logActivity(client, {
+            adminId,
+            area: 'fees',
+            action: 'waiting_cap',
+            details: { from: before.waitingCap, to: waitingCapMinutes },
+          });
+        }
         if (serviceFeeCents !== undefined && serviceFeeCents !== before.fee) {
           await logActivity(client, { adminId, area: 'fees', action: 'service_fee', details: { from: before.fee, to: serviceFeeCents } });
         }
@@ -125,7 +156,7 @@ export async function settingsRoutes(app: FastifyInstance, ctx: AppContext) {
           await logActivity(client, { adminId, area: 'fees', action: 'payout_interval', details: { from: before.interval, to: payoutInterval } });
         }
       });
-      request.log.info({ event: 'settings_changed', by: adminId, serviceFeeCents, commissionPct, payoutInterval });
+      request.log.info({ event: 'settings_changed', by: adminId, serviceFeeCents, commissionPct, payoutInterval, noShowFeeCents, waitingCapMinutes });
       return { settings: await loadSettings() };
     },
   );

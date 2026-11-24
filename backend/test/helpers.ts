@@ -88,7 +88,9 @@ export async function resetDatabase(pool: pg.Pool) {
   await pool.query(
     `TRUNCATE users, categories, postcodes, stripe_events, login_attempts, sign_in_codes RESTART IDENTITY CASCADE`,
   );
-  await pool.query("UPDATE settings SET service_fee_cents = 290, pro_share_pct = 82, payout_interval = 'weekly'");
+  await pool.query(
+    "UPDATE settings SET service_fee_cents = 290, pro_share_pct = 82, payout_interval = 'weekly', no_show_fee_cents = 1500, waiting_cap_minutes = 30",
+  );
   // The channel defaults from migration 0014.
   await pool.query(
     `UPDATE notification_settings SET push = true, sms = true,
@@ -230,7 +232,9 @@ export async function approvedPro(
   const proId = user.rows[0]?.id ?? '';
   await t.pool.query(
     `UPDATE pro_profiles SET status = 'approved', home_postcode = $2, radius_km = $3, working_days = $4,
-       payouts_enabled = true, stripe_account_id = $5
+       payouts_enabled = true, stripe_account_id = $5,
+       -- Around the clock, so tests do not depend on the time they run; working-hours tests set their own (D94).
+       work_start = '00:00', work_end = '24:00'
      WHERE user_id = $1`,
     [proId, options.postcode ?? '10115', options.radiusKm ?? 12, options.days ?? [1, 2, 3, 4, 5, 6, 7], `acct_${proId.slice(0, 8)}`],
   );

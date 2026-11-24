@@ -12,6 +12,7 @@ import { documentReminderTick } from './pros/document-reminders.js';
 import { ratingRequestTick, reminderTick } from './bookings/reminders.js';
 import { payoutScheduleTick } from './payments/payouts.js';
 import { timeWaitlistTick } from './bookings/time-waitlist.js';
+import { lateWarningTick } from './bookings/on-site.js';
 import type { Senders } from './notifications/outbox.js';
 
 interface Job {
@@ -29,6 +30,7 @@ export function startWorkers(deps: BookingDeps, senders: Senders, log: FastifyBa
     { name: 'Sending messages (push, SMS, email)', everyMs: 3_000, run: () => dispatchOnce(deps.pool, senders, log) },
     { name: 'Offering jobs to pros', everyMs: 10_000, run: () => dispatchTick(deps) },
     { name: 'Dropping unpaid bookings', everyMs: 60_000, run: () => expireUnpaid(deps) },
+    { name: 'Warning customers when their pro runs more than 10 minutes late', everyMs: 60_000, run: () => lateWarningTick(deps) },
     { name: 'Settling completed jobs', everyMs: 60_000, run: () => settleTick(deps) },
     { name: 'Renewing card reservations before they run out', everyMs: 60 * 60_000, run: () => renewHoldsTick(deps) },
     { name: 'Planning monthly plan visits and billing', everyMs: 5 * 60_000, run: () => subscriptionTick(deps) },

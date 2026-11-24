@@ -13,6 +13,8 @@ const settings: PlatformSettings = {
   nextPayoutOn: '2026-11-13',
   freeCancelHours: 24,
   chargeDelayHours: 24,
+  noShowFeeCents: 1500,
+  waitingCapMinutes: 30,
 };
 
 function adminApi() {
@@ -23,6 +25,28 @@ function adminApi() {
 }
 
 describe('settings: fees and payments', () => {
+  it('saves the call-out fee and the most paid waiting at a locked door (D94)', async () => {
+    const api = adminApi();
+    api.on('PATCH /admin/settings', ({ body }) => ({ body: { settings: { ...settings, ...(body as object) } } }));
+    renderAt('/admin/settings');
+    const fee = await screen.findByLabelText('Call-out fee (customer not home)');
+    expect(fee).toHaveValue('15.00');
+    await user().clear(fee);
+    await user().type(fee, '20');
+    fireEvent.blur(fee);
+    await waitFor(() => expect(api.bodies['PATCH /admin/settings']).toEqual({ noShowFeeCents: 2000 }));
+
+    const cap = screen.getByLabelText('Paid waiting at a locked door, at most');
+    await user().clear(cap);
+    await user().type(cap, '500');
+    fireEvent.blur(cap);
+    expect(await screen.findByText('Enter whole minutes from 0 to 120.')).toBeInTheDocument();
+    await user().clear(cap);
+    await user().type(cap, '20');
+    fireEvent.blur(cap);
+    await waitFor(() => expect(api.bodies['PATCH /admin/settings']).toEqual({ waitingCapMinutes: 20 }));
+  });
+
   it('saves the service fee when the field is left and says all changes are saved', async () => {
     const api = adminApi();
     api.on('PATCH /admin/settings', ({ body }) => ({ body: { settings: { ...settings, ...(body as object) } } }));

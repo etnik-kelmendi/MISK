@@ -32,6 +32,8 @@ export type JobSheet = (typeof JOB_SHEETS)[number];
 export const EXTRA_NOTE_MAX = 300;
 export const ISSUE_DETAILS_MAX = 500;
 export const CANCEL_NOTE_MAX = 300;
+/** The longest comment with the pro's rating of the customer (D94). */
+export const CUSTOMER_COMMENT_MAX = 500;
 
 /** The customer's first name, or "your customer" when it is not known. */
 export function customerName(job: ProJob, t: TFunction): string {
@@ -45,11 +47,15 @@ export function proChatEvents(job: ProJob, name: string, t: TFunction): ChatEven
     ...job.extras.map((extra) => ({
       key: `x-${extra.id}`,
       at: extra.createdAt,
-      node: (
-        <ChatNote>
-          {t('chat.extraAsked', { description: extra.description, price: euro(extra.priceCents) })} · {t(`extra.status.${extra.status}`)}
-        </ChatNote>
-      ),
+      node:
+        extra.kind === 'waiting' ? (
+          // Paid waiting at a locked door (D94): nobody approves it, so it has no status.
+          <ChatNote>{t('chat.waitingTime', { description: extra.description, price: euro(extra.priceCents) })}</ChatNote>
+        ) : (
+          <ChatNote>
+            {t('chat.extraAsked', { description: extra.description, price: euro(extra.priceCents) })} · {t(`extra.status.${extra.status}`)}
+          </ChatNote>
+        ),
     })),
   ];
 }
@@ -89,7 +95,7 @@ export function ExtraWorkSheet({ job, onClose, onSent }: { job: ProJob; onClose:
   const [itemId, setItemId] = useState<string | null>(null);
   const [note, setNote] = useState('');
   const { run, busy, error } = useAction();
-  const waiting = job.extras.some((extra) => extra.status === 'pending' || extra.status === 'awaiting_payment');
+  const waiting = job.extras.some((extra) => extra.kind !== 'waiting' && (extra.status === 'pending' || extra.status === 'awaiting_payment'));
   const form = useValidation({ item: itemId === null && t('proExtra.pickOne') }, { item: 'extra-item-first' });
 
   async function submit(event: FormEvent) {
@@ -108,8 +114,8 @@ export function ExtraWorkSheet({ job, onClose, onSent }: { job: ProJob; onClose:
       onClose={onClose}
       footer={
         !waiting && (
-          <button type="submit" form="extra-form" className="cta dark" disabled={busy || list.state.status !== 'ready'}>
-            {t('proExtra.send', { name })}
+          <button type="submit" form="extra-form" className="cta dark" disabled={busy || list.state.status !== 'ready' || itemId === null}>
+            {t('proExtra.send')}
           </button>
         )
       }
@@ -120,7 +126,7 @@ export function ExtraWorkSheet({ job, onClose, onSent }: { job: ProJob; onClose:
         </p>
       ) : (
         <form id="extra-form" className="stack" onSubmit={submit} noValidate>
-          <p className="small muted">{t('proExtra.intro', { name })}</p>
+          <p className="small muted">{t('proExtra.intro')}</p>
           <ResourceState state={list.state} reload={list.reload}>
             {({ items }) =>
               items.length === 0 ? (
@@ -173,11 +179,25 @@ export function ExtraWorkSheet({ job, onClose, onSent }: { job: ProJob; onClose:
   );
 }
 
-/** "Report an issue" (D86): a problem on site, sent to MISK support. */
-export function IssueSheet({ job, onClose, onSent }: { job: ProJob; onClose: () => void; onSent: (job: ProJob) => void }) {
+/**
+ * "Report an issue" (D86, D94): a problem on site, sent to MISK support. "Job bigger than described" offers to
+ * send extra work instead, or to ask MISK to change the price, which is the report.
+ */
+export function IssueSheet({
+  job,
+  onClose,
+  onSent,
+  onSendExtra,
+}: {
+  job: ProJob;
+  onClose: () => void;
+  onSent: (job: ProJob) => void;
+  onSendExtra: () => void;
+}) {
   const { t } = useTranslation();
   const api = useApi();
   const name = customerName(job, t);
+  const fee = euro(job.callOutFeeCents ?? 0);
   const [reason, setReason] = useState<IssueReason | null>(null);
   const [details, setDetails] = useState('');
   const { run, busy, error } = useAction();
@@ -207,9 +227,20 @@ export function IssueSheet({ job, onClose, onSent }: { job: ProJob; onClose: () 
       closeLabel={t('common.close')}
       onClose={onClose}
       footer={
-        <button type="submit" form="issue-form" className="cta dark" disabled={busy}>
-          {t('issue.send')}
-        </button>
+        reason === 'bigger_job' ? (
+          <>
+            <button type="button" className="cta ghost" onClick={onSendExtra}>
+              {t('issue.sendExtra')}
+            </button>
+            <button type="submit" form="issue-form" className="cta dark" disabled={busy}>
+              {t('issue.askPrice')}
+            </button>
+          </>
+        ) : (
+          <button type="submit" form="issue-form" className="cta dark" disabled={busy || reason === null}>
+            {t('issue.send')}
+          </button>
+        )
       }
     >
       <form id="issue-form" className="stack" onSubmit={submit} noValidate>
@@ -228,7 +259,7 @@ export function IssueSheet({ job, onClose, onSent }: { job: ProJob; onClose: () 
               <span className="radio" aria-hidden="true" />
               <span className="grow b">
                 {t(`issue.reasons.${value}`)}
-                <span className="os">{t(`issue.hints.${value}`, { name })}</span>
+                <span className="os">{t(`issue.hints.${value}`, { name, fee })}</span>
               </span>
             </label>
           ))}
@@ -268,7 +299,6 @@ export function CancelJobSheet({
 }) {
   const { t } = useTranslation();
   const api = useApi();
-  const name = customerName(job, t);
   const [reason, setReason] = useState<ProCancelReason | null>(null);
   const [note, setNote] = useState('');
   const { run, busy, error } = useAction();
@@ -302,7 +332,7 @@ export function CancelJobSheet({
           <button type="button" className="cta ghost" onClick={onClose}>
             {t('proCancel.keep')}
           </button>
-          <button type="submit" form="cancel-form" className="cta red" disabled={busy}>
+          <button type="submit" form="cancel-form" className="cta red" disabled={busy || reason === null}>
             {t('proCancel.confirm')}
           </button>
         </>
@@ -311,7 +341,7 @@ export function CancelJobSheet({
       <form id="cancel-form" className="stack" onSubmit={submit} noValidate>
         <p className="info amber">
           <Icon name="bell" />
-          <span>{t('proCancel.lead', { name })}</span>
+          <span>{t('proCancel.lead')}</span>
         </p>
         <ul className="stack small">
           <li className="row gap8">

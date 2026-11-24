@@ -1,9 +1,10 @@
+import type { TFunction } from 'i18next';
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, Navigate, useNavigate } from 'react-router';
 import { useApi } from '../../api/ApiContext';
 import { useMarket } from '../../api/MarketContext';
-import type { BookingStatus, Offer, ProJob, ProProfile } from '../../api/types';
+import type { BookingStatus, Offer, ProAvailability, ProCancellation, ProJob, ProProfile } from '../../api/types';
 import { useResource } from '../../api/useResource';
 import { useUser } from '../../auth/AuthContext';
 import { ErrorText } from '../../components/ErrorText';
@@ -11,11 +12,17 @@ import { Icon } from '../../components/Icon';
 import { PhotoGrid } from '../../components/Photos';
 import { ResourceState } from '../../components/ResourceState';
 import { Stars, StatusBadge } from '../../components/StatusBadge';
-import { dateTime, dayKey, dayName, euro, time } from '../../lib/format';
+import { dateTime, dayKey, dayName, euro, longDate, time } from '../../lib/format';
 import { loadSchedule, type ScheduleItem } from '../../lib/proSchedule';
 import { useAction } from '../../lib/useAction';
 import { usePolling } from '../../lib/usePolling';
+import { formatDuration } from '../customer/BookingPage';
 import { VisitMoveRequests } from './VisitMoveRequests';
+
+/** Whether new offers come in right now (D94): the switch, unless working hours, a day off or a holiday say no. */
+export function isOnlineNow(profile: ProProfile): boolean {
+  return profile.availability ? profile.availability.onlineNow : profile.online !== false;
+}
 
 function useCountdown(until: string): number {
   const [now, setNow] = useState(() => Date.now());
@@ -72,7 +79,11 @@ function OfferCard({ offer, onGone }: { offer: Offer; onGone: () => void }) {
         <div className="row between">
           <div>
             <p className="b big">{offer.serviceName}</p>
-            <p className="small muted">{t(`book.size.${offer.size}`)}</p>
+            <p className="small muted">
+              {offer.durationMinutes
+                ? t('offer.sizeAndLength', { size: t(`book.size.${offer.size}`), duration: formatDuration(offer.durationMinutes, t) })
+                : t(`book.size.${offer.size}`)}
+            </p>
           </div>
           <div className="right">
             <p className="tiny muted">{t('offer.youEarn')}</p>
@@ -160,12 +171,75 @@ function laterToday(items: ScheduleItem[], timezone: string): ScheduleItem[] {
   );
 }
 
+/**
+ * "You cancelled this job" (D94): the reason and the pro the job was offered to next, for 24 hours or until the
+ * pro closes it.
+ */
+function CancelledCards() {
+  const { t } = useTranslation();
+  const api = useApi();
+  const { timezone } = useMarket();
+  const load = useCallback(() => api.get<{ cancellations: ProCancellation[] }>('/pro/cancellations'), [api]);
+  const { state, update } = useResource(load);
+  const dismiss = useAction();
+  if (state.status !== 'ready' || state.data.cancellations.length === 0) return null;
+
+  async function close(id: string) {
+    const done = await dismiss.run(async () => {
+      await api.post(`/pro/cancellations/${encodeURIComponent(id)}/dismiss`);
+      return true;
+    });
+    if (done) update((current) => ({ cancellations: current.cancellations.filter((card) => card.id !== id) }));
+  }
+
+  return (
+    <div className="stack">
+      {state.data.cancellations.map((card) => (
+        <section key={card.id} className="card stack-tight" role="status" aria-labelledby={`cancelled-${card.id}`}>
+          <div className="row between">
+            <h2 id={`cancelled-${card.id}`} className="b">
+              {t('pro.cancelledCard.title')}
+            </h2>
+            <button
+              type="button"
+              className="iconbtn soft"
+              aria-label={t('pro.cancelledCard.dismiss')}
+              disabled={dismiss.busy}
+              onClick={() => void close(card.id)}
+            >
+              <Icon name="x" />
+            </button>
+          </div>
+          <p className="small">{t('pro.cancelledCard.job', { service: card.serviceName, when: dateTime(card.startsAt, timezone) })}</p>
+          <p className="small muted">{t('pro.cancelledCard.reason', { reason: t(`proCancel.reasons.${card.reason}`) })}</p>
+          <p className="small">
+            {card.nextProName ? t('pro.cancelledCard.offeredTo', { name: card.nextProName }) : t('pro.cancelledCard.finding')}
+          </p>
+          {card.late && <p className="tiny muted">{t('pro.cancelledCard.late')}</p>}
+        </section>
+      ))}
+      <ErrorText error={dismiss.error} />
+    </div>
+  );
+}
+
+/** Why the pro is offline although their switch is on (D94). */
+function offlineReason(availability: ProAvailability | undefined, t: TFunction): string | null {
+  const auto = availability?.autoOffline;
+  if (!auto) return null;
+  if (auto.reason === 'holiday') {
+    return t('pro.offlineReason.holiday', { date: auto.until ? longDate(auto.until, 'UTC') : '' });
+  }
+  return t(`pro.offlineReason.${auto.reason}`);
+}
+
 /** The approved pro's Jobs page (D86): new offers while online, then the rest of today. */
 function ApprovedHome({ profile, onOnline }: { profile: ProProfile; onOnline: (online: boolean) => Promise<void> }) {
   const { t } = useTranslation();
   const api = useApi();
   const { timezone } = useMarket();
-  const online = profile.online !== false;
+  const online = isOnlineNow(profile);
+  const reason = offlineReason(profile.availability, t);
   const loadOffers = useCallback(() => api.get<{ offers: Offer[] }>('/pro/offers'), [api]);
   const offers = useResource(loadOffers);
   const loadJobs = useCallback(() => loadSchedule(api), [api]);
@@ -184,6 +258,12 @@ function ApprovedHome({ profile, onOnline }: { profile: ProProfile; onOnline: (o
       {profile.offersPausedUntil && (
         <p className="info amber" role="status">
           <Icon name="clock" /> <span>{t('pro.offersPaused', { date: dateTime(profile.offersPausedUntil, timezone) })}</span>
+        </p>
+      )}
+      <CancelledCards />
+      {online && profile.availability?.overrideUntil && (
+        <p className="info" role="status">
+          <Icon name="clock" /> <span>{t('pro.onlineToday')}</span>
         </p>
       )}
       {online ? (
@@ -209,7 +289,15 @@ function ApprovedHome({ profile, onOnline }: { profile: ProProfile; onOnline: (o
             <h2 id="offline-heading" className="b">
               {t('pro.offlineTitle')}
             </h2>
+            {reason && (
+              <p className="b small">
+                {reason}
+                {profile.availability?.autoOffline?.reason === 'outside_hours' &&
+                  ` · ${t('pro.offlineReasonHours', { from: profile.availability.workStart, to: profile.availability.workEnd })}`}
+              </p>
+            )}
             <p className="small muted">{t('pro.offlineText')}</p>
+            {reason && <p className="tiny muted">{t('pro.goOnlineToday')}</p>}
             <button type="button" className="cta dark" disabled={switching.busy} onClick={() => void switching.run(() => onOnline(true))}>
               {t('pro.goOnline')}
             </button>
@@ -309,9 +397,11 @@ export function ProHomePage() {
   const [announce, setAnnounce] = useState('');
 
   async function setOnline(online: boolean) {
-    const result = await api.put<{ online: boolean }>('/pro/online', { online });
-    update((current) => ({ profile: { ...current.profile, online: result.online } }));
-    setAnnounce(result.online ? t('pro.nowOnline') : t('pro.nowOffline'));
+    const result = await api.put<{ online: boolean; availability?: ProAvailability }>('/pro/online', { online });
+    update((current) => ({
+      profile: { ...current.profile, online: result.online, ...(result.availability ? { availability: result.availability } : {}) },
+    }));
+    setAnnounce((result.availability?.onlineNow ?? result.online) ? t('pro.nowOnline') : t('pro.nowOffline'));
   }
 
   const profile = state.status === 'ready' ? state.data.profile : null;
@@ -321,7 +411,7 @@ export function ProHomePage() {
       <header className="prohead">
         <div className="row between">
           <h1>{working ? t('pro.jobsTitle') : t('apply.title')}</h1>
-          {profile?.status === 'approved' && <OnlineSwitch online={profile.online !== false} onChange={setOnline} />}
+          {profile?.status === 'approved' && <OnlineSwitch online={isOnlineNow(profile)} onChange={setOnline} />}
         </div>
         {profile && (
           <p className="small subtle">

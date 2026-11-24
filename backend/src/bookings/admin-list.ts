@@ -27,10 +27,12 @@ export const ITEMS = `
       b.category_id, cat.name AS trade, cu.first_name AS customer, b.address, b.postcode, pu.first_name AS pro,
       b.status::text AS status,
       b.price_cents + b.fee_cents + COALESCE((SELECT sum(e.price_cents) FROM extra_requests e
-        WHERE e.booking_id = b.id AND e.status = 'approved'), 0)::int AS value_cents,
+        WHERE e.booking_id = b.id AND e.status = 'approved' AND e.funded_by = 'customer'), 0)::int AS value_cents,
       b.payment_status::text AS payment_status,
       (b.problem_reported_at IS NOT NULL AND b.problem_resolved_at IS NULL) AS problem,
       EXISTS (SELECT 1 FROM booking_issues i WHERE i.booking_id = b.id AND i.resolved_at IS NULL) AS pro_issue,
+      -- A pro who reported "Unsafe to work" goes to the very top of Needs action (D94).
+      EXISTS (SELECT 1 FROM booking_issues i WHERE i.booking_id = b.id AND i.resolved_at IS NULL AND i.reason = 'unsafe') AS urgent,
       CASE
         WHEN b.status = 'unassigned'
           OR (b.problem_reported_at IS NOT NULL AND b.problem_resolved_at IS NULL)
@@ -52,7 +54,7 @@ export const ITEMS = `
     SELECT 'visit', v.id, 'V-' || v.number, v.starts_at, v.ends_at, s.plan_name, s.category_id, cat.name,
       cu.first_name, s.address, s.postcode, pu.first_name, v.status::text,
       round(s.price_cents / CASE s.frequency ${PER_MONTH_CASES} END)::int,
-      s.status::text, false, false,
+      s.status::text, false, false, false,
       CASE
         WHEN v.status = 'planned' AND v.ends_at <= now() THEN 'needs_action'
         WHEN v.status = 'planned' AND v.starts_at <= now() THEN 'live'
@@ -107,10 +109,10 @@ export async function adminListRoutes(app: FastifyInstance, ctx: AppContext) {
           `${ITEMS}
            SELECT kind, id, number, starts_at AS "startsAt", ends_at AS "endsAt", service, category_id AS "categoryId", trade,
              customer, address, postcode, pro, status, value_cents AS "valueCents", payment_status AS "paymentStatus",
-             problem, pro_issue AS "proIssue", tab
+             problem, pro_issue AS "proIssue", urgent, tab
            FROM items
            WHERE ${FILTERS} AND ($4::text = 'all' OR tab = $4)
-           ORDER BY (tab = 'needs_action') DESC, abs(extract(epoch FROM starts_at - now())) ASC
+           ORDER BY urgent DESC, (tab = 'needs_action') DESC, abs(extract(epoch FROM starts_at - now())) ASC
            LIMIT ${MAX_LISTED}`,
           [...params, tab],
         ),

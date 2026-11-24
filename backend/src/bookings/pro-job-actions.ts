@@ -7,10 +7,12 @@ import { isUniqueViolation, uuidParams } from '../http.js';
 import { formatSlot, messages } from '../notifications/messages.js';
 import { enqueue } from '../notifications/outbox.js';
 import { withdrawOffers } from '../pros/management.js';
+import { autoOfflineReasonSql, loadAvailability } from '../pros/working-hours.js';
 import { logAction } from './admin-routes.js';
 import { offerNext } from './dispatch.js';
 import { setStatus, type BookingDeps } from './events.js';
 import { loadTasks } from './job-tasks.js';
+import { alertSupport, leaveAsNoShow } from './on-site.js';
 import { FREE_CANCEL_HOURS, releaseHolds } from './lifecycle.js';
 import { CUSTOMER_RATING_DAYS, loadBooking, PRO_CANCELLABLE } from './views.js';
 
@@ -26,6 +28,10 @@ export const CUSTOMER_RATING_TAGS = ['easy_access', 'clear_instructions', 'frien
 export const MAX_ISSUES_PER_JOB = 5;
 export const ISSUE_DETAILS_MAX = 500;
 export const CANCEL_NOTE_MAX = 300;
+/** The pro's optional comment with their rating of the customer (D94). */
+export const CUSTOMER_COMMENT_MAX = 500;
+/** The "You cancelled this job" card stays on the Jobs page this long, unless the pro closes it (D94). */
+export const CANCELLED_CARD_HOURS = 24;
 /** On-site issues that mean the pro is waiting at the door: the customer is told to get in touch. */
 const WAITING_AT_DOOR: IssueReason[] = ['customer_not_home', 'no_access'];
 
@@ -122,7 +128,7 @@ export async function proJobActionRoutes(app: FastifyInstance, ctx: AppContext) 
 
   async function ownJob(proId: string, bookingId: string) {
     const owned = await pool.query('SELECT 1 FROM bookings WHERE id = $1 AND pro_id = $2', [bookingId, proId]);
-    const job = owned.rowCount ? await loadBooking(pool, bookingId, 'pro') : null;
+    const job = owned.rowCount ? await loadBooking(pool, bookingId, 'pro', ctx.config.timezone) : null;
     if (!job) {
       throw notFound();
     }
@@ -130,7 +136,8 @@ export async function proJobActionRoutes(app: FastifyInstance, ctx: AppContext) 
   }
 
   // Online: new offers come in. Offline: none do, and offers not yet answered go to other pros. Accepted
-  // jobs and plan visits are not affected either way.
+  // jobs and plan visits are not affected either way. Outside the pro's working hours, on a day off or on
+  // holiday, going online lasts until the end of that day in the market time zone (D94).
   app.put<{ Body: { online: boolean } }>(
     '/pro/online',
     {
@@ -143,10 +150,14 @@ export async function proJobActionRoutes(app: FastifyInstance, ctx: AppContext) 
       const proId = currentUser(request).id;
       const { online } = request.body;
       const updated = await pool.query<{ online: boolean }>(
-        `UPDATE pro_profiles SET online = $2, online_changed_at = CASE WHEN online = $2 THEN online_changed_at ELSE now() END,
+        `UPDATE pro_profiles p SET online = $2,
+           online_override_until = CASE WHEN $2 AND (${autoOfflineReasonSql('$3')}) IS NOT NULL
+             THEN (((now() AT TIME ZONE $3)::date + 1)::timestamp AT TIME ZONE $3) END,
+           online_changed_at = CASE WHEN p.online = $2 AND NOT ($2 AND (${autoOfflineReasonSql('$3')}) IS NOT NULL)
+             THEN p.online_changed_at ELSE now() END,
            updated_at = now()
-         WHERE user_id = $1 AND status = 'approved' RETURNING online`,
-        [proId, online],
+         WHERE p.user_id = $1 AND p.status = 'approved' RETURNING p.online`,
+        [proId, online, ctx.config.timezone],
       );
       if (!updated.rowCount) {
         throw conflict('not_approved');
@@ -154,8 +165,9 @@ export async function proJobActionRoutes(app: FastifyInstance, ctx: AppContext) 
       if (!online) {
         await withdrawOffers(deps(), proId);
       }
-      request.log.info({ event: online ? 'pro_online' : 'pro_offline', proId });
-      return { online };
+      const availability = await loadAvailability(pool, proId, ctx.config.timezone);
+      request.log.info({ event: online ? 'pro_online' : 'pro_offline', proId, overrideUntil: availability.overrideUntil });
+      return { online, availability };
     },
   );
 
@@ -227,8 +239,9 @@ export async function proJobActionRoutes(app: FastifyInstance, ctx: AppContext) 
         throw badRequest('details_required');
       }
       await withTransaction(pool, async (client) => {
-        const found = await client.query<{ status: string; customer_id: string; service_name: string; address: string }>(
-          'SELECT status, customer_id, service_name, address FROM bookings WHERE id = $1 AND pro_id = $2 FOR UPDATE',
+        const found = await client.query<{ status: string; customer_id: string; service_name: string; address: string; number: string }>(
+          `SELECT status, customer_id, service_name, address, 'B-' || number AS number FROM bookings
+           WHERE id = $1 AND pro_id = $2 FOR UPDATE`,
           [request.params.id, pro.id],
         );
         const job = found.rows[0];
@@ -255,6 +268,8 @@ export async function proJobActionRoutes(app: FastifyInstance, ctx: AppContext) 
           throw error;
         }
         await logAction(client, request.params.id, null, 'issue_reported', { proName: pro.firstName, reason, note: details ?? undefined });
+        // The team is told at once (D94): it calls the customer for a door problem and the pro when it is unsafe.
+        await alertSupport(client, { bookingNumber: job.number, reason, address: job.address });
         if (WAITING_AT_DOOR.includes(reason)) {
           await enqueue(
             client,
@@ -268,6 +283,51 @@ export async function proJobActionRoutes(app: FastifyInstance, ctx: AppContext) 
       // Support works from the Needs action list, like the customers' problem reports.
       request.log.warn({ event: 'pro_issue_reported', bookingId: request.params.id, proId: pro.id, reason });
       return reply.code(201).send({ job: await ownJob(pro.id, request.params.id) });
+    },
+  );
+
+  // "Leave and get the call-out fee" (D94): 15 minutes after a "not home" or "can't get in" report.
+  app.post<{ Params: { id: string } }>(
+    '/pro/jobs/:id/no-show',
+    { preHandler: guards.pro, schema: { params: uuidParams } },
+    async (request) => {
+      const proId = currentUser(request).id;
+      await leaveAsNoShow(deps(), proId, request.params.id);
+      return { job: await ownJob(proId, request.params.id) };
+    },
+  );
+
+  // The "You cancelled this job" cards of the Jobs page (D94): the last 24 hours, with the pro the job went to
+  // next (first name only) while it is offered to them or they took it.
+  app.get('/pro/cancellations', { preHandler: guards.pro }, async (request) => {
+    const result = await pool.query(
+      `SELECT c.id, c.booking_id AS "bookingId", c.reason, c.note, c.late, c.created_at AS "createdAt",
+         b.service_name AS "serviceName", b.starts_at AS "startsAt",
+         COALESCE(
+           CASE WHEN b.pro_id IS NOT NULL AND b.pro_id <> c.pro_id AND b.status IN ('accepted', 'on_the_way', 'working', 'completed')
+             THEN (SELECT first_name FROM users WHERE id = b.pro_id) END,
+           (SELECT u.first_name FROM booking_offers o JOIN users u ON u.id = o.pro_id
+            WHERE o.booking_id = c.booking_id AND o.pro_id <> c.pro_id AND o.status = 'pending' AND b.status = 'searching'
+            ORDER BY o.offered_at DESC LIMIT 1)
+         ) AS "nextProName"
+       FROM pro_cancellations c JOIN bookings b ON b.id = c.booking_id
+       WHERE c.pro_id = $1 AND c.dismissed_at IS NULL AND c.created_at > now() - make_interval(hours => $2)
+       ORDER BY c.created_at DESC`,
+      [currentUser(request).id, CANCELLED_CARD_HOURS],
+    );
+    return { cancellations: result.rows };
+  });
+
+  app.post<{ Params: { id: string } }>(
+    '/pro/cancellations/:id/dismiss',
+    { preHandler: guards.pro, schema: { params: uuidParams } },
+    async (request, reply) => {
+      const updated = await pool.query(
+        'UPDATE pro_cancellations SET dismissed_at = COALESCE(dismissed_at, now()) WHERE id = $1 AND pro_id = $2',
+        [request.params.id, currentUser(request).id],
+      );
+      if (!updated.rowCount) throw notFound();
+      return reply.code(204).send();
     },
   );
 
@@ -299,7 +359,7 @@ export async function proJobActionRoutes(app: FastifyInstance, ctx: AppContext) 
   );
 
   // The pro's private rating of the customer (D86): once per job, only after it is done, for 7 days.
-  app.post<{ Params: { id: string }; Body: { stars: number; tags?: string[] } }>(
+  app.post<{ Params: { id: string }; Body: { stars: number; tags?: string[]; comment?: string } }>(
     '/pro/jobs/:id/customer-rating',
     {
       preHandler: guards.pro,
@@ -312,6 +372,7 @@ export async function proJobActionRoutes(app: FastifyInstance, ctx: AppContext) 
           properties: {
             stars: { type: 'integer', minimum: 1, maximum: 5 },
             tags: { type: 'array', uniqueItems: true, maxItems: CUSTOMER_RATING_TAGS.length, items: { type: 'string', enum: CUSTOMER_RATING_TAGS } },
+            comment: { type: 'string', maxLength: CUSTOMER_COMMENT_MAX },
           },
         },
       },
@@ -320,10 +381,10 @@ export async function proJobActionRoutes(app: FastifyInstance, ctx: AppContext) 
       const proId = currentUser(request).id;
       try {
         const inserted = await pool.query(
-          `INSERT INTO customer_ratings (booking_id, pro_id, customer_id, stars, tags)
-           SELECT id, pro_id, customer_id, $3, $4 FROM bookings
+          `INSERT INTO customer_ratings (booking_id, pro_id, customer_id, stars, tags, comment)
+           SELECT id, pro_id, customer_id, $3, $4, $6 FROM bookings
            WHERE id = $1 AND pro_id = $2 AND status = 'completed' AND completed_at > now() - make_interval(days => $5)`,
-          [request.params.id, proId, request.body.stars, request.body.tags ?? [], CUSTOMER_RATING_DAYS],
+          [request.params.id, proId, request.body.stars, request.body.tags ?? [], CUSTOMER_RATING_DAYS, request.body.comment?.trim() || null],
         );
         if (!inserted.rowCount) {
           const owned = await pool.query('SELECT 1 FROM bookings WHERE id = $1 AND pro_id = $2', [request.params.id, proId]);

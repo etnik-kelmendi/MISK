@@ -438,12 +438,16 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
            b.address, b.postcode,
            -- A flexible booking still waiting for its time shows its window (D70).
            CASE WHEN b.time_confirmed_at IS NULL THEN b.flexible_window END AS "flexibleWindow",
-           b.price_cents + CASE WHEN b.late_cancel THEN 0 ELSE b.fee_cents END
-             + COALESCE((SELECT sum(x.price_cents) FROM extra_requests x WHERE x.booking_id = b.id AND x.status = 'approved'), 0)::int
-             AS "totalCents",
+           CASE WHEN b.no_show_at IS NOT NULL
+             -- A customer no-show (D94) pays the call-out fee and any waiting at the door, never more than was held.
+             THEN LEAST(b.no_show_fee_cents + COALESCE(b.no_show_waiting_cents, 0), b.price_cents + b.fee_cents)
+             ELSE b.price_cents + CASE WHEN b.late_cancel THEN 0 ELSE b.fee_cents END
+               + COALESCE((SELECT sum(x.price_cents) FROM extra_requests x WHERE x.booking_id = b.id AND x.status = 'approved'
+                           AND x.funded_by = 'customer'), 0)::int
+           END AS "totalCents",
            pu.first_name AS "proName", c.slug AS "categorySlug", c.icon AS "categoryIcon", c.active AS "categoryActive",
            (b.status = 'completed' AND NOT EXISTS (SELECT 1 FROM ratings r WHERE r.booking_id = b.id)) AS "canRate",
-           (b.status = 'completed' OR (b.status = 'cancelled' AND b.late_cancel)) AS "hasReceipt",
+           (b.status = 'completed' OR (b.status = 'cancelled' AND (b.late_cancel OR b.no_show_at IS NOT NULL))) AS "hasReceipt",
            (b.status = 'completed' AND b.payment_status = 'held' AND b.problem_reported_at IS NULL
              AND b.completed_at + make_interval(hours => $2) > now()) AS "canReportProblem",
            (b.problem_reported_at IS NOT NULL AND b.problem_resolved_at IS NULL) AS "problemOpen",

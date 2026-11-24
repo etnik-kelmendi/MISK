@@ -22,6 +22,7 @@ import {
   type DocumentRow,
 } from './checks.js';
 import { logProAction } from './management.js';
+import { loadAvailability } from './working-hours.js';
 
 export { DOCUMENT_KINDS };
 
@@ -110,7 +111,9 @@ async function loadProfile(ctx: AppContext, userId: string, db: Queryable = ctx.
   ) as Record<DocumentKind, { uploadId: string | null; expiresOn: string | null; state: string } | null>;
   // Whether the pro can change the application and send it: a turned-down applicant waits 6 months.
   const editable = EDITABLE_TRADES.has(row.status) && (row.status !== 'rejected' || mayReapply);
-  return { ...rest, editable, documents };
+  // Working hours, holidays and whether offers come in right now (D94).
+  const availability = await loadAvailability(db, userId, ctx.config.timezone);
+  return { ...rest, editable, documents, availability };
 }
 
 type Profile = Awaited<ReturnType<typeof loadProfile>>;

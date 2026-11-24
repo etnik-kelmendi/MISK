@@ -80,8 +80,11 @@ export interface PaymentGateway {
    * (Apple Pay, Google Pay) when a wallet was used. Null when the payment has no payment method yet.
    */
   paymentMethodOf(intentId: string): Promise<PaymentMethodInfo | null>;
-  /** Takes held money. Returns the charge id that a transfer to the pro can be paid from. */
-  capture(intentId: string): Promise<{ chargeId: string }>;
+  /**
+   * Takes held money. Returns the charge id that a transfer to the pro can be paid from. With `amountCents` only
+   * that part is taken and the rest of the hold is released, e.g. a call-out fee (D94).
+   */
+  capture(intentId: string, amountCents?: number): Promise<{ chargeId: string }>;
   /** Releases held money that was never taken. */
   release(intentId: string): Promise<void>;
   /** Gives captured money back in full. */

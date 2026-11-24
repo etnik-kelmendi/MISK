@@ -1,9 +1,12 @@
 import { proShareCents } from '../catalogue/pricing.js';
 import type { Queryable } from '../db.js';
+import { nextPayoutDate, type PayoutInterval } from '../payments/payouts.js';
+import { marketToday } from '../pros/checks.js';
 import { FREE_CANCEL_LATE_MINUTES, loadArrival } from './arrival.js';
 import { loadCustomerProfile } from './customer-profile.js';
 import { loadTasks } from './job-tasks.js';
-import { CHARGE_DELAY_HOURS, CUSTOMER_RESCHEDULABLE, FREE_CANCEL_HOURS } from './lifecycle.js';
+import { CHARGE_DELAY_HOURS, CUSTOMER_RESCHEDULABLE, FREE_CANCEL_HOURS, noShowAmounts } from './lifecycle.js';
+import { leaveAllowedAt, NO_SHOW_WAIT_MINUTES } from './on-site.js';
 
 /** Pros can cancel a job they accepted until they start work (D86). */
 export const PRO_CANCELLABLE = ['accepted', 'on_the_way'];
@@ -50,6 +53,9 @@ interface BookingRow {
   proPhone: string | null;
   preferredProId: string | null;
   preferredProName: string | null;
+  noShowAt: Date | null;
+  noShowFeeCents: number | null;
+  noShowWaitingCents: number | null;
 }
 
 export const BOOKING_COLUMNS = `b.id, 'B-' || b.number AS number, cat.name AS "categoryName",
@@ -62,14 +68,18 @@ export const BOOKING_COLUMNS = `b.id, 'B-' || b.number AS number, cat.name AS "c
   extract(epoch FROM b.starts_at - now()) / 3600 AS "hoursLeft", b.late_cancel AS "lateCancel",
   b.customer_id AS "customerId", cu.first_name AS "customerName", cu.phone AS "customerPhone",
   b.pro_id AS "proId", pu.first_name AS "proName", pu.phone AS "proPhone",
-  b.preferred_pro_id AS "preferredProId", ppu.first_name AS "preferredProName"`;
+  b.preferred_pro_id AS "preferredProId", ppu.first_name AS "preferredProName",
+  b.no_show_at AS "noShowAt", b.no_show_fee_cents AS "noShowFeeCents", b.no_show_waiting_cents AS "noShowWaitingCents"`;
 
 export const BOOKING_FROM = `bookings b JOIN users cu ON cu.id = b.customer_id LEFT JOIN users pu ON pu.id = b.pro_id
   LEFT JOIN users ppu ON ppu.id = b.preferred_pro_id
   JOIN categories cat ON cat.id = b.category_id`;
 
-/** A booking as one viewer may see it. Phone numbers are only shown to admins. */
-export async function loadBooking(db: Queryable, bookingId: string, viewer: Viewer) {
+/**
+ * A booking as one viewer may see it. Phone numbers are only shown to admins. `timezone` is the market's, for
+ * the pro's payout day.
+ */
+export async function loadBooking(db: Queryable, bookingId: string, viewer: Viewer, timezone = 'UTC') {
   const found = await db.query<BookingRow>(`SELECT ${BOOKING_COLUMNS} FROM ${BOOKING_FROM} WHERE b.id = $1`, [bookingId]);
   const b = found.rows[0];
   if (!b) {
@@ -78,8 +88,19 @@ export async function loadBooking(db: Queryable, bookingId: string, viewer: View
   const [events, photos, extras, rating, proRating, tip, unread, services, tasks, issues] = await Promise.all([
     db.query('SELECT status, created_at AS at FROM booking_events WHERE booking_id = $1 ORDER BY id', [bookingId]),
     db.query('SELECT upload_id AS id, kind FROM booking_photos WHERE booking_id = $1 ORDER BY created_at', [bookingId]),
-    db.query<{ id: string; description: string; priceCents: number; durationMinutes: number | null; status: string; createdAt: Date }>(
-      `SELECT id, description, price_cents AS "priceCents", duration_minutes AS "durationMinutes", status, created_at AS "createdAt"
+    db.query<{
+      id: string;
+      description: string;
+      priceCents: number;
+      durationMinutes: number | null;
+      status: string;
+      createdAt: Date;
+      kind: 'work' | 'waiting';
+      fundedBy: 'customer' | 'misk';
+    }>(
+      // Paid waiting at the door (D94) is a line of its own: kind 'waiting', paid by the customer or by MISK.
+      `SELECT id, description, price_cents AS "priceCents", duration_minutes AS "durationMinutes", status, created_at AS "createdAt",
+         kind, funded_by AS "fundedBy"
        FROM extra_requests WHERE booking_id = $1 ORDER BY created_at`,
       [bookingId],
     ),
@@ -127,7 +148,25 @@ export async function loadBooking(db: Queryable, bookingId: string, viewer: View
   // A job handed to another pro does not show them the previous pro's report.
   const openIssue = issues.rows.find((issue) => issue.resolvedAt === null && issue.proId === b.proId) ?? null;
 
-  const approvedExtras = extras.rows.filter((e) => e.status === 'approved').reduce((sum, e) => sum + e.priceCents, 0);
+  // What the customer pays for extra work and waiting time; waiting MISK paid for is the pro's, not the customer's.
+  const approvedExtras = extras.rows
+    .filter((e) => e.status === 'approved' && e.fundedBy === 'customer')
+    .reduce((sum, e) => sum + e.priceCents, 0);
+  const proExtras = extras.rows.filter((e) => e.status === 'approved').reduce((sum, e) => sum + e.priceCents, 0);
+  const noShow =
+    b.noShowAt && b.noShowFeeCents !== null
+      ? {
+          at: b.noShowAt,
+          feeCents: b.noShowFeeCents,
+          waitingCents: b.noShowWaitingCents ?? 0,
+          ...noShowAmounts({
+            feeCents: b.noShowFeeCents,
+            waitingCents: b.noShowWaitingCents ?? 0,
+            heldCents: b.priceCents + b.feeCents,
+            proSharePct: b.proSharePct,
+          }),
+        }
+      : null;
   const unassigned = ['awaiting_payment', 'searching', 'unassigned'].includes(b.status);
   const base = {
     id: b.id,
@@ -156,22 +195,49 @@ export async function loadBooking(db: Queryable, bookingId: string, viewer: View
     events: events.rows,
     // Problem photos are between the customer and the MISK team.
     photos: viewer === 'pro' ? photos.rows.filter((photo) => photo.kind !== 'problem') : photos.rows,
-    extras: extras.rows,
+    // Who funds a line is between the pro and MISK; the customer sees only what they pay.
+    extras:
+      viewer === 'customer'
+        ? extras.rows.filter((extra) => extra.fundedBy === 'customer').map((extra) => ({
+            id: extra.id,
+            description: extra.description,
+            priceCents: extra.priceCents,
+            durationMinutes: extra.durationMinutes,
+            status: extra.status,
+            createdAt: extra.createdAt,
+            kind: extra.kind,
+          }))
+        : extras.rows,
     rating: rating.rows[0] ?? null,
     tasks,
+    // The customer was not home and the pro left with the call-out fee (D94).
+    noShow: noShow ? { at: noShow.at, chargeCents: noShow.chargeCents, waitingCents: noShow.waitingCents } : null,
   };
   // The pro the customer picked on Home, who was offered the job first (D89): for the customer and the team
   // only, first name only.
   const preferredPro = b.preferredProId ? { id: b.preferredProId, firstName: b.preferredProName } : null;
 
   if (viewer === 'pro') {
-    const [customerStars, customerRating] = await Promise.all([
+    const [customerStars, customerRating, payoutSettings] = await Promise.all([
       db.query<{ average: number | null; count: number }>(
         `SELECT round(avg(stars)::numeric, 1)::float AS average, count(*)::int AS count FROM customer_ratings WHERE customer_id = $1`,
         [b.customerId],
       ),
-      db.query<{ stars: number; tags: string[] }>('SELECT stars, tags FROM customer_ratings WHERE booking_id = $1', [bookingId]),
+      db.query<{ stars: number; tags: string[]; comment: string | null }>(
+        'SELECT stars, tags, comment FROM customer_ratings WHERE booking_id = $1',
+        [bookingId],
+      ),
+      db.query<{ interval: PayoutInterval; noShowFeeCents: number }>(
+        'SELECT payout_interval AS interval, no_show_fee_cents AS "noShowFeeCents" FROM settings',
+      ),
     ]);
+    const interval = payoutSettings.rows[0]?.interval ?? 'weekly';
+    // The day the money reaches the pro's bank (D94): the first payout day once it is released, 24 hours after
+    // the job (at once for a no-show's call-out fee).
+    const releasedAt = noShow ? noShow.at : b.completedAt ? new Date(b.completedAt.getTime() + CHARGE_DELAY_HOURS * 3600 * 1000) : null;
+    const payoutOn = releasedAt ? nextPayoutDate(interval, marketToday(timezone, releasedAt)) : null;
+    const issueOpen = openIssue && ['accepted', 'on_the_way', 'working'].includes(b.status) ? openIssue : null;
+    const leaveAt = issueOpen && ['accepted', 'on_the_way'].includes(b.status) ? leaveAllowedAt(issueOpen) : null;
     const ratingWindowOpen =
       b.completedAt !== null && b.completedAt.getTime() > Date.now() - CUSTOMER_RATING_DAYS * 24 * 3600 * 1000;
     return {
@@ -181,11 +247,19 @@ export async function loadBooking(db: Queryable, bookingId: string, viewer: View
         ratingAverage: customerStars.rows[0]?.average ?? null,
         ratingCount: customerStars.rows[0]?.count ?? 0,
       },
-      earningsCents: proShareCents(b.priceCents, b.proSharePct) + proShareCents(approvedExtras, b.proSharePct),
+      // Extra work and paid waiting count for the pro whoever pays for them; a no-show pays the call-out fee (D94).
+      earningsCents: noShow ? noShow.proCents : proShareCents(b.priceCents, b.proSharePct) + proShareCents(proExtras, b.proSharePct),
       // The pro's share of the job and of extra work (D86).
       proSharePct: b.proSharePct,
       unreadMessages: unread.rows[0]?.n ?? 0,
-      openIssue: openIssue ? { id: openIssue.id, reason: openIssue.reason, createdAt: openIssue.createdAt } : null,
+      openIssue: issueOpen ? { id: issueOpen.id, reason: issueOpen.reason, createdAt: issueOpen.createdAt } : null,
+      // "Unsafe to work" stops the job until MISK support resolves it (D94).
+      stopped: issueOpen?.reason === 'unsafe',
+      // "Leave and get the call-out fee" from this moment (D94).
+      leaveAt,
+      noShowWaitMinutes: NO_SHOW_WAIT_MINUTES,
+      callOutFeeCents: noShow ? noShow.feeCents : (payoutSettings.rows[0]?.noShowFeeCents ?? 0),
+      payoutOn,
       // Cancelling under 24 hours before the start is a late cancellation (D86).
       canCancel: PRO_CANCELLABLE.includes(b.status),
       cancelIsLate: b.hoursLeft < FREE_CANCEL_HOURS,
@@ -212,7 +286,7 @@ export async function loadBooking(db: Queryable, bookingId: string, viewer: View
     packageDiscountCents: b.packageDiscountCents,
     feeCents: b.feeCents,
     extrasCents: approvedExtras,
-    totalCents: b.priceCents + b.feeCents + approvedExtras,
+    totalCents: noShow ? noShow.chargeCents : b.priceCents + b.feeCents + approvedExtras,
     paymentStatus: b.paymentStatus,
   };
 
@@ -238,6 +312,8 @@ export async function loadBooking(db: Queryable, bookingId: string, viewer: View
           : null,
       freeCancelProLate: proVeryLate,
       lateCancel: b.lateCancel,
+      // What a no-show costs (D94), shown in the booking's help text.
+      callOutFeeCents: (await db.query<{ fee: number }>('SELECT no_show_fee_cents AS fee FROM settings')).rows[0]?.fee ?? 0,
       // Free to move until 24 hours before the start, unless the pro has set off (D75).
       canReschedule: CUSTOMER_RESCHEDULABLE.includes(b.status) && b.hoursLeft > FREE_CANCEL_HOURS,
       tip: tip.rows[0] ?? null,
@@ -283,7 +359,7 @@ export async function loadBooking(db: Queryable, bookingId: string, viewer: View
      FROM bookings b LEFT JOIN users u ON u.id = b.assignment_locked_by WHERE b.id = $1`,
     [bookingId],
   );
-  const proCents = proShareCents(b.priceCents, b.proSharePct) + proShareCents(approvedExtras, b.proSharePct);
+  const proCents = noShow ? noShow.proCents : proShareCents(b.priceCents, b.proSharePct) + proShareCents(proExtras, b.proSharePct);
   return {
     ...base,
     ...money,

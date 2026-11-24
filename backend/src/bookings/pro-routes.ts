@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { currentUser } from '../auth/guard.js';
 import { proShareCents } from '../catalogue/pricing.js';
 import type { AppContext } from '../context.js';
-import { onlyRow, withTransaction } from '../db.js';
+import { onlyRow, withTransaction, type Queryable } from '../db.js';
 import { badRequest, conflict, notFound } from '../errors.js';
 import { uuidParams } from '../http.js';
 import { messages } from '../notifications/messages.js';
@@ -12,6 +12,7 @@ import { acceptOffer, declineOffer, flexibleStarts } from './dispatch.js';
 import { eligibleProFilter } from './availability.js';
 import { priceList } from './job-tasks.js';
 import { setStatus, type BookingDeps } from './events.js';
+import { chargeWaitingTime, closeDoorIssueOnStart, warnIfLate } from './on-site.js';
 import { loadBooking } from './views.js';
 
 export const MAX_COMPLETION_PHOTOS = 6;
@@ -20,6 +21,15 @@ export { MAX_EXTRA_MINUTES, MIN_EXTRA_MINUTES } from './job-tasks.js';
 export const EXTRA_NOTE_MAX = 300;
 const NEXT_STEP: Record<string, string> = { accepted: 'on_the_way', on_the_way: 'working' };
 
+/** True while the pro's own "Unsafe to work" report is open: the job is stopped until MISK support resolves it (D94). */
+async function stoppedAsUnsafe(db: Queryable, bookingId: string, proId: string): Promise<boolean> {
+  const found = await db.query(
+    "SELECT 1 FROM booking_issues WHERE booking_id = $1 AND pro_id = $2 AND reason = 'unsafe' AND resolved_at IS NULL",
+    [bookingId, proId],
+  );
+  return (found.rowCount ?? 0) > 0;
+}
+
 export async function proJobRoutes(app: FastifyInstance, ctx: AppContext) {
   const { pool, guards } = ctx;
   const deps = (): BookingDeps => ({ pool, gateway: ctx.gateway, config: ctx.config, log: app.log });
@@ -27,7 +37,7 @@ export async function proJobRoutes(app: FastifyInstance, ctx: AppContext) {
   /** Loads a job only when it is assigned to the signed-in pro. */
   async function ownJob(proId: string, bookingId: string) {
     const owned = await pool.query('SELECT 1 FROM bookings WHERE id = $1 AND pro_id = $2', [bookingId, proId]);
-    const job = owned.rowCount ? await loadBooking(pool, bookingId, 'pro') : null;
+    const job = owned.rowCount ? await loadBooking(pool, bookingId, 'pro', ctx.config.timezone) : null;
     if (!job) {
       throw notFound();
     }
@@ -55,6 +65,7 @@ export async function proJobRoutes(app: FastifyInstance, ctx: AppContext) {
       photoIds: string[];
       flexibleWindow: string | null;
       startOptions: Date[] | null;
+      durationMinutes: number;
     }>(
       `SELECT o.id, o.booking_id AS "bookingId", o.expires_at AS "expiresAt", b.service_name AS "serviceName", b.size,
          b.starts_at AS "startsAt", b.ends_at AS "endsAt", b.address, b.postcode, b.notes,
@@ -69,6 +80,8 @@ export async function proJobRoutes(app: FastifyInstance, ctx: AppContext) {
                    WHERE ph.booking_id = b.id), '{}') AS "photoIds",
          -- A flexible job (D70): its window and the starts this pro is free for, to pick one when accepting.
          CASE WHEN b.time_confirmed_at IS NULL THEN b.flexible_window END AS "flexibleWindow",
+         -- How long the job takes (D94).
+         bd.minutes AS "durationMinutes",
          CASE WHEN b.flexible_window IS NOT NULL AND b.time_confirmed_at IS NULL THEN (
            SELECT array_agg(st ORDER BY st)
            FROM pro_profiles p, ${flexibleStarts('b.starts_at', 'b.ends_at', 'bd.minutes')} AS st
@@ -191,9 +204,9 @@ export async function proJobRoutes(app: FastifyInstance, ctx: AppContext) {
     async (request) => {
       const pro = currentUser(request);
       const { status } = request.body;
-      await withTransaction(pool, async (client) => {
-        const found = await client.query<{ status: string; customer_id: string }>(
-          'SELECT status, customer_id FROM bookings WHERE id = $1 AND pro_id = $2 FOR UPDATE',
+      const waiting = await withTransaction(pool, async (client) => {
+        const found = await client.query<{ status: string; customer_id: string; service_name: string; price_cents: number }>(
+          'SELECT status, customer_id, service_name, price_cents FROM bookings WHERE id = $1 AND pro_id = $2 FOR UPDATE',
           [request.params.id, pro.id],
         );
         const job = found.rows[0];
@@ -203,11 +216,29 @@ export async function proJobRoutes(app: FastifyInstance, ctx: AppContext) {
         if (NEXT_STEP[job.status] !== status) {
           throw conflict('invalid_status');
         }
+        if (await stoppedAsUnsafe(client, request.params.id, pro.id)) {
+          throw conflict('job_stopped');
+        }
         await setStatus(client, request.params.id, status);
         if (status === 'on_the_way') {
-          await enqueue(client, job.customer_id, 'pro_on_the_way', messages.proOnTheWay(pro.firstName ?? 'Your pro'));
+          await enqueue(client, job.customer_id, 'pro_on_the_way', messages.proOnTheWay(pro.firstName ?? 'Your pro'), {
+            link: `/bookings/${request.params.id}`,
+          });
+          return null;
         }
+        // The pro got in: a door report is closed, and waiting at a locked door is paid (D94).
+        return closeDoorIssueOnStart(client, {
+          bookingId: request.params.id,
+          proId: pro.id,
+          customerId: job.customer_id,
+          serviceName: job.service_name,
+          priceCents: job.price_cents,
+        });
       });
+      if (waiting) {
+        const fundedBy = await chargeWaitingTime(deps(), waiting.extraId);
+        request.log.info({ event: 'waiting_time_added', bookingId: request.params.id, minutes: waiting.minutes, fundedBy });
+      }
       return { job: await ownJob(pro.id, request.params.id) };
     },
   );
@@ -285,6 +316,13 @@ export async function proJobRoutes(app: FastifyInstance, ctx: AppContext) {
         ]);
         if (!owned.rowCount) throw notFound();
         if (owned.rows[0]?.status !== 'on_the_way') throw conflict('invalid_status');
+      } else {
+        // A new position can make the pro late: the customer is warned once, automatically (D94).
+        try {
+          await warnIfLate(deps(), request.params.id);
+        } catch (error) {
+          request.log.error({ event: 'late_warning_failed', bookingId: request.params.id, err: error });
+        }
       }
       return reply.code(204).send();
     },
@@ -335,7 +373,7 @@ export async function proJobRoutes(app: FastifyInstance, ctx: AppContext) {
           throw conflict('invalid_status');
         }
         const open = await client.query(
-          "SELECT 1 FROM extra_requests WHERE booking_id = $1 AND status IN ('pending', 'awaiting_payment')",
+          "SELECT 1 FROM extra_requests WHERE booking_id = $1 AND kind = 'work' AND status IN ('pending', 'awaiting_payment')",
           [request.params.id],
         );
         if (open.rowCount) {
@@ -374,6 +412,9 @@ export async function proJobRoutes(app: FastifyInstance, ctx: AppContext) {
         if (job.status !== 'working') {
           throw conflict('invalid_status');
         }
+        if (await stoppedAsUnsafe(client, request.params.id, proId)) {
+          throw conflict('job_stopped');
+        }
         const photos = await client.query(
           "SELECT 1 FROM booking_photos WHERE booking_id = $1 AND kind = 'completion' LIMIT 1",
           [request.params.id],
@@ -384,7 +425,7 @@ export async function proJobRoutes(app: FastifyInstance, ctx: AppContext) {
         // Unanswered extra work is dropped: nothing is charged without the customer's approval.
         await client.query(
           `UPDATE extra_requests SET status = 'cancelled', decided_at = now()
-           WHERE booking_id = $1 AND status IN ('pending', 'awaiting_payment')`,
+           WHERE booking_id = $1 AND kind = 'work' AND status IN ('pending', 'awaiting_payment')`,
           [request.params.id],
         );
         await setStatus(client, request.params.id, 'completed', ', completed_at = now()');

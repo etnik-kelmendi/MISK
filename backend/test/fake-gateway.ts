@@ -16,6 +16,8 @@ export interface FakeIntent {
   amountCents: number;
   status: 'requires_payment_method' | 'held' | 'captured' | 'released' | 'refunded';
   metadata: Record<string, string>;
+  /** What was taken: the whole hold, or the part a partial capture asked for (D94). */
+  capturedCents?: number;
   /** The saved card the hold was placed on, if any (D73). */
   paymentMethodId?: string;
 }
@@ -157,11 +159,15 @@ export function createFakeGateway(options: { instantHolds?: boolean } = {}) {
       const card = cards.find((c) => c.id === intent.paymentMethodId) ?? defaultCards()[0];
       return card ? { brand: card.brand, last4: card.last4, wallet: null } : null;
     },
-    async capture(intentId) {
+    async capture(intentId, amountCents) {
       const intent = intents.get(intentId);
       if (failures.has('capture') || !intent || (intent.status !== 'held' && intent.status !== 'captured')) {
         throw new Error(`fake capture failure for ${intentId}`);
       }
+      if (amountCents !== undefined && (!Number.isInteger(amountCents) || amountCents <= 0 || amountCents > intent.amountCents)) {
+        throw new Error(`fake: cannot capture ${amountCents} of ${intent.amountCents}`);
+      }
+      if (intent.status === 'held') intent.capturedCents = amountCents ?? intent.amountCents;
       intent.status = 'captured';
       return { chargeId: `ch_${intentId}` };
     },

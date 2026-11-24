@@ -88,9 +88,9 @@ describe('online switch', () => {
     const pro = await daniel();
     const profile = (await get('/pro/profile', pro.cookie)).json().profile;
     expect(profile).toMatchObject({ online: true, tradeNames: ['Gardening'], offersPausedUntil: null });
-    expect((await put('/pro/online', { online: false }, pro.cookie)).json()).toEqual({ online: false });
+    expect((await put('/pro/online', { online: false }, pro.cookie)).json()).toMatchObject({ online: false });
     expect((await get('/pro/profile', pro.cookie)).json().profile.online).toBe(false);
-    expect((await put('/pro/online', { online: true }, pro.cookie)).json()).toEqual({ online: true });
+    expect((await put('/pro/online', { online: true }, pro.cookie)).json()).toMatchObject({ online: true });
     expect((await put('/pro/online', { online: 'yes' }, pro.cookie)).statusCode).toBe(400);
   });
 

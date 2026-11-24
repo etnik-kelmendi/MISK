@@ -63,18 +63,22 @@ export async function loadReceipt(
     payment_method_brand: string | null;
     payment_method_last4: string | null;
     payment_method_wallet: string | null;
+    no_show_at: Date | null;
+    no_show_fee_cents: number | null;
+    no_show_waiting_cents: number | null;
   }>(
     `SELECT b.number, b.service_name, b.size, b.address, b.postcode, b.price_cents, b.fee_cents, b.status, b.late_cancel,
        b.payment_status, (b.problem_reported_at IS NOT NULL AND b.problem_resolved_at IS NULL) AS problem_open,
        CASE WHEN b.status = 'completed' THEN b.completed_at + make_interval(hours => $3) END AS charge_at,
        COALESCE(b.completed_at, b.starts_at) AS "when", pu.first_name AS pro_name, b.package_discount_cents,
-       b.payment_intent_id, b.payment_method_brand, b.payment_method_last4, b.payment_method_wallet
+       b.payment_intent_id, b.payment_method_brand, b.payment_method_last4, b.payment_method_wallet,
+       b.no_show_at, b.no_show_fee_cents, b.no_show_waiting_cents
      FROM bookings b LEFT JOIN users pu ON pu.id = b.pro_id
      WHERE b.id = $1 AND b.customer_id = $2`,
     [bookingId, customerId, CHARGE_DELAY_HOURS],
   );
   const b = found.rows[0];
-  if (!b || !(b.status === 'completed' || (b.status === 'cancelled' && b.late_cancel))) {
+  if (!b || !(b.status === 'completed' || (b.status === 'cancelled' && (b.late_cancel || b.no_show_at !== null)))) {
     return null;
   }
   const [services, extras, tip] = await Promise.all([
@@ -82,8 +86,8 @@ export async function loadReceipt(
       'SELECT name, price_cents FROM booking_services WHERE booking_id = $1 ORDER BY position',
       [bookingId],
     ),
-    db.query<{ description: string; amount_cents: number }>(
-      `SELECT description, price_cents AS amount_cents FROM extra_requests
+    db.query<{ description: string; amount_cents: number; kind: string }>(
+      `SELECT description, price_cents AS amount_cents, kind FROM extra_requests
        WHERE booking_id = $1 AND status = 'approved' AND payment_status IN ('held', 'captured', 'refunded') ORDER BY created_at`,
       [bookingId],
     ),
@@ -97,12 +101,27 @@ export async function loadReceipt(
           { label: 'Package discount (10%)', cents: -b.package_discount_cents, kind: 'discount' as const },
         ]
       : [{ label: `${b.service_name}, ${SIZES[b.size] ?? b.size} job`, cents: b.price_cents, kind: 'job' as const }];
-  const lines: Receipt['lines'] = [
-    ...jobLines,
-    ...extras.rows.map((x) => ({ label: `${x.description} (approved in the app)`, cents: x.amount_cents, kind: 'extra' as const })),
-  ];
-  // A late cancellation is charged the job price only.
-  if (!b.late_cancel) lines.push({ label: 'Service fee', cents: b.fee_cents, kind: 'fee' });
+  const lines: Receipt['lines'] = [];
+  if (b.no_show_at && b.no_show_fee_cents !== null) {
+    // A customer no-show (D94) is charged the call-out fee and any waiting at a locked door, at most what was held.
+    const held = b.price_cents + b.fee_cents;
+    const fee = Math.min(b.no_show_fee_cents, held);
+    lines.push({ label: 'Call-out fee: the pro could not get in', cents: fee, kind: 'fee' });
+    const waiting = Math.min(b.no_show_waiting_cents ?? 0, held - fee);
+    if (waiting > 0) lines.push({ label: 'Waiting time at the door', cents: waiting, kind: 'extra' });
+  } else {
+    lines.push(
+      ...jobLines,
+      ...extras.rows.map((x) => ({
+        // Paid waiting at a locked door (D94) is in the booking terms, not approved in the app.
+        label: x.kind === 'waiting' ? x.description : `${x.description} (approved in the app)`,
+        cents: x.amount_cents,
+        kind: 'extra' as const,
+      })),
+    );
+    // A late cancellation is charged the job price only.
+    if (!b.late_cancel) lines.push({ label: 'Service fee', cents: b.fee_cents, kind: 'fee' });
+  }
   if (tip.rows[0]) lines.push({ label: 'Tip', cents: tip.rows[0].amount_cents, kind: 'tip' });
   const state: ReceiptState =
     b.payment_status === 'refunded'

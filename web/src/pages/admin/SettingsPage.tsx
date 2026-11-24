@@ -18,7 +18,9 @@ const EXAMPLE_TIP_CENTS = 500;
 const SLIDER_SAVE_DELAY_MS = 500;
 const INTERVALS: PayoutInterval[] = ['weekly', 'biweekly', 'monthly'];
 
-type Patch = Partial<Pick<PlatformSettings, 'serviceFeeCents' | 'commissionPct' | 'payoutInterval'>>;
+type Patch = Partial<Pick<PlatformSettings, 'serviceFeeCents' | 'commissionPct' | 'payoutInterval' | 'noShowFeeCents' | 'waitingCapMinutes'>>;
+/** The most waiting at a locked door the team can choose to pay (D94). */
+const MAX_WAITING_MINUTES = 120;
 
 /** One setting: what it is and what it does on the left, its control on the right. */
 function SettingRow({
@@ -49,7 +51,19 @@ function SettingRow({
   );
 }
 
-function FeeInput({ cents, onSave }: { cents: number; onSave: (cents: number) => void }) {
+function FeeInput({
+  cents,
+  onSave,
+  id = 'service-fee',
+  label,
+  hint,
+}: {
+  cents: number;
+  onSave: (cents: number) => void;
+  id?: string;
+  label?: string;
+  hint?: string;
+}) {
   const { t } = useTranslation();
   const errorId = useId();
   const [text, setText] = useState((cents / 100).toFixed(2));
@@ -68,18 +82,18 @@ function FeeInput({ cents, onSave }: { cents: number; onSave: (cents: number) =>
 
   return (
     <SettingRow
-      label={t('admin.settings.fees.fee')}
-      labelFor="service-fee"
+      label={label ?? t('admin.settings.fees.fee')}
+      labelFor={id}
       control={
         <>
           <span className="price-input">
             <span aria-hidden="true">€</span>
             <input
-              id="service-fee"
+              id={id}
               inputMode="decimal"
               value={text}
               aria-invalid={invalid}
-              aria-describedby={invalid ? errorId : 'service-fee-hint'}
+              aria-describedby={invalid ? errorId : `${id}-hint`}
               onChange={(e) => setText(e.target.value)}
               onBlur={commit}
               onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {
@@ -95,8 +109,61 @@ function FeeInput({ cents, onSave }: { cents: number; onSave: (cents: number) =>
         </>
       }
     >
-      <p id="service-fee-hint" className="sd">
-        {t('admin.settings.fees.feeHint')}
+      <p id={`${id}-hint`} className="sd">
+        {hint ?? t('admin.settings.fees.feeHint')}
+      </p>
+    </SettingRow>
+  );
+}
+
+/** How many minutes of waiting at a locked door are paid at most (D94). */
+function WaitingCapInput({ minutes, onSave }: { minutes: number; onSave: (minutes: number) => void }) {
+  const { t } = useTranslation();
+  const errorId = useId();
+  const [text, setText] = useState(String(minutes));
+  const [invalid, setInvalid] = useState(false);
+
+  function commit() {
+    const value = Number(text.trim());
+    if (!/^\d{1,3}$/.test(text.trim()) || value > MAX_WAITING_MINUTES) {
+      setInvalid(true);
+      return;
+    }
+    setInvalid(false);
+    if (value !== minutes) onSave(value);
+  }
+
+  return (
+    <SettingRow
+      label={t('admin.settings.fees.waitingCap')}
+      labelFor="waiting-cap"
+      control={
+        <>
+          <span className="price-input">
+            <input
+              id="waiting-cap"
+              inputMode="numeric"
+              value={text}
+              aria-invalid={invalid}
+              aria-describedby={invalid ? errorId : 'waiting-cap-hint'}
+              onChange={(e) => setText(e.target.value)}
+              onBlur={commit}
+              onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {
+                if (e.key === 'Enter') e.currentTarget.blur();
+              }}
+            />
+            <span aria-hidden="true">{t('admin.settings.fees.minutesShort')}</span>
+          </span>
+          {invalid && (
+            <span id={errorId} className="error-text small" role="alert">
+              {t('admin.settings.fees.waitingCapInvalid', { max: MAX_WAITING_MINUTES })}
+            </span>
+          )}
+        </>
+      }
+    >
+      <p id="waiting-cap-hint" className="sd">
+        {t('admin.settings.fees.waitingCapHint')}
       </p>
     </SettingRow>
   );
@@ -225,6 +292,19 @@ function FeesForm({ settings, onSaved }: { settings: PlatformSettings; onSaved: 
       <FeeInput key={settings.serviceFeeCents} cents={settings.serviceFeeCents} onSave={(serviceFeeCents) => void save({ serviceFeeCents })} />
       <CommissionSlider value={commission} saved={settings.commissionPct} onChange={setCommission} onSave={saveCommission} />
       <ChargeFlow hours={settings.chargeDelayHours} />
+      <FeeInput
+        key={`no-show-${settings.noShowFeeCents}`}
+        id="no-show-fee"
+        cents={settings.noShowFeeCents}
+        label={t('admin.settings.fees.noShowFee')}
+        hint={t('admin.settings.fees.noShowFeeHint')}
+        onSave={(noShowFeeCents) => void save({ noShowFeeCents })}
+      />
+      <WaitingCapInput
+        key={`waiting-${settings.waitingCapMinutes}`}
+        minutes={settings.waitingCapMinutes}
+        onSave={(waitingCapMinutes) => void save({ waitingCapMinutes })}
+      />
 
       <SettingRow
         label={t('admin.settings.fees.payoutTitle')}
