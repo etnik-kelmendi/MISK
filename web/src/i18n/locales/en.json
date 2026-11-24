@@ -221,7 +221,16 @@
     "too_many_holidays": "You can plan at most 20 holidays.",
     "job_stopped": "This job is stopped because you reported it unsafe. MISK support has to resolve it first.",
     "no_door_issue": "First report that the customer is not home or that you can't get in.",
-    "wait_longer": "Please wait the full 15 minutes before you leave."
+    "wait_longer": "Please wait the full 15 minutes before you leave.",
+    "email_unchanged": "That is already the email of your account.",
+    "password_required": "Please enter your current password.",
+    "wrong_password": "That password is not right.",
+    "email_sending_unavailable": "MISK cannot send emails right now. Please try again later or contact support.",
+    "no_email_change": "There is no email change waiting. Start again with Change email.",
+    "invalid_email_change_link": "This link has expired, was already used or was replaced by a newer one. Start the change again from Personal information.",
+    "pro_account": "Pro accounts are closed by MISK support, because they have payouts and documents. Please contact support.",
+    "delete_not_confirmed": "Type DELETE in capital letters to confirm.",
+    "account_has_open_items": "Something is still open on your account. Please finish it first."
   },
   "nav": {
     "customer": "Main menu",
@@ -1578,6 +1587,10 @@
       "tradeLine": "{{visible}} of {{total}} services visible · {{pros}} pros",
       "selectedLine": "{{verified}} verified pros · {{visible}} services visible",
       "draftHint": "Draft: customers do not see this trade yet. Publish it when its services and prices are ready.",
+      "certificate": {
+        "label": "Trade certificate required for pros",
+        "hint": "Off for trades like cleaning, where no certificate exists. Changing it never takes approval away from a pro."
+      },
       "publish": "Publish trade",
       "unpublish": "Back to draft",
       "seeInApp": "See in the app",
@@ -1643,6 +1656,8 @@
         "trade_published": "Published the trade",
         "trade_unpublished": "Moved the trade back to draft",
         "trade_edited": "Edited the trade",
+        "certificate_on": "Trade certificate now required for pros",
+        "certificate_off": "Trade certificate no longer required for pros",
         "service_added": "Added {{service}}",
         "service_edited": "Edited {{service}}",
         "price_changed": "{{service}}: price {{from}} → {{to}}",
@@ -1885,6 +1900,23 @@
           "check": "Check status",
           "checkLabel": "Check the status of the test email to {{email}}",
           "unknownError": "no reason was given"
+        }
+      },
+      "setup": {
+        "title": "Setup checklist",
+        "intro": "Optional settings to check before going live. They are set on the server and in the app's build; only whether each is set is shown here, never its value.",
+        "set": "Set",
+        "notSet": "Not set",
+        "alertsNotEmailed": "Issue alerts from pros can't be emailed: add an email to a team member or set SUPPORT_EMAIL.",
+        "items": {
+          "support_email": { "label": "Support email (SUPPORT_EMAIL)", "effect": "The \"Email us\" contact buttons are hidden, and issue alerts have no fallback address." },
+          "support_phone": { "label": "Support phone (SUPPORT_PHONE)", "effect": "The \"Call us\" contact buttons are hidden." },
+          "email_sender": { "label": "Email sender (SMTP settings)", "effect": "No email is sent: notifications reach people in the app only." },
+          "sms_sender": { "label": "SMS sender (Twilio settings)", "effect": "No text is sent: notifications reach people in the app only." },
+          "push": { "label": "Push notifications (VAPID keys)", "effect": "Push messages are not sent." },
+          "stripe_webhook": { "label": "Stripe webhook secret (STRIPE_WEBHOOK_SECRET)", "effect": "Payments and plan sign-ups are never confirmed." },
+          "privacy_url": { "label": "Privacy Policy address (VITE_PRIVACY_URL)", "effect": "The Privacy Policy shows \"Coming soon\"." },
+          "map_tiles": { "label": "Map tiles (VITE_MAP_TILE_URL)", "effect": "The live map uses the free OpenStreetMap tiles, which are for testing only." }
         }
       },
       "team": {
@@ -2348,6 +2380,10 @@
         "phone_added": "Added a phone number",
         "phone_changed": "Changed their phone number",
         "phone_removed": "Removed their phone number",
+        "email_added": "Added an email address",
+        "email_changed": "Changed their email address",
+        "closed_own_account": "Deleted their account in the app",
+        "closedOwnLine": "{{bookings}} upcoming bookings cancelled",
         "toldThem": "Told them: {{message}}",
         "sentBy": "Sent {{ways}}",
         "byThemselves": "By the person themselves · {{date}}"
@@ -3298,9 +3334,6 @@
     "firstName": "First name",
     "lastName": "Last name",
     "email": "Email",
-    "noEmail": "No email address",
-    "emailNote": "You log in with this email address. To change it, contact MISK support from Help & support.",
-    "noEmailNote": "Your account logs in with your phone number.",
     "language": "Language",
     "languages": {
       "en": "English"
@@ -3309,6 +3342,72 @@
     "privacy": "Pros only see your first name and the job address.",
     "save": "Save changes",
     "saved": "Your changes are saved."
+  },
+  "accountEmail": {
+    "none": "No email address yet. Your account logs in with your phone number. Add an email to get receipts and account messages there.",
+    "usesLogin": "You log in with this email address and your password. We send receipts and account messages here.",
+    "uses": "We send receipts and account messages to this address.",
+    "change": "Change email",
+    "add": "Add email",
+    "newLabel": "New email address",
+    "hint": "We send a link to this address. Your email changes once you open it.",
+    "passwordLabel": "Current password",
+    "passwordHint": "To keep your account safe, confirm it's you.",
+    "send": "Send link",
+    "pending": "Check your inbox at {{email}} to confirm. The change applies once you confirm.",
+    "expires": "The link works until {{date}}. We also told your current address, in case it wasn't you.",
+    "resend": "Send the link again",
+    "resent": "We sent a new link to {{email}}.",
+    "cancel": "Cancel change",
+    "cancelled": "The change is cancelled. Your email stays {{email}}.",
+    "cancelledAdd": "The change is cancelled.",
+    "loadError": "Could not check for an email change."
+  },
+  "confirmEmail": {
+    "title": "Confirm your new email",
+    "checking": "Confirming your new email…",
+    "done": "Your MISK email is now {{email}}. From now on you log in and get our emails there.",
+    "startAgain": "To change your email, start again from Personal information. Only the newest link works, for 24 hours.",
+    "toPersonal": "Back to your account",
+    "toLogin": "Log in"
+  },
+  "deleteAccount": {
+    "row": "Delete account",
+    "title": "Delete account",
+    "cannotUndo": "This can't be undone.",
+    "whatGoes": "Your profile, addresses and payment methods are deleted. Receipts are kept for 7 years because the law requires it.",
+    "whatHappens": "What happens",
+    "noPlans": "No active plans to cancel",
+    "upcoming_one": "Your upcoming booking is cancelled and refunded",
+    "upcoming_other": "Your {{count}} upcoming bookings are cancelled and refunded",
+    "noUpcoming": "No upcoming bookings to cancel",
+    "signUpAgain": "You can sign up again later with the same number or email",
+    "blockedTitle": "Before you can delete your account",
+    "blockers": {
+      "plan": "Your plan {{name}} is still running. Cancel it first.",
+      "planEnding": "Your plan {{name}} ends on {{date}}. You can delete your account after that.",
+      "booking_in_progress": "{{name}} is under way right now.",
+      "booking_soon": "{{name}} on {{date}} starts within 24 hours and can no longer be cancelled for free.",
+      "problem_open": "Your problem report about {{name}} is still open.",
+      "money_held": "Money for {{name}} is still held on your card. It is charged or released soon.",
+      "payment_due": "The payment for {{name}} didn't go through yet."
+    },
+    "openPlan": "Open plan",
+    "openBooking": "Open booking",
+    "passwordLabel": "Your password",
+    "typedLabel": "Type {{word}} to confirm",
+    "keep": "Keep account",
+    "confirm": "Delete",
+    "pro": "Your account is also a pro account, with payouts and documents, so MISK support closes it for you.",
+    "proContact": "Contact MISK support at {{ways}}.",
+    "proContactHelp": "Contact MISK support from Help & support.",
+    "or": " or "
+  },
+  "accountDeleted": {
+    "title": "Your account is deleted",
+    "text": "Thank you for using MISK. We've sent you a goodbye message, and you are logged out.",
+    "records": "Receipts are kept for 7 years because the law requires it, without your name or contact details. You can sign up again at any time.",
+    "start": "Back to the start"
   },
   "cards": {
     "listLabel": "Saved cards",

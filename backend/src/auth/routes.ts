@@ -24,7 +24,7 @@ export function publicUser({ id, role, phone, username, email, firstName, lastNa
   return { id, role, phone, username, email, firstName, lastName, adminRole, areas: adminRole ? ACCESS[adminRole] : [] };
 }
 
-const cookieOptionsFor = (config: Config) => ({ path: '/', httpOnly: true, secure: config.secureCookies, sameSite: 'lax' }) as const;
+export const cookieOptionsFor = (config: Config) => ({ path: '/', httpOnly: true, secure: config.secureCookies, sameSite: 'lax' }) as const;
 
 /** Sets the session cookie after any successful sign-in. */
 export async function startSessionCookie(request: FastifyRequest, reply: FastifyReply, pool: Pool, config: Config, token: string) {

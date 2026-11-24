@@ -499,11 +499,13 @@ function ChangeLog({ changes }: { changes: CatalogueChange[] }) {
         <ul className="history">
           {changes.slice(0, 30).map((c) => (
             <li key={c.id}>
-              {t(`admin.catalogue.logAction.${c.action}`, {
-                service: c.serviceName ?? c.details.name ?? '',
-                from: c.details.from === undefined ? '' : euro(c.details.from),
-                to: c.details.to === undefined ? '' : euro(c.details.to),
-              })}
+              {c.action === 'trade_edited' && c.details.needsCertificate !== undefined
+                ? t(c.details.needsCertificate ? 'admin.catalogue.logAction.certificate_on' : 'admin.catalogue.logAction.certificate_off')
+                : t(`admin.catalogue.logAction.${c.action}`, {
+                    service: c.serviceName ?? c.details.name ?? '',
+                    from: c.details.from === undefined ? '' : euro(c.details.from),
+                    to: c.details.to === undefined ? '' : euro(c.details.to),
+                  })}
               <div className="small muted">
                 {t('admin.catalogue.logBy', { name: c.adminName ?? '–', date: dateTime(c.createdAt, timezone) })}
               </div>
@@ -622,6 +624,7 @@ function TradeDetails({
   const { t } = useTranslation();
   const api = useApi();
   const publish = useAction();
+  const certificate = useAction();
   const removal = useAction();
   const [confirmRemove, setConfirmRemove] = useState(false);
   const serviceRemoval = useAction();
@@ -721,7 +724,31 @@ function TradeDetails({
           </div>
         )}
         {!category.active && <p className="note">{t('admin.catalogue.draftHint')}</p>}
-        <ErrorText error={publish.error ?? removal.error} />
+        <div className="row gap8 cert-switch">
+          <button
+            type="button"
+            role="switch"
+            aria-checked={category.needsCertificate}
+            aria-labelledby="cert-switch-label"
+            aria-describedby="cert-switch-hint"
+            className={`toggle ${category.needsCertificate ? 'on' : ''}`}
+            disabled={certificate.busy}
+            onClick={() =>
+              void certificate
+                .run(() => api.patch(`/admin/categories/${category.id}`, { needsCertificate: !category.needsCertificate }))
+                .then((result) => result && onChanged())
+            }
+          />
+          <div>
+            <p id="cert-switch-label" className="b">
+              {t('admin.catalogue.certificate.label')}
+            </p>
+            <p id="cert-switch-hint" className="small muted">
+              {t('admin.catalogue.certificate.hint')}
+            </p>
+          </div>
+        </div>
+        <ErrorText error={publish.error ?? removal.error ?? certificate.error} />
 
         {removingService && (
           <div className="confirm stack" role="alertdialog" aria-labelledby="remove-service-title" aria-describedby="remove-service-text">

@@ -121,9 +121,7 @@ describe('Personal information', () => {
     expect(first).toHaveValue('Sara');
     expect(screen.getByLabelText(/Last name/)).toHaveValue('Meier');
     expect(screen.getByRole('region', { name: 'Phone number' })).toHaveTextContent('+4915100000001');
-    const email = screen.getByLabelText('Email');
-    expect(email).toHaveValue('sara@example.com');
-    expect(email).toHaveAttribute('readonly');
+    expect(screen.getByRole('region', { name: 'Email' })).toHaveTextContent('sara@example.com');
     const language = screen.getByLabelText('Language');
     expect(within(language).getAllByRole('option').map((option) => option.textContent)).toEqual(['English']);
     expect(screen.getByText('Pros only see your first name and the job address.')).toBeInTheDocument();
@@ -158,8 +156,9 @@ describe('Personal information', () => {
   it('says how a phone-only account logs in when it has no email', async () => {
     fakeApi(users.customer);
     renderAt('/profile/personal');
-    expect(await screen.findByLabelText('Email')).toHaveValue('');
-    expect(screen.getByText('Your account logs in with your phone number.')).toBeInTheDocument();
+    const email = await screen.findByRole('region', { name: 'Email' });
+    expect(email).toHaveTextContent('Your account logs in with your phone number.');
+    expect(await within(email).findByRole('button', { name: 'Add email' })).toBeEnabled();
   });
 
   it('is where the old Account address leads', async () => {

@@ -1,4 +1,4 @@
-import { useCallback, type ReactNode } from 'react';
+import { useCallback, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useNavigate } from 'react-router';
 import { useApi } from '../../../api/ApiContext';
@@ -10,6 +10,7 @@ import { Avatar } from '../../../components/Photos';
 import { useInbox } from '../../../inbox/InboxContext';
 import { AppHeader } from '../../../shells/Shells';
 import { useAddresses } from '../Addresses';
+import { DeleteAccountSheet } from './DeleteAccountSheet';
 
 /** Where Profile's sections live (D92). Receipts are the "Past & receipts" tab of Bookings (D67). */
 export const PROFILE_PATHS = {
@@ -63,7 +64,8 @@ function MessagesRow() {
 }
 
 /**
- * The customer's Profile (D92): photo, name and phone number with Edit, the Account and MISK lists, and Log out.
+ * The customer's Profile (D92): photo, name and phone number with Edit, the Account and MISK lists, Log out and
+ * Delete account (D97).
  * A pro booking for themselves (D64) finds "Pro app" where customers find "Become a pro".
  */
 export function ProfilePage() {
@@ -81,6 +83,7 @@ export function ProfilePage() {
   const favouriteCount = favourites.state.status === 'ready' ? favourites.state.data.pros.length : null;
   // Sub-pages go back to Profile; Favourites is also opened from Home.
   const fromProfile = { back: '/profile' };
+  const [deleting, setDeleting] = useState(false);
 
   return (
     <>
@@ -142,8 +145,21 @@ export function ProfilePage() {
             </span>
             <span className="grow">{t('profile.logOut')}</span>
           </button>
+          <button type="button" className="lrow danger-row" aria-haspopup="dialog" onClick={() => setDeleting(true)}>
+            <span className="li" aria-hidden="true">
+              <Icon name="trash" />
+            </span>
+            <span className="grow">{t('deleteAccount.row')}</span>
+          </button>
         </div>
       </div>
+      {deleting && (
+        <DeleteAccountSheet
+          onClose={() => setDeleting(false)}
+          // The account and its sessions are gone: the goodbye screen signs the app out (D97).
+          onDeleted={() => void navigate('/account-deleted', { replace: true, state: { signOut: true } })}
+        />
+      )}
     </>
   );
 }

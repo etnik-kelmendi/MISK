@@ -16,6 +16,10 @@ import { PLANNING_DAYS, SUBSCRIPTION_PATTERN, patternOf, planVisits, plannedStar
  * the planner plans nothing there, and the value of the called-off visits is credited to the customer's next
  * monthly bill. One pause that has not finished yet at a time; it can be called off until it starts, and the
  * visits whose pro is still free come back, with their credit taken back.
+ *
+ * A visit the customer skipped (D90) that falls inside a new pause is paused like the others (D98): it is
+ * credited, and as it is no longer skipped the customer gets that skip of the month back. Calling the pause
+ * off plans it again like every other paused visit (not skipped again), with its credit taken back.
  */
 
 /** Why a plan cannot be paused right now, shown to the customer in place of the choices. */
@@ -113,11 +117,13 @@ interface VisitRow {
   starts_at: Date;
   ends_at: Date;
   pro_id: string;
+  /** 'pending', 'planned' or 'skipped' for the visits a pause calls off; 'cancelled' once paused. */
+  status: string;
 }
 
 /**
- * The visits a pause from local day `first` to `end` (exclusive) calls off: the planned visits starting in
- * it, and, past the planning window, the times the planner would plan (on the plan's days, in season, before
+ * The visits a pause from local day `first` to `end` (exclusive) calls off: the planned and skipped visits
+ * starting in it, and, past the planning window, the times the planner would plan (on the plan's days, in season, before
  * the plan ends). Times inside the window that have no visit are left out: the pro was busy then.
  */
 async function visitsInRange(
@@ -132,8 +138,8 @@ async function visitsInRange(
     throw new Error('Could not convert pause days to instants');
   }
   const planned = await db.query<VisitRow>(
-    `SELECT id, starts_at, ends_at, pro_id FROM subscription_visits
-     WHERE subscription_id = $1 AND status IN ('pending', 'planned') AND starts_at >= $2 AND starts_at < $3
+    `SELECT id, starts_at, ends_at, pro_id, status FROM subscription_visits
+     WHERE subscription_id = $1 AND status IN ('pending', 'planned', 'skipped') AND starts_at >= $2 AND starts_at < $3
      ORDER BY starts_at`,
     [subscription.id, from, to],
   );
@@ -320,7 +326,9 @@ export async function createPause(
       }
 
       const plannedIds = planned.map((visit) => visit.id);
-      await client.query(`UPDATE subscription_visits SET status = 'cancelled', paused_by = $2 WHERE id = ANY ($1::uuid[])`, [
+      // Skipped visits are paused too (D98): no longer skipped, so the month's skip is the customer's again.
+      const skippedBefore = planned.filter((visit) => visit.status === 'skipped').length;
+      await client.query(`UPDATE subscription_visits SET status = 'cancelled', paused_by = $2, skipped_at = NULL WHERE id = ANY ($1::uuid[])`, [
         plannedIds,
         pauseId,
       ]);
@@ -356,7 +364,8 @@ export async function createPause(
       if (subscription.pro_id) {
         byPro.set(subscription.pro_id, []);
       }
-      for (const visit of planned) {
+      // A skipped visit is not expected by the pro already, so it is not listed as called off again.
+      for (const visit of planned.filter((v) => v.status !== 'skipped')) {
         byPro.set(visit.pro_id, [...(byPro.get(visit.pro_id) ?? []), formatSlot(visit.starts_at, tz)]);
       }
       const customerName = subscription.customer_name ?? 'Your customer';
@@ -388,7 +397,16 @@ export async function createPause(
         ]);
         await client.query('UPDATE subscription_pauses SET credit_ref = $2 WHERE id = $1', [pauseId, transactionId]);
       }
-      deps.log.info({ event: 'subscription_paused', subscriptionId: subscription.id, pauseId, startsOn, weeks, visitsCalledOff, creditCents });
+      deps.log.info({
+        event: 'subscription_paused',
+        subscriptionId: subscription.id,
+        pauseId,
+        startsOn,
+        weeks,
+        visitsCalledOff,
+        skippedVisitsPaused: skippedBefore,
+        creditCents,
+      });
       return { pauseId };
     });
   } catch (error) {
@@ -475,7 +493,7 @@ export async function callOffPause(
       }
 
       const paused = await client.query<VisitRow>(
-        `SELECT id, starts_at, ends_at, pro_id FROM subscription_visits
+        `SELECT id, starts_at, ends_at, pro_id, status FROM subscription_visits
          WHERE paused_by = $1 AND status = 'cancelled' ORDER BY starts_at`,
         [ids.pauseId],
       );

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { useApi } from '../../api/ApiContext';
@@ -38,12 +38,28 @@ const CARD_ICON: Record<Exclude<Outcome, 'draft'>, 'clock' | 'bell' | 'check' | 
   suspended: 'lock',
 };
 
-/** "Contact support" by email or phone, from the server's SUPPORT_EMAIL and SUPPORT_PHONE (D87). */
+/**
+ * "Contact support" by email or phone, from the server's SUPPORT_EMAIL and SUPPORT_PHONE (D87). The button is
+ * always there; with neither set, it shows how to reach the team instead of linking nowhere.
+ */
 function ContactSupport({ support }: { support: ApplicationView['support'] }) {
   const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const noteId = useId();
   const href = support.email ? `mailto:${support.email}` : support.phone ? `tel:${support.phone}` : null;
   if (!href) {
-    return <p className="small muted">{t('application.contactNone')}</p>;
+    return (
+      <>
+        <button type="button" className="mini-btn" aria-expanded={open} aria-controls={open ? noteId : undefined} onClick={() => setOpen((v) => !v)}>
+          <Icon name="chat" /> {t('application.contactSupport')}
+        </button>
+        {open && (
+          <p id={noteId} className="small muted" role="status">
+            {t('application.contactNone')}
+          </p>
+        )}
+      </>
+    );
   }
   return (
     <a className="mini-btn" href={href}>
@@ -74,7 +90,8 @@ function StatusCard({ view, onChange }: { view: ApplicationView; onChange: (p: P
   }
   const requested = profile.requestedDocuments ?? [];
   return (
-    <section className={`card center stack status-card ${outcome}`} aria-labelledby="status-title">
+    // The state class is prefixed: a bare "info" would pick up the app's side-by-side .info hint style.
+    <section className={`card center stack status-card is-${outcome}`} aria-labelledby="status-title">
       <span className="status-icon" aria-hidden="true">
         <Icon name={CARD_ICON[outcome]} />
       </span>

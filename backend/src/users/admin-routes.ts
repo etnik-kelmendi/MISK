@@ -1,18 +1,17 @@
 import type { FastifyInstance } from 'fastify';
 import { currentUser } from '../auth/guard.js';
-import { cancelBooking } from '../bookings/lifecycle.js';
 import type { BookingDeps } from '../bookings/events.js';
 import type { AppContext } from '../context.js';
 import { withTransaction, type Queryable } from '../db.js';
 import { conflict, notFound } from '../errors.js';
 import { uuidParams } from '../http.js';
-import { closedNotice, reinstatedNotice, suspendedNotice, type EndedWork, type Notice } from '../notifications/account-notices.js';
+import { closedNotice, reinstatedNotice, suspendedNotice, type EndedWork } from '../notifications/account-notices.js';
 import { messages } from '../notifications/messages.js';
-import { enqueue, enqueueChannels, type Channel } from '../notifications/outbox.js';
+import { enqueueChannels, type Channel } from '../notifications/outbox.js';
 import { loadChecks } from '../pros/checks.js';
 import { handOverWork, hasExpiredDocument, logProAction } from '../pros/management.js';
-import { dropUnpaidSubscription } from '../subscriptions/service.js';
 import { logUserAction } from './actions.js';
+import { closeAccount, endCustomerWork, NOT_STARTED, sendAccountNotice } from './close-account.js';
 
 /** Rows the Users page loads at once; "Show more" loads the next ones. */
 export const USERS_PAGE_SIZE = 50;
@@ -20,8 +19,6 @@ const REASON_MAX = 500;
 const MESSAGE_MAX = 500;
 /** A phone search needs at least this many digits, so a short number does not match nearly everyone. */
 export const MIN_PHONE_SEARCH_DIGITS = 4;
-/** Bookings that have not started yet: these are cancelled when an account is suspended or closed. */
-const NOT_STARTED = ['awaiting_payment', 'searching', 'unassigned', 'accepted', 'on_the_way'];
 
 export type UserType = 'customer' | 'pro';
 export type UserStatus = 'active' | 'suspended' | 'deleted';
@@ -72,48 +69,6 @@ export function phoneSearchDigits(query: string): string[] {
     candidates.add(digits.replace(/^0+/, ''));
   }
   return [...candidates].filter((candidate) => candidate.length >= MIN_PHONE_SEARCH_DIGITS);
-}
-
-function name(row: { first_name: string | null; last_name: string | null }) {
-  return [row.first_name, row.last_name].filter(Boolean).join(' ');
-}
-
-
-/**
- * Ends what an account booked as a customer: bookings that have not started are cancelled (held money is
- * released and the pro is told), and monthly plans end at once, Stripe included. Returns the counts.
- */
-async function endCustomerWork(deps: BookingDeps, userId: string): Promise<{ bookings: number; plans: number }> {
-  const upcoming = await deps.pool.query<{ id: string }>('SELECT id FROM bookings WHERE customer_id = $1 AND status = ANY($2)', [
-    userId,
-    NOT_STARTED,
-  ]);
-  for (const booking of upcoming.rows) {
-    await cancelBooking(deps, booking.id, 'admin');
-  }
-  const plans = await deps.pool.query<{ id: string; status: string; stripe_subscription_id: string | null; pro_id: string | null; plan_name: string }>(
-    `SELECT id, status, stripe_subscription_id, pro_id, plan_name FROM subscriptions
-     WHERE customer_id = $1 AND status <> 'cancelled' AND (ends_at IS NULL OR ends_at > now())`,
-    [userId],
-  );
-  for (const plan of plans.rows) {
-    if (plan.status === 'awaiting_payment') {
-      await dropUnpaidSubscription(deps, plan.id);
-      continue;
-    }
-    if (plan.stripe_subscription_id) {
-      await deps.gateway.cancelSubscription(plan.stripe_subscription_id, false);
-    }
-    await withTransaction(deps.pool, async (client) => {
-      await client.query("UPDATE subscriptions SET status = 'cancelled', ends_at = now(), updated_at = now() WHERE id = $1", [plan.id]);
-      await client.query(
-        "UPDATE subscription_visits SET status = 'cancelled' WHERE subscription_id = $1 AND status IN ('pending', 'planned') AND starts_at > now()",
-        [plan.id],
-      );
-      if (plan.pro_id) await enqueue(client, plan.pro_id, 'plan_pro_changed', messages.planEndedByTeam(plan.plan_name));
-    });
-  }
-  return { bookings: upcoming.rows.length, plans: plans.rows.length };
 }
 
 export async function usersAdminRoutes(app: FastifyInstance, ctx: AppContext) {
@@ -238,10 +193,6 @@ export async function usersAdminRoutes(app: FastifyInstance, ctx: AppContext) {
    */
   const delivery = (channels: Channel[]) => ({ inApp: true, channels, notSetUp: channels.filter((channel) => !ctx.channelsReady[channel]) });
 
-  /** An account notice by every way the person can be reached: they may not be able to open the app (D87). */
-  const sendNotice = (db: Queryable, userId: string, notice: Notice) =>
-    enqueueChannels(db, userId, 'account', notice.text, { channels: { push: true, sms: true, email: true }, email: notice.email });
-
   // A message from the team: in the app, by push, by text when there is a phone and by email when there is an email.
   app.post<{ Params: { id: string }; Body: { text: string } }>(
     '/admin/users/:id/message',
@@ -318,7 +269,7 @@ export async function usersAdminRoutes(app: FastifyInstance, ctx: AppContext) {
       });
       // Told after the bookings and plans are ended, so the notice can say what happened to them.
       const tell = (work: EndedWork | null) =>
-        sendNotice(pool, userId, suspendedNotice({ firstName: account.first_name, work, note, support: config.support }));
+        sendAccountNotice(pool, userId, suspendedNotice({ firstName: account.first_name, work, note, support: config.support }));
       let customer: { bookings: number; plans: number };
       let handOver: Awaited<ReturnType<typeof handOverWork>> | null;
       try {
@@ -370,7 +321,7 @@ export async function usersAdminRoutes(app: FastifyInstance, ctx: AppContext) {
           );
           await logProAction(client, userId, adminId, 'reinstated', { to: proTo });
         }
-        const queued = await sendNotice(client, userId, reinstatedNotice({ firstName: found.first_name, support: config.support }));
+        const queued = await sendAccountNotice(client, userId, reinstatedNotice({ firstName: found.first_name, support: config.support }));
         await logUserAction(client, userId, adminId, 'reinstated', { ...(proTo ? { proStatus: proTo } : {}), channels: queued });
         return queued;
       });
@@ -399,38 +350,12 @@ export async function usersAdminRoutes(app: FastifyInstance, ctx: AppContext) {
       const adminId = currentUser(request).id;
       const userId = request.params.id;
       const reason = request.body.reason.trim();
-      const { account, channels } = await withTransaction(pool, async (client) => {
-        const found = await openAccount(client, userId);
-        // Told first, while the phone and email are still there: the queued text and email keep them.
-        const queued = await sendNotice(client, userId, closedNotice({ firstName: found.first_name, support: config.support }));
-        if (found.role === 'pro') {
-          await client.query(
-            `UPDATE pro_profiles SET status = 'suspended', suspended_at = COALESCE(suspended_at, now()),
-               suspended_reason = $2, updated_at = now() WHERE user_id = $1 AND status <> 'suspended'`,
-            [userId, reason],
-          );
-        }
-        return { account: found, channels: queued };
-      });
-      const customer = await endCustomerWork(deps(), userId);
-      const handOver = account.role === 'pro' ? await handOverWork(deps(), userId, adminId) : null;
-      await withTransaction(pool, async (client) => {
-        await client.query(
-          `UPDATE users SET disabled_at = now(), deleted_reason = $2, suspended_at = NULL, suspended_reason = NULL,
-             first_name = NULL, last_name = NULL, phone = NULL, email = NULL, username = NULL, password_hash = NULL
-           WHERE id = $1`,
-          [userId, reason],
-        );
-        await client.query('DELETE FROM sessions WHERE user_id = $1', [userId]);
-        await client.query('DELETE FROM push_subscriptions WHERE user_id = $1', [userId]);
-        await logUserAction(client, userId, adminId, 'deleted', {
-          reason,
-          name: name(account),
-          cancelledBookings: customer.bookings,
-          endedPlans: customer.plans,
-          ...(handOver ?? {}),
-          channels,
-        });
+      // The same closing as the person's own "Delete account" (D97).
+      const { channels } = await closeAccount(deps(), {
+        userId,
+        adminId,
+        reason,
+        notice: (account) => closedNotice({ firstName: account.first_name, support: config.support }),
       });
       request.log.warn({ event: 'user_deleted', userId, by: adminId, channels });
       return { user: await detail(userId), delivery: delivery(channels) };

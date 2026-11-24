@@ -5,6 +5,7 @@ import { createSmtpSender } from './notifications/email.js';
 import { createPushSender } from './notifications/push.js';
 import { createTwilioSender } from './notifications/sms.js';
 import { createStripeGateway } from './payments/stripe-gateway.js';
+import { missingSettingsWarning } from './settings/setup.js';
 import { startWorkers } from './workers.js';
 
 const config = loadConfig(process.env);
@@ -20,17 +21,13 @@ const gateway = createStripeGateway(config.stripe);
 const email = config.smtp ? createSmtpSender(config.smtp) : null;
 const app = await buildApp({ config, pool, gateway, sms, email, logger: { level: config.logLevel } });
 
-if (!sms) {
-  app.log.warn('SMS is not set up: sign-in codes are written to this log and other texts are kept as not sent');
-}
-if (!email) {
-  app.log.warn('Email is not set up: password recovery and email messages cannot be sent');
+// One warning listing every optional setting that is missing and what it affects (D98); never a value.
+const missingSettings = missingSettingsWarning(config);
+if (missingSettings) {
+  app.log.warn({ event: 'settings_missing' }, missingSettings);
 }
 
 const push = config.push ? createPushSender(config.push) : null;
-if (!push) {
-  app.log.warn('Push is not set up: push messages are kept as not sent. Add the VAPID keys to .env.');
-}
 
 const stopWorkers = startWorkers({ pool, gateway, config, log: app.log }, { sms, email, push }, app.log);
 

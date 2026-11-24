@@ -1,8 +1,9 @@
+import type { FastifyBaseLogger } from 'fastify';
 import type { PoolClient } from 'pg';
 import { onlyRow, withTransaction, type Queryable } from '../db.js';
 import { conflict, notFound } from '../errors.js';
 import { formatSlot, formatTime, messages } from '../notifications/messages.js';
-import { enqueue } from '../notifications/outbox.js';
+import { enqueue, enqueueChannels, enqueueEmailTo } from '../notifications/outbox.js';
 import { logAction } from './admin-routes.js';
 import { LATE_NOTICE_MINUTES, loadArrival } from './arrival.js';
 import { setStatus, type BookingDeps } from './events.js';
@@ -37,21 +38,38 @@ export async function onSiteSettings(db: Queryable): Promise<{ noShowFeeCents: n
   return onlyRow(found);
 }
 
+/** Every channel a team member can be reached on: an alert must reach someone (D94, D98). */
+const ALERT_CHANNELS = { push: true, sms: true, email: true };
+
 /**
- * Tells every member of the MISK team by email that a pro needs help on site, so someone calls the customer
- * (not home, can't get in) or the pro (unsafe). The booking is also under Needs action until it is resolved.
+ * Tells every member of the MISK team that a pro needs help on site, by email and on every other channel they
+ * can be reached on, so someone calls the customer (not home, can't get in) or the pro (unsafe). When no team
+ * member has an email address, the alert goes to SUPPORT_EMAIL instead (D98); when that is not set either, an
+ * error is logged, as nobody is emailed. The booking is also under Needs action until it is resolved.
+ * Returns how many emails were queued.
  */
 export async function alertSupport(
   db: Queryable,
   input: { bookingNumber: string; reason: string; address: string },
+  deps: { supportEmail: string | null; log: FastifyBaseLogger },
 ): Promise<number> {
   const team = await db.query<{ id: string }>("SELECT id FROM users WHERE role = 'admin' AND disabled_at IS NULL");
   const urgent = URGENT_REASONS.includes(input.reason);
   const body = messages.supportAlert(input.bookingNumber, REASON_TEXT[input.reason] ?? input.reason, input.address, urgent);
+  let emails = 0;
   for (const member of team.rows) {
-    await enqueue(db, member.id, 'support_alert', body);
+    const channels = await enqueueChannels(db, member.id, 'support_alert', body, { channels: ALERT_CHANNELS });
+    if (channels.includes('email')) emails += 1;
   }
-  return team.rows.length;
+  if (emails === 0 && deps.supportEmail) {
+    await enqueueEmailTo(db, deps.supportEmail, 'support_alert', body);
+    emails = 1;
+  }
+  if (emails === 0) {
+    // Only the Needs action list shows it now: the Setup checklist in Team & access says how to fix this.
+    deps.log.error({ event: 'support_alert_not_emailed', bookingNumber: input.bookingNumber, reason: input.reason, teamMembers: team.rows.length });
+  }
+  return emails;
 }
 
 /** The customer's price of one minute of the job, from the booked services' length. */

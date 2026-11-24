@@ -200,6 +200,19 @@ export async function enqueueChannels(
   return CHANNELS.filter((channel) => queued.has(channel));
 }
 
+/**
+ * Queues an email to an address that belongs to no account, such as SUPPORT_EMAIL when no team member has an
+ * email address for a support alert (D98). Nothing goes to any inbox in the app.
+ */
+export async function enqueueEmailTo(db: Queryable, email: string, kind: NotificationKind, body: string): Promise<void> {
+  await db.query(`INSERT INTO notifications (user_id, channel, email, subject, kind, body) VALUES (NULL, 'email', $1, $2, $3, $4)`, [
+    email,
+    subjectOf(kind),
+    kind,
+    fitBody(body),
+  ]);
+}
+
 export interface Senders {
   sms: SmsSender | null;
   email: EmailSender | null;

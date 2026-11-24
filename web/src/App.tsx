@@ -8,7 +8,9 @@ import { AuthProvider } from './auth/AuthContext';
 import { RequireRole } from './auth/RequireRole';
 import { SuspendedGate } from './auth/SuspendedScreen';
 import type { AppConfig, Site } from './config';
+import { AccountDeletedPage } from './pages/AccountDeletedPage';
 import { AccountPage } from './pages/AccountPage';
+import { ConfirmEmailPage } from './pages/ConfirmEmailPage';
 import { AdminBookingRedirect } from './pages/admin/AdminBookingPage';
 import { AdminBookingsPage } from './pages/admin/AdminBookingsPage';
 import { AdminLoginPage } from './pages/admin/AdminLoginPage';
@@ -82,6 +84,8 @@ function CustomerAndProRoutes() {
       <Route path="/signin" element={<SignInPage />} />
       <Route path="/signup" element={<SignUpPage />} />
       <Route path="/verify-email" element={<VerifyEmailPage />} />
+      <Route path="/confirm-email" element={<ConfirmEmailPage />} />
+      <Route path="/account-deleted" element={<AccountDeletedPage />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/reset-password" element={<AppResetPasswordPage />} />
       <Route path="/terms" element={<TermsPage />} />

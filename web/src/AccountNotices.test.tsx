@@ -1,4 +1,4 @@
-import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { act, configure, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { vi } from 'vitest';
 import type { SupportContact } from './api/client';
@@ -152,9 +152,12 @@ describe('messages from the MISK team', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    configure({ asyncUtilTimeout: 1000 });
   });
 
-  it('counts them on the Messages tab, announces them as from the team, and labels them on the Messages page', async () => {
+  // The waits run on real time (only the interval is faked); a busy machine needs more than the 1 s default.
+  it('counts them on the Messages tab, announces them as from the team, and labels them on the Messages page', { timeout: 20_000 }, async () => {
+    configure({ asyncUtilTimeout: 5000 });
     // Only the interval is faked, so the app's regular check can be run at once.
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
     const api = fakeApi(users.customer);

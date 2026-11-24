@@ -269,7 +269,7 @@ export async function proJobActionRoutes(app: FastifyInstance, ctx: AppContext) 
         }
         await logAction(client, request.params.id, null, 'issue_reported', { proName: pro.firstName, reason, note: details ?? undefined });
         // The team is told at once (D94): it calls the customer for a door problem and the pro when it is unsafe.
-        await alertSupport(client, { bookingNumber: job.number, reason, address: job.address });
+        await alertSupport(client, { bookingNumber: job.number, reason, address: job.address }, { supportEmail: ctx.config.support.email, log: request.log });
         if (WAITING_AT_DOOR.includes(reason)) {
           await enqueue(
             client,

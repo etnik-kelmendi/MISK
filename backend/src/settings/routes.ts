@@ -15,6 +15,7 @@ import { normalizePhone } from '../notifications/phone.js';
 import { nextPayoutDate, PAYOUT_INTERVALS, type PayoutInterval } from '../payments/payouts.js';
 import { marketToday } from '../pros/checks.js';
 import { ACTIVITY_FEED, logActivity } from './activity.js';
+import { issueAlertsEmailable, setupChecklist } from './setup.js';
 
 /** The commission MISK keeps, as the Settings slider allows it (D33). */
 export const COMMISSION_MIN = 10;
@@ -665,6 +666,13 @@ export async function settingsRoutes(app: FastifyInstance, ctx: AppContext) {
       return { phone };
     },
   );
+
+  // The Setup checklist (D98): which optional production settings are set, yes or no only, never a value, and
+  // whether a pro's issue report can be emailed to anyone. Under Team & access, which only full admins open.
+  app.get('/admin/team/setup', { preHandler: guards.admin }, async () => ({
+    checklist: setupChecklist(ctx.config),
+    issueAlertsEmailable: await issueAlertsEmailable(pool, ctx.config.support.email),
+  }));
 
   // Who did what and when, across the whole control panel, newest first.
   app.get<{ Querystring: { before?: string } }>(

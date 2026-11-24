@@ -8,6 +8,8 @@ import { adminRequestRoutes } from './auth/admin-requests.js';
 import { teamInviteRoutes } from './auth/team-invites.js';
 import { usersAdminRoutes } from './users/admin-routes.js';
 import { emailAccountRoutes } from './auth/email-accounts.js';
+import { emailChangeRoutes } from './auth/email-change.js';
+import { accountDeletionRoutes } from './users/account-deletion.js';
 import { createGuards } from './auth/guard.js';
 import type { CodeDelivery } from './auth/phone-sign-in.js';
 import { authRoutes } from './auth/routes.js';
@@ -171,6 +173,8 @@ export async function buildApp({ config, pool, gateway, sms, email = null, stora
   for (const routes of [
     authRoutes,
     emailAccountRoutes,
+    emailChangeRoutes,
+    accountDeletionRoutes,
     adminAccountRoutes,
     adminRequestRoutes,
     teamInviteRoutes,

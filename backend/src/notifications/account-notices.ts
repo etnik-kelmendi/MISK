@@ -118,3 +118,57 @@ export function phoneChangedNotice(input: { change: PhoneChange; phone: string |
     email: email('The phone number of your MISK account', input.firstName, [what, notMe]),
   };
 }
+
+/** "j***@example.com": the first character and the domain, so a notice never spells out a whole address. */
+export function maskEmail(email: string): string {
+  const at = email.lastIndexOf('@');
+  if (at < 1) return '***';
+  return `${email.charAt(0)}***${email.slice(at)}`;
+}
+
+function notMeSentence(support: SupportContact): string {
+  const line = supportLine(support);
+  return `If this wasn't you, contact support${line ? ` at ${line}` : ''} at once.`;
+}
+
+/**
+ * Sent to the account's current email (or by text when it has none) as soon as someone asks to change the
+ * email, before it applies (D97), so a stranger with a borrowed session is noticed in time.
+ */
+export function emailChangeStartedNotice(input: { newEmail: string; hadEmail: boolean; firstName: string | null; support: SupportContact }): Notice {
+  const masked = maskEmail(input.newEmail);
+  const what = input.hadEmail
+    ? `Your MISK email is being changed to ${masked}. The change applies once the new address is confirmed.`
+    : `The email ${masked} is being added to your MISK account. It is added once the address is confirmed.`;
+  const notMe = notMeSentence(input.support);
+  return {
+    text: `MISK: ${what} ${notMe}`,
+    email: email('Your MISK email is being changed', input.firstName, [what, notMe]),
+  };
+}
+
+/** Sent to the old address (or by text) once the new email is confirmed and applies (D97). */
+export function emailChangedNotice(input: { newEmail: string; hadEmail: boolean; firstName: string | null; support: SupportContact }): Notice {
+  const masked = maskEmail(input.newEmail);
+  const what = input.hadEmail
+    ? `The email of your MISK account is now ${masked}. From now on you log in and get our emails there, not at this address.`
+    : `The email ${masked} is now on your MISK account. You can log in with it, and we send our emails there.`;
+  const notMe = notMeSentence(input.support);
+  return {
+    text: `MISK: ${what} ${notMe}`,
+    email: email('The email of your MISK account changed', input.firstName, [what, notMe]),
+  };
+}
+
+/** The goodbye when a person deletes their own account (D97), sent while the phone and email are still there. */
+export function selfClosedNotice(input: { firstName: string | null; support: SupportContact }): Notice {
+  return {
+    text: `MISK: your account is deleted, as you asked. Thank you for using MISK. ${contactSentence(input.support)}`,
+    email: email('Your MISK account is deleted', input.firstName, [
+      'Your MISK account is deleted, as you asked. You can no longer log in with it. Your profile, saved addresses and payment methods are removed.',
+      'Upcoming bookings are cancelled, and any money held on your card is released. Receipts are kept for 7 years because the law requires it, without your name or contact details.',
+      'You are welcome to sign up again at any time with the same phone number or email.',
+      contactSentence(input.support),
+    ]),
+  };
+}

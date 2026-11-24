@@ -172,7 +172,10 @@ export async function documentExpiryTick(deps: BookingDeps): Promise<number> {
     `UPDATE pro_profiles p SET status = 'pending_approval', updated_at = now()
      FROM (
        SELECT pro_id, array_agg(kind ORDER BY kind) AS kinds FROM pro_documents
-       WHERE valid_until < $1::date GROUP BY pro_id
+       WHERE valid_until < $1::date
+         -- A certificate the pro's trades no longer need never holds them back (D93, D98).
+         AND (kind <> 'certificate' OR ${certificateRequiredSql('pro_documents.pro_id')})
+       GROUP BY pro_id
      ) expired
      WHERE expired.pro_id = p.user_id AND p.status = 'approved'
      RETURNING p.user_id, expired.kinds`,

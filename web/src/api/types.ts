@@ -884,6 +884,8 @@ export interface AdminCategory {
   sortOrder: number;
   /** False while the trade is a draft, hidden from customers. */
   active: boolean;
+  /** Whether pros of this trade must upload a trade certificate (D93); off for trades like cleaning. */
+  needsCertificate: boolean;
   visibleServices: number;
   totalServices: number;
   /** Pros with this trade, applicants included. */
@@ -908,7 +910,7 @@ export interface CatalogueChange {
   categoryId: string;
   serviceId: string | null;
   action: CatalogueChangeAction;
-  details: { from?: number; to?: number; name?: string };
+  details: { from?: number; to?: number; name?: string; needsCertificate?: boolean };
   createdAt: string;
   serviceName: string | null;
   adminName: string | null;
@@ -1198,6 +1200,14 @@ export interface NotificationSettings {
   messages: { kind: MessageKind; audience: 'customer' | 'pro'; push: boolean; sms: boolean; email: boolean }[];
   ready: Record<Channel, boolean>;
   me: { phone: string | null; email: string | null; push: boolean };
+}
+
+/** The Setup checklist (D98): which optional production settings the API has, yes or no only. */
+export type SetupKey = 'support_email' | 'support_phone' | 'email_sender' | 'sms_sender' | 'push' | 'stripe_webhook';
+export interface SetupStatus {
+  checklist: { key: SetupKey; set: boolean }[];
+  /** False when no team member has an email address and SUPPORT_EMAIL is not set. */
+  issueAlertsEmailable: boolean;
 }
 
 export interface TeamMember {

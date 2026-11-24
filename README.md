@@ -206,7 +206,22 @@ in production; sign-in is impossible without it.
 5. `UPLOAD_DIR` holds pro documents and job photos: put it on persistent, backed-up storage.
 6. Health check: `GET /health` returns 200 when the database is reachable.
 
-## Before launch
+## Before going live
+
+Settings to check (the API logs one warning at start listing those that are missing, and **Settings → Team &
+access → Setup checklist** in the control panel shows which are set, never their values):
+
+- [ ] `SUPPORT_EMAIL` and `SUPPORT_PHONE` (`backend/.env`): without them the "Email us" / "Call us" contact
+      buttons are hidden. `SUPPORT_EMAIL` also receives pros' issue alerts when no team member has an email
+      address; the Team & access page warns when an alert could reach nobody by email.
+- [ ] Email sender (`SMTP_HOST`, `SMTP_USER`, `SMTP_PASSWORD`, `MAIL_FROM`) and SMS sender (`TWILIO_*`, required in
+      production): without them notifications reach people in the app only.
+- [ ] Push (`VAPID_*`): without it push messages are not sent.
+- [ ] Stripe webhook (`STRIPE_WEBHOOK_SECRET`) listening to the events under [Stripe](#stripe), including
+      `customer.subscription.created` and `customer.subscription.updated`: without it payments are never confirmed.
+- [ ] `VITE_PRIVACY_URL` (`web/.env`): without it the Privacy Policy shows "Coming soon".
+- [ ] `VITE_MAP_TILE_URL` (`web/.env`): without it the live map uses the free OpenStreetMap tiles, which are for
+      testing only (their usage policy does not allow production traffic).
 
 These are open owner decisions; see `QUESTIONS.md`.
 

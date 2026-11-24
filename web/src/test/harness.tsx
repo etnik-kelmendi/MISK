@@ -99,6 +99,8 @@ export function fakeApi(user: User | null): FakeApi {
   // Profile (D92): English, no support contact set up and no favourite pros, unless a test says so.
   routes.set('GET /account/settings', { body: { language: 'en', languages: ['en'], support: { email: null, phone: null } } });
   routes.set('GET /favourites/pros', { body: { pros: [] } });
+  // No email change waiting (D97); an account with an email is taken to have a password.
+  routes.set('GET /account/email', { body: { email: user?.email ?? null, hasPassword: Boolean(user?.email), pending: null } });
   // A pro has no requests to move a plan visit unless a test says so (D77).
   routes.set('GET /pro/visit-moves', { body: { moves: [] } });
   // No "You cancelled this job" notices on the Jobs page unless a test says so (D94).

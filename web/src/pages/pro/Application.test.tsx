@@ -289,7 +289,13 @@ describe('the Application status page (D93)', () => {
       view({ status: 'rejected', reviewNote: 'Not this time.', editable: true }, { steps: steps('done', 'done', 'failed'), current: 'decision' }),
     );
     expect(await screen.findByRole('link', { name: 'Apply again' })).toHaveAttribute('href', '/pro/apply');
+    // Without a support email or phone the button is still there and says how to reach the team.
     expect(screen.queryByRole('link', { name: 'Contact support' })).not.toBeInTheDocument();
-    expect(screen.getByText(/Reply to the message we sent you/)).toBeInTheDocument();
+    const contact = screen.getByRole('button', { name: 'Contact support' });
+    expect(contact).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText(/Reply to the message we sent you/)).not.toBeInTheDocument();
+    await user().click(contact);
+    expect(contact).toHaveAttribute('aria-expanded', 'true');
+    expect(await screen.findByText(/Reply to the message we sent you/)).toBeInTheDocument();
   });
 });

@@ -401,3 +401,75 @@ describe('calling off a pause (D78)', () => {
     expect(t.fake.balance.filter((c) => c.kind === 'reversal')).toEqual([]);
   });
 });
+
+describe('a skipped visit inside a pause (D98)', () => {
+  const skip = (subscriptionId: string, visitId: string) => call(t, 'POST', `/subscriptions/${subscriptionId}/visits/${visitId}/skip`, { cookie: customer });
+  const unskip = (subscriptionId: string, visitId: string) =>
+    call(t, 'POST', `/subscriptions/${subscriptionId}/visits/${visitId}/unskip`, { cookie: customer });
+  const visitOf = async (subscriptionId: string, visitId: string) =>
+    ((await load(subscriptionId)).visits as (Visit & { skipsUsedInMonth: number })[]).find((v) => v.id === visitId);
+
+  /** A plan with the visit of the first full week from 7 days on skipped, and that week's Monday. */
+  async function skippedInside(): Promise<{ subscriptionId: string; visitId: string; startsOn: string }> {
+    const subscription = await subscribe();
+    const startsOn = mondayFrom(addDays(await today(), 7));
+    const [from, to] = [await midnight(startsOn), await midnight(addDays(startsOn, 7))];
+    const inside = subscription.visits.find((v) => new Date(v.startsAt).getTime() >= from && new Date(v.startsAt).getTime() < to);
+    expect((await skip(subscription.id, inside?.id ?? '')).statusCode).toBe(200);
+    expect(await visitOf(subscription.id, inside?.id ?? '')).toMatchObject({ status: 'skipped', skipsUsedInMonth: 1 });
+    return { subscriptionId: subscription.id, visitId: inside?.id ?? '', startsOn };
+  }
+
+  it('pauses and credits it, gives the skip back, and plans it again when the pause is called off', async () => {
+    const { subscriptionId, visitId, startsOn } = await skippedInside();
+    // The preview of the pause counts the skipped visit too.
+    const visitStarts = (await options(subscriptionId)).visitStarts as string[];
+    const visitStart = (await visitOf(subscriptionId, visitId))?.startsAt;
+    expect(visitStarts).toContain(visitStart);
+
+    const response = await pause(subscriptionId, startsOn, 1);
+    expect(response.statusCode).toBe(200);
+    const made = response.json().subscription.pauses[0];
+    expect(made).toMatchObject({ visitsCalledOff: 1, creditCents: VISIT_VALUE });
+    expect(await visitOf(subscriptionId, visitId)).toMatchObject({ status: 'cancelled', pausedBy: made.id, skippedAt: null, skipsUsedInMonth: 0 });
+    expect(t.fake.balance.map((c) => [c.kind, c.amountCents])).toEqual([['credit', VISIT_VALUE]]);
+    // The pro already knew the visit was not happening: it is not listed as called off again.
+    const proTold = (await inbox('plan_paused')).filter((m) => m.user_id === pro.proId);
+    expect(proTold[0]?.body).toMatch(/No visits are planned for you in this time\.$/);
+
+    // Paused, not skipped: it can neither be skipped nor unskipped now, and a second pause changes nothing.
+    expect((await unskip(subscriptionId, visitId)).json()).toEqual({ error: 'visit_not_skipped' });
+    expect((await skip(subscriptionId, visitId)).json()).toEqual({ error: 'visit_not_skippable' });
+    expect((await pause(subscriptionId, startsOn, 1)).json()).toEqual({ error: 'pause_already_planned' });
+    expect(t.fake.balance).toHaveLength(1);
+
+    // Calling the pause off plans the visit again (not skipped) and takes its credit back, once.
+    const calledOff = await callOff(subscriptionId, made.id);
+    expect(calledOff.statusCode).toBe(200);
+    expect(await visitOf(subscriptionId, visitId)).toMatchObject({ status: 'planned', pausedBy: null, skipsUsedInMonth: 0 });
+    expect(t.fake.balance.map((c) => [c.kind, c.amountCents])).toEqual([
+      ['credit', VISIT_VALUE],
+      ['reversal', VISIT_VALUE],
+    ]);
+    expect((await inbox('plan_pause_called_off')).filter((m) => m.user_id === pro.proId)).toHaveLength(1);
+    // The customer can skip it again with the skip they got back.
+    expect((await skip(subscriptionId, visitId)).statusCode).toBe(200);
+  });
+
+  it('is settled like any paused visit when the plan ends before it and is kept again', async () => {
+    const { subscriptionId, visitId, startsOn } = await skippedInside();
+    const made = (await pause(subscriptionId, startsOn, 1)).json().subscription.pauses[0];
+    // The plan would end before the visit: its credit is taken back; kept again, it is given again.
+    await t.pool.query("UPDATE subscriptions SET ends_at = (SELECT starts_at - interval '1 day' FROM subscription_visits WHERE id = $1)", [visitId]);
+    expect(await settlePausesAfterPlanEnd(t.deps, subscriptionId)).toBe(1);
+    await t.pool.query('UPDATE subscriptions SET ends_at = NULL');
+    expect(await settlePausesAfterPlanEnd(t.deps, subscriptionId)).toBe(1);
+    expect(await settlePausesAfterPlanEnd(t.deps, subscriptionId)).toBe(0);
+    expect(t.fake.balance.map((c) => [c.kind, c.amountCents])).toEqual([
+      ['credit', VISIT_VALUE],
+      ['reversal', VISIT_VALUE],
+      ['credit', VISIT_VALUE],
+    ]);
+    expect(await visitOf(subscriptionId, visitId)).toMatchObject({ status: 'cancelled', pausedBy: made.id });
+  });
+});

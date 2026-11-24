@@ -11,9 +11,10 @@ import { useAction } from '../lib/useAction';
 import { useValidation } from '../lib/useValidation';
 import { FieldError } from '../components/FieldError';
 import { AppHeader } from '../shells/Shells';
+import { AccountEmail } from './AccountEmail';
 import { AccountPhone } from './AccountPhone';
 
-/** The pro's account: name, phone number, push on this device and sign-out. Customers have Profile (D92). */
+/** The pro's account: name, phone number, email (when they have one), push on this device and sign-out. Customers have Profile (D92). */
 export function AccountPage() {
   const { t } = useTranslation();
   const api = useApi();
@@ -67,6 +68,8 @@ export function AccountPage() {
           </button>
         </form>
         <AccountPhone />
+        {/* A pro who has an email can change it (D97); pros sign up by phone, so most have none. */}
+        {user.email && <AccountEmail />}
         <div className="card">
           <PushToggle />
         </div>

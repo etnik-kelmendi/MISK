@@ -396,6 +396,54 @@ describe('settings: team and access', () => {
     expect(api.bodies['PATCH /admin/team/u-sam/role']).toEqual({ role: 'finance' });
   });
 
+  it('shows the Setup checklist as set or not set, and warns when issue alerts cannot be emailed (D98)', async () => {
+    const api = teamApi();
+    api.on('GET /admin/team/setup', {
+      body: {
+        checklist: [
+          { key: 'support_email', set: false },
+          { key: 'support_phone', set: true },
+          { key: 'email_sender', set: true },
+          { key: 'sms_sender', set: false },
+          { key: 'push', set: true },
+          { key: 'stripe_webhook', set: true },
+        ],
+        issueAlertsEmailable: false,
+      },
+    });
+    renderAt('/admin/settings/team');
+    const card = await screen.findByRole('region', { name: 'Setup checklist' });
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      "Issue alerts from pros can't be emailed: add an email to a team member or set SUPPORT_EMAIL.",
+    );
+    const rows = within(card).getAllByRole('listitem');
+    const row = (label: string) => rows.find((r) => r.textContent?.startsWith(label)) as HTMLElement;
+    expect(row('Support email (SUPPORT_EMAIL)')).toHaveTextContent('Not set');
+    expect(row('Support email (SUPPORT_EMAIL)')).toHaveTextContent('The "Email us" contact buttons are hidden');
+    expect(row('Support phone (SUPPORT_PHONE)')).toHaveTextContent(/Set$/);
+    expect(row('Support phone (SUPPORT_PHONE)')).not.toHaveTextContent('hidden');
+    expect(row('SMS sender (Twilio settings)')).toHaveTextContent('Not set');
+    // The control panel's own build: no privacy address and the free map tiles in tests.
+    expect(row('Privacy Policy address (VITE_PRIVACY_URL)')).toHaveTextContent('Coming soon');
+    expect(row('Map tiles (VITE_MAP_TILE_URL)')).toHaveTextContent('OpenStreetMap tiles, which are for testing only');
+    expect(rows).toHaveLength(8);
+  });
+
+  it('shows no warning when issue alerts can be emailed, and leaves the page as it is when the checklist cannot load', async () => {
+    const api = teamApi();
+    api.on('GET /admin/team/setup', { body: { checklist: [{ key: 'support_email', set: true }], issueAlertsEmailable: true } });
+    const { unmount } = renderAt('/admin/settings/team');
+    expect(await screen.findByRole('region', { name: 'Setup checklist' })).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    unmount();
+
+    api.on('GET /admin/team/setup', { status: 500, body: { error: 'internal' } });
+    renderAt('/admin/settings/team');
+    expect(await screen.findByRole('table')).toBeInTheDocument();
+    await waitFor(() => expect(api.calls).toContain('GET /admin/team/setup'));
+    expect(screen.queryByRole('region', { name: 'Setup checklist' })).not.toBeInTheDocument();
+  });
+
   it('creates a shareable invitation link for a role, copies it, and lists it until it is used or withdrawn', async () => {
     const api = teamApi();
     const open = { id: 'inv-1', role: 'operations', createdAt: '2026-11-12T10:00:00.000Z', expiresAt: '2026-11-19T10:00:00.000Z', createdBy: 'Elion Thaqi' };

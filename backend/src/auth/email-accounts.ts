@@ -18,7 +18,8 @@ export const VERIFY_LINK_HOURS = 24;
 export const MAX_VERIFY_EMAILS_PER_ACCOUNT = 5;
 export const MAX_VERIFY_EMAILS_PER_IP = 20;
 
-const EMAIL_FORMAT = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+/** The email rule for every account: something@domain.tld, no spaces (same as the web app's check). */
+export const EMAIL_FORMAT = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const nameProperty = { type: 'string', minLength: 1, maxLength: 60, pattern: '\\S' } as const;
 
 export function passwordProblems(password: string): ('length' | 'letter' | 'number')[] {

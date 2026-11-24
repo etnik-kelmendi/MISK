@@ -20,6 +20,7 @@ import { dateTime, euro } from '../../lib/format';
 import { useAction } from '../../lib/useAction';
 import { Icon } from '../../components/Icon';
 import { useSave } from './settings/SaveStatus';
+import { SetupChecklist } from './settings/SetupChecklist';
 
 export const MIN_PASSWORD_LENGTH = 12;
 /** Must match INVITE_LINK_DAYS in the API. */
@@ -593,6 +594,7 @@ export function TeamPage() {
       )}
       <Requests onNotice={setNotice} />
       <Members />
+      <SetupChecklist />
       <ActivityLog />
     </div>
   );

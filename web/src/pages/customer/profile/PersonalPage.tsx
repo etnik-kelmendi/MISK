@@ -11,6 +11,7 @@ import { LANGUAGE } from '../../../i18n';
 import { useAction } from '../../../lib/useAction';
 import { useValidation } from '../../../lib/useValidation';
 import { AppHeader } from '../../../shells/Shells';
+import { AccountEmail } from '../../AccountEmail';
 import { AccountPhone } from '../../AccountPhone';
 
 /** The API's limit for a first or last name. */
@@ -35,7 +36,7 @@ export function useAccountSettings() {
 
 /**
  * Personal information (D92): first and last name, the phone number (changed with a texted code, D87), the
- * email address (read-only: it is how the account logs in) and the language, saved with "Save changes".
+ * email address (changed with a link to the new address, D97) and the language, saved with "Save changes".
  */
 export function PersonalPage() {
   const { t } = useTranslation();
@@ -109,22 +110,9 @@ export function PersonalPage() {
         </form>
 
         <AccountPhone />
+        <AccountEmail />
 
         <div className="card stack">
-          <div className="field">
-            <label htmlFor="personal-email">{t('personal.email')}</label>
-            <input
-              id="personal-email"
-              type="email"
-              readOnly
-              aria-describedby="personal-email-note"
-              value={user.email ?? ''}
-              placeholder={t('personal.noEmail')}
-            />
-            <span id="personal-email-note" className="hint">
-              {user.email ? t('personal.emailNote') : t('personal.noEmailNote')}
-            </span>
-          </div>
           <div className="field">
             <label htmlFor="personal-language">{t('personal.language')}</label>
             <select

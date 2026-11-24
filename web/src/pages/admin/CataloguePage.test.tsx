@@ -13,6 +13,7 @@ function category(overrides: Partial<AdminCategory> = {}): AdminCategory {
     icon: 'leaf',
     sortOrder: 1,
     active: true,
+    needsCertificate: true,
     visibleServices: 2,
     totalServices: 3,
     pros: 5,
@@ -172,6 +173,37 @@ describe('catalogue page', () => {
     await user().clear(input);
     await user().type(input, '36,50{Enter}');
     await waitFor(() => expect(api.bodies['PATCH /admin/services/svc-mow']).toEqual({ priceCents: 3650 }));
+  });
+
+  it('switches the trade certificate off and on for a trade, and logs it (D98)', async () => {
+    const api = setUp(
+      catalogue({
+        changes: [
+          {
+            id: '2',
+            categoryId: 'cat-garden',
+            serviceId: null,
+            action: 'trade_edited',
+            details: { needsCertificate: false },
+            createdAt: '2026-11-09T09:00:00.000Z',
+            serviceName: null,
+            adminName: 'admin',
+          },
+        ],
+      }),
+    );
+    api.on('PATCH /admin/categories/cat-garden', () => {
+      api.on('GET /admin/catalogue', { body: catalogue({ categories: [category({ needsCertificate: false })] }) });
+      return { body: { category: category({ needsCertificate: false }) } };
+    });
+    renderAt('/admin/catalogue');
+    const certificate = await screen.findByRole('switch', { name: 'Trade certificate required for pros' });
+    expect(certificate).toBeChecked();
+    expect(certificate).toHaveAccessibleDescription(/Off for trades like cleaning, where no certificate exists\./);
+    expect(screen.getByText('Trade certificate no longer required for pros')).toBeInTheDocument();
+    await user().click(certificate);
+    await waitFor(() => expect(api.bodies['PATCH /admin/categories/cat-garden']).toEqual({ needsCertificate: false }));
+    await waitFor(() => expect(screen.getByRole('switch', { name: 'Trade certificate required for pros' })).not.toBeChecked());
   });
 
   it('hides and shows a service with its visible switch, and fades hidden ones', async () => {

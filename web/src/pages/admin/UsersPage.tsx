@@ -45,7 +45,17 @@ export interface Delivery {
 
 interface UserAction {
   id: string;
-  action: 'messaged' | 'suspended' | 'reinstated' | 'deleted' | 'phone_added' | 'phone_changed' | 'phone_removed';
+  action:
+    | 'messaged'
+    | 'suspended'
+    | 'reinstated'
+    | 'deleted'
+    | 'phone_added'
+    | 'phone_changed'
+    | 'phone_removed'
+    | 'email_added'
+    | 'email_changed'
+    | 'closed_own_account';
   details: {
     text?: string;
     reason?: string;
@@ -251,7 +261,8 @@ function ActionLine({ entry }: { entry: UserAction }) {
   const { timezone } = useMarket();
   const ways = useWays();
   const d = entry.details;
-  const ownChange = entry.action.startsWith('phone_');
+  // Changes the person made themselves (D87, D97): no team member did them.
+  const ownChange = entry.action.startsWith('phone_') || entry.action.startsWith('email_') || entry.action === 'closed_own_account';
   const extra =
     entry.action === 'messaged'
       ? d.text
@@ -261,14 +272,16 @@ function ActionLine({ entry }: { entry: UserAction }) {
             bookings: d.cancelledBookings ?? 0,
             plans: d.endedPlans ?? 0,
           })
-        : null;
+        : entry.action === 'closed_own_account'
+          ? t('admin.users.log.closedOwnLine', { bookings: d.cancelledBookings ?? 0 })
+          : null;
   return (
     <li>
       {t(`admin.users.log.${entry.action}`)}
       {extra && <div className="small log-note">{extra}</div>}
       {d.message && <div className="small log-note">{t('admin.users.log.toldThem', { message: d.message })}</div>}
       {d.channels && (
-        <div className="small muted">{t('admin.users.log.sentBy', { ways: ways(d.channels, entry.action !== 'deleted') })}</div>
+        <div className="small muted">{t('admin.users.log.sentBy', { ways: ways(d.channels, entry.action !== 'deleted' && entry.action !== 'closed_own_account') })}</div>
       )}
       <div className="small muted">
         {ownChange

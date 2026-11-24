@@ -410,6 +410,44 @@ describe('documents that run out', () => {
     expect((await texts(id)).at(-1)).toContain('You get new jobs again');
   });
 
+  it('keeps approved pros approved when the certificate switch of a trade changes, and ignores an unneeded certificate (D98)', async () => {
+    const today = marketToday(t.config.timezone);
+    const { id } = await applicant();
+    await acceptAll(id);
+    await post(`/admin/pros/${id}/approve`);
+    await t.pool.query("UPDATE pro_documents SET expires_on = $2, valid_until = $2 WHERE pro_id = $1 AND kind = 'certificate'", [
+      id,
+      addDays(today, -1),
+    ]);
+    const switchTo = async (needsCertificate: boolean) => {
+      const response = await call(t, 'PATCH', `/admin/categories/${market.gardening}`, { cookie: admin, body: { needsCertificate } });
+      expect(response.statusCode).toBe(200);
+      expect(response.json().category.needsCertificate).toBe(needsCertificate);
+    };
+
+    // Gardening no longer needs a certificate: the pro stays active, and the expired one does not count.
+    await switchTo(false);
+    expect((await get(`/admin/pros/${id}`)).json().pro).toMatchObject({ status: 'approved', certificateRequired: false });
+    expect(await documentExpiryTick(t.deps)).toBe(0);
+    expect((await list('active')).map((p) => p.id)).toEqual([id]);
+
+    // Needed again: the switch itself changes no pro, only the expired certificate does, through the usual check.
+    await switchTo(true);
+    expect((await get(`/admin/pros/${id}`)).json().pro).toMatchObject({ status: 'approved', certificateRequired: true });
+    expect(await documentExpiryTick(t.deps)).toBe(1);
+    expect((await list('pending_approval')).map((p) => p.id)).toEqual([id]);
+
+    // Both changes are in the catalogue's activity log.
+    const log = await t.pool.query<{ action: string; details: unknown }>(
+      "SELECT action, details FROM catalogue_changes WHERE category_id = $1 AND action = 'trade_edited' ORDER BY created_at",
+      [market.gardening],
+    );
+    expect(log.rows).toEqual([
+      { action: 'trade_edited', details: { needsCertificate: false } },
+      { action: 'trade_edited', details: { needsCertificate: true } },
+    ]);
+  });
+
   it('asks for a new copy when a document is rejected, and keeps the pro waiting', async () => {
     const today = marketToday(t.config.timezone);
     const { id, cookie } = await activeWithInsuranceUntil(addDays(today, -1));
