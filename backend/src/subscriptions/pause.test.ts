@@ -262,16 +262,18 @@ describe('pausing a plan (D78)', () => {
     expect((await load(subscription.id)).pauses.filter((p: { status: string }) => p.status === 'upcoming')).toHaveLength(0);
   });
 
-  it('accepts a pause that starts today when the notice is 0 days (D85)', async () => {
-    await t.pool.query('UPDATE plans SET pause_notice_days = 0');
+  it('accepts a pause that starts tomorrow when the notice is 1 day, the shortest allowed (D85, D95)', async () => {
+    await t.pool.query('UPDATE plans SET pause_notice_days = 1');
     const subscription = await subscribe();
     const now = await today();
-    expect((await options(subscription.id)).earliestStartOn).toBe(now);
-    expect((await pause(subscription.id, now, 1)).statusCode).toBe(200);
+    const earliest = (await options(subscription.id)).earliestStartOn;
+    expect(earliest).toBe(addDays(now, 1));
+    expect((await pause(subscription.id, earliest, 1)).statusCode).toBe(200);
     // The copied terms have the same limits as the plan's.
     await expect(t.pool.query('UPDATE subscriptions SET max_pause_weeks = 9')).rejects.toThrow();
+    await expect(t.pool.query('UPDATE subscriptions SET pause_notice_days = 0')).rejects.toThrow();
     await expect(t.pool.query('UPDATE subscriptions SET pause_notice_days = 31')).rejects.toThrow();
-    await t.pool.query('UPDATE subscriptions SET max_pause_weeks = 0, pause_notice_days = 0');
+    await t.pool.query('UPDATE subscriptions SET max_pause_weeks = 0, pause_notice_days = 1');
   });
 
   it('creates nothing when the credit fails', async () => {

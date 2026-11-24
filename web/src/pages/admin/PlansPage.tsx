@@ -6,6 +6,7 @@ import { MIN_TERMS, type AdminCategory, type Frequency, type MinTerm, type Plan,
 import { useResource } from '../../api/useResource';
 import { ErrorText } from '../../components/ErrorText';
 import { Icon } from '../../components/Icon';
+import { NumberStepper } from '../../components/NumberStepper';
 import { ResourceState } from '../../components/ResourceState';
 import { euro, parseEuroToCents } from '../../lib/format';
 import { useAction } from '../../lib/useAction';
@@ -223,8 +224,9 @@ const FIELD_ORDER: [PlanField | NumberField, string][] = [
 
 /** Most paused weeks a year an admin can choose: 0 (no pauses) to 8 (D77, D85). */
 export const PAUSE_WEEKS = [0, 1, 2, 3, 4, 5, 6, 7, 8] as const;
-/** Notice before a pause starts an admin can choose: 0 to 30 days (D85). */
-export const PAUSE_NOTICE_DAYS = Array.from({ length: 31 }, (_, days) => days);
+/** Notice before a pause starts an admin can choose: 1 to 30 days (D85, D95). */
+export const MIN_PAUSE_NOTICE_DAYS = 1;
+export const MAX_PAUSE_NOTICE_DAYS = 30;
 /** What new plans start with: 4 paused weeks a year, 7 days' notice. */
 export const DEFAULT_PAUSE_WEEKS = 4;
 export const DEFAULT_PAUSE_NOTICE_DAYS = 7;
@@ -320,7 +322,7 @@ function toDraft(plan: Plan | null): Draft {
     seasonal: plan.seasonal,
     minTermMonths: plan.minTermMonths,
     // A saved value outside the choices (it should not exist) is shown at the nearest one.
-    pauseNoticeDays: clamp(plan.pauseNoticeDays, 0, 30),
+    pauseNoticeDays: clamp(plan.pauseNoticeDays, MIN_PAUSE_NOTICE_DAYS, MAX_PAUSE_NOTICE_DAYS),
     maxPauseWeeks: clamp(plan.maxPauseWeeks, 0, 8),
     proSharePct: plan.proSharePct,
   };
@@ -578,9 +580,6 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
       <div className="row between wrap">
         <div>
           <h1>{live ? t('admin.plans.publishedTitle') : current ? t('admin.plans.editTitle') : t('admin.plans.newTitle')}</h1>
-          <p className="small muted">
-            <Link to="/admin/plans">{t('admin.plans.title')}</Link> → {draft.name.trim() || t('admin.plans.untitled')}
-          </p>
         </div>
         <div className="row gap8">
           {current && (
@@ -870,18 +869,18 @@ function PlanEditor({ plan, categories }: { plan: Plan | null; categories: Admin
             {draft.maxPauseWeeks > 0 && (
               <div className="af">
                 <label htmlFor="plan-pauseNoticeDays">{t('admin.plans.fields.pauseNoticeDays')}</label>
-                <select
+                <NumberStepper
                   id="plan-pauseNoticeDays"
                   value={draft.pauseNoticeDays}
+                  min={MIN_PAUSE_NOTICE_DAYS}
+                  max={MAX_PAUSE_NOTICE_DAYS}
+                  onChange={(days) => set('pauseNoticeDays', days)}
+                  decreaseLabel={t('admin.plans.fewerDays')}
+                  increaseLabel={t('admin.plans.moreDays')}
+                  valueText={(days) => t('admin.plans.daysOption', { count: days })}
+                  unit={t('admin.plans.daysUnit', { count: draft.pauseNoticeDays })}
                   aria-describedby="plan-pauseNoticeDays-hint"
-                  onChange={(e) => set('pauseNoticeDays', Number(e.target.value))}
-                >
-                  {PAUSE_NOTICE_DAYS.map((days) => (
-                    <option key={days} value={days}>
-                      {t('admin.plans.daysOption', { count: days })}
-                    </option>
-                  ))}
-                </select>
+                />
                 <span id="plan-pauseNoticeDays-hint" className="hint">
                   {t('admin.plans.pauseNoticeDaysHint')}
                 </span>

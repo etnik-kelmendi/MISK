@@ -66,7 +66,7 @@ const planProperties = {
   addonPriceCents: nullable({ type: 'integer', minimum: 0, maximum: 99_900 }),
   seasonal: { type: 'boolean' },
   minTermMonths: { type: 'integer', enum: MIN_TERMS },
-  pauseNoticeDays: { type: 'integer', minimum: 0, maximum: 30 },
+  pauseNoticeDays: { type: 'integer', minimum: 1, maximum: 30 },
   maxPauseWeeks: { type: 'integer', minimum: 0, maximum: 8 },
   proSharePct: { type: 'integer', minimum: 50, maximum: 90 },
 } as const;

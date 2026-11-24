@@ -145,11 +145,11 @@ describe('plans', () => {
     expect(created).not.toHaveProperty('skipsPerMonth');
   });
 
-  it('stores the pause rules: notice 0 to 30 days, 0 to 8 paused weeks a year (D77, D85)', async () => {
+  it('stores the pause rules: notice 1 to 30 days, 0 to 8 paused weeks a year (D77, D85, D95)', async () => {
     const created = (await call(t, 'POST', '/admin/plans', { cookie: admin, body: { ...plan(), pauseNoticeDays: 14, maxPauseWeeks: 8 } })).json().plan;
     expect(created).toMatchObject({ pauseNoticeDays: 14, maxPauseWeeks: 8 });
     // The ends of both ranges are fine: no pauses at all with no notice, and the longest rules.
-    for (const body of [{ maxPauseWeeks: 0, pauseNoticeDays: 0 }, { maxPauseWeeks: 8, pauseNoticeDays: 30 }, { maxPauseWeeks: 1, pauseNoticeDays: 1 }]) {
+    for (const body of [{ maxPauseWeeks: 0, pauseNoticeDays: 1 }, { maxPauseWeeks: 8, pauseNoticeDays: 30 }, { maxPauseWeeks: 1, pauseNoticeDays: 1 }]) {
       const response = await call(t, 'POST', '/admin/plans', { cookie: admin, body: { ...plan(), ...body } });
       expect(response.statusCode).toBe(201);
       expect(response.json().plan).toMatchObject(body);
@@ -161,6 +161,7 @@ describe('plans', () => {
       { maxPauseWeeks: 1.5 },
       { maxPauseWeeks: '4' },
       { pauseNoticeDays: -1 },
+      { pauseNoticeDays: 0 },
       { pauseNoticeDays: 31 },
       { pauseNoticeDays: 60 },
       { pauseNoticeDays: 7.5 },
@@ -189,6 +190,7 @@ describe('plans', () => {
     // The database refuses what the API refuses.
     await expect(t.pool.query('UPDATE plans SET max_pause_weeks = 9')).rejects.toThrow();
     await expect(t.pool.query('UPDATE plans SET pause_notice_days = 31')).rejects.toThrow();
+    await expect(t.pool.query('UPDATE plans SET pause_notice_days = 0')).rejects.toThrow();
     await expect(t.pool.query('UPDATE plans SET max_pause_weeks = -1')).rejects.toThrow();
   });
 

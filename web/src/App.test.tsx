@@ -2057,11 +2057,13 @@ describe('plan page', () => {
     expect(term).toHaveValue('3');
     await user().selectOptions(term, '6 months');
 
-    const notice = screen.getByRole('combobox', { name: 'Minimum notice to pause a plan' });
-    expect(notice).toHaveValue('7');
+    const notice = screen.getByRole('spinbutton', { name: 'Minimum notice to pause a plan' });
+    expect(notice).toHaveValue(7);
     const weeks = screen.getByRole('combobox', { name: 'Maximum pause duration per year' });
     expect(weeks).toHaveValue('4');
-    await user().selectOptions(notice, '14 days');
+    await user().clear(notice);
+    await user().type(notice, '14');
+    await user().tab();
     await user().selectOptions(weeks, '2 weeks');
 
     await user().click(screen.getByRole('button', { name: 'Save draft' }));
@@ -2081,15 +2083,15 @@ describe('plan page', () => {
     expect(api.bodies['POST /admin/plans']).not.toHaveProperty('skipsPerMonth');
   });
 
-  it('groups the pause rules: maximum per year first, then the notice, both as selects with their help (D85)', async () => {
+  it('groups the pause rules: maximum per year first, then the notice as a number stepper, both with their help (D85, D95)', async () => {
     const api = openNewPlan();
     await fillComplete();
     const group = screen.getByRole('group', { name: 'Pause rules' });
     const weeks = within(group).getByRole('combobox', { name: 'Maximum pause duration per year' });
-    const notice = within(group).getByRole('combobox', { name: 'Minimum notice to pause a plan' });
+    const notice = within(group).getByRole('spinbutton', { name: 'Minimum notice to pause a plan' });
     // The maximum comes above the notice.
     expect(weeks.compareDocumentPosition(notice) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(within(group).getAllByRole('combobox')).toEqual([weeks, notice]);
+    expect(within(group).getAllByRole('combobox')).toEqual([weeks]);
 
     const weekOptions = within(weeks).getAllByRole('option');
     expect(weekOptions.map((o) => o.textContent)).toEqual([
@@ -2103,15 +2105,14 @@ describe('plan page', () => {
       '7 weeks',
       '8 weeks',
     ]);
-    const dayOptions = within(notice).getAllByRole('option');
-    expect(dayOptions).toHaveLength(31);
-    expect(dayOptions[0]).toHaveTextContent('0 days');
-    expect(dayOptions[1]).toHaveTextContent('1 day');
-    expect(dayOptions[2]).toHaveTextContent('2 days');
-    expect(dayOptions[30]).toHaveTextContent('30 days');
+    // The notice is a stepper, not a list of 30 options.
+    expect(within(group).queryAllByRole('option').length).toBe(9);
+    expect(notice).toHaveAttribute('aria-valuemin', '1');
+    expect(notice).toHaveAttribute('aria-valuemax', '30');
     // New plans start with 4 weeks and 7 days.
     expect(weeks).toHaveValue('4');
-    expect(notice).toHaveValue('7');
+    expect(notice).toHaveValue(7);
+    expect(notice).toHaveAttribute('aria-valuetext', '7 days');
 
     const weeksHelp = 'Select the total number of weeks customers can pause their plan each year. Choose 0 to disable pauses.';
     const noticeHelp = 'Customers must request a pause at least this many days before it starts.';
@@ -2120,25 +2121,50 @@ describe('plan page', () => {
     expect(weeks).toHaveAccessibleDescription(weeksHelp);
     expect(notice).toHaveAccessibleDescription(noticeHelp);
 
-    await user().selectOptions(notice, '0 days');
+    const fewer = within(group).getByRole('button', { name: 'Fewer days' });
+    const more = within(group).getByRole('button', { name: 'More days' });
+    await user().click(more);
+    expect(notice).toHaveValue(8);
+    await user().click(fewer);
+    await user().click(fewer);
+    expect(notice).toHaveValue(6);
+    expect(notice).toHaveAttribute('aria-valuetext', '6 days');
+
+    // Typed values are clamped to 1-30 when the field is left; the buttons stop at the ends.
+    await user().clear(notice);
+    await user().type(notice, '99');
+    await user().tab();
+    expect(notice).toHaveValue(30);
+    expect(more).toBeDisabled();
+    await user().clear(notice);
+    await user().type(notice, '0');
+    await user().tab();
+    expect(notice).toHaveValue(1);
+    expect(fewer).toBeDisabled();
+    expect(within(group).getByText('day')).toBeInTheDocument();
+    await user().click(more);
+    expect(notice).toHaveValue(2);
     await user().click(screen.getByRole('button', { name: 'Save draft' }));
-    await waitFor(() => expect(api.bodies['POST /admin/plans']).toMatchObject({ pauseNoticeDays: 0, maxPauseWeeks: 4 }));
+    await waitFor(() => expect(api.bodies['POST /admin/plans']).toMatchObject({ pauseNoticeDays: 2, maxPauseWeeks: 4 }));
   });
 
   it('removes the notice setting while 0 weeks are chosen, and brings it back with its value', async () => {
     const api = openNewPlan();
     await fillComplete();
     const weeks = screen.getByRole('combobox', { name: 'Maximum pause duration per year' });
-    await user().selectOptions(screen.getByRole('combobox', { name: 'Minimum notice to pause a plan' }), '21 days');
+    const noticeField = screen.getByRole('spinbutton', { name: 'Minimum notice to pause a plan' });
+    await user().clear(noticeField);
+    await user().type(noticeField, '21');
+    await user().tab();
     await user().selectOptions(weeks, '0 weeks – Pauses not allowed');
     expect(weeks).toHaveValue('0');
-    expect(screen.queryByRole('combobox', { name: 'Minimum notice to pause a plan' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('spinbutton', { name: 'Minimum notice to pause a plan' })).not.toBeInTheDocument();
     expect(screen.queryByText('Customers must request a pause at least this many days before it starts.')).not.toBeInTheDocument();
     const preview = screen.getByRole('complementary', { name: 'Live preview · customer app' });
     expect(within(preview).getByText("Min. 3 months, then 30 days' notice · Pauses not allowed")).toBeInTheDocument();
 
     await user().selectOptions(weeks, '3 weeks');
-    expect(screen.getByRole('combobox', { name: 'Minimum notice to pause a plan' })).toHaveValue('21');
+    expect(screen.getByRole('spinbutton', { name: 'Minimum notice to pause a plan' })).toHaveValue(21);
     await user().selectOptions(weeks, '0 weeks – Pauses not allowed');
     await user().click(screen.getByRole('button', { name: 'Save draft' }));
     await waitFor(() => expect(api.bodies['POST /admin/plans']).toMatchObject({ maxPauseWeeks: 0, pauseNoticeDays: 21 }));
