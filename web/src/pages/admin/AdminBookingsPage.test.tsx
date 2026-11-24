@@ -712,7 +712,7 @@ describe('admin booking side panel', () => {
   });
 });
 
-describe('admin bookings board (Kanban view)', () => {
+describe('admin bookings board (Board View)', () => {
   const PROBLEM = row({ id: '33333333-3333-4333-8333-333333333333', number: 'B-1044', status: 'completed', paymentStatus: 'captured', pro: 'Daniel', problem: true });
   const WORKING = row({ id: '44444444-4444-4444-8444-444444444444', number: 'B-1045', status: 'working', pro: 'Daniel', tab: 'live', trade: 'Cleaning' });
   const PAID = row({ id: '55555555-5555-4555-8555-555555555555', number: 'B-1046', status: 'completed', paymentStatus: 'captured', pro: 'Daniel', tab: 'done' });
@@ -729,7 +729,7 @@ describe('admin bookings board (Kanban view)', () => {
     renderAt('/admin/bookings');
     const group = await screen.findByRole('group', { name: 'Bookings view' });
     const list = within(group).getByRole('button', { name: 'List View' });
-    const board = within(group).getByRole('button', { name: 'Kanban View' });
+    const board = within(group).getByRole('button', { name: 'Board View' });
     expect(list).toHaveAttribute('aria-pressed', 'true');
     expect(board).toHaveAttribute('aria-pressed', 'false');
     expect(list).toHaveClass('on');
@@ -757,29 +757,127 @@ describe('admin bookings board (Kanban view)', () => {
     expect(screen.queryByRole('region')).not.toBeInTheDocument();
   });
 
-  it('starts on the board when the address says layout=kanban', async () => {
+  it.each(['board', 'kanban'])('starts on the board when the address says layout=%s (the old name still works)', async (layout) => {
     setUp(ALL);
-    renderAt('/admin/bookings?layout=kanban');
+    renderAt(`/admin/bookings?layout=${layout}`);
     expect(await screen.findByRole('button', { name: /^B-1042, Lawn mowing/ })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Kanban View' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Board View' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Board View' })).toHaveClass('on');
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Kanban/)).not.toBeInTheDocument();
   });
 
-  it('shows the key facts on each card, and says "Nothing here" for an empty column', async () => {
+  it('writes layout=board to the address and back to the list', async () => {
+    setUp(ALL);
+    renderAt('/admin/bookings?layout=kanban&tab=live');
+    await screen.findByRole('button', { name: /^B-1042/ });
+    await user().click(screen.getByRole('button', { name: 'List View' }));
+    expect(await screen.findByRole('table')).toBeInTheDocument();
+    await user().click(screen.getByRole('button', { name: 'Board View' }));
+    expect(await screen.findByRole('button', { name: /^B-1042/ })).toBeInTheDocument();
+    expect(lastListQuery()?.get('tab')).toBe('live');
+  });
+
+  it('shows number, service, date and time and the pro initials, and nothing else, on a card', async () => {
+    const withPro = row({ ...SECOND, pro: 'Daniel', proInitials: 'DK', alerts: [] });
+    setUp([row({ alerts: [{ level: 'problem', key: 'noPro' }] }), withPro]);
+    renderAt('/admin/bookings?layout=board');
+    const card = await screen.findByRole('button', { name: 'B-1042, Lawn mowing, Mon 9 Nov 10:00' });
+    expect(card.querySelector('.kno')).toHaveTextContent('B-1042');
+    expect(card.querySelector('.ksvc')).toHaveTextContent('Lawn mowing');
+    expect(card.querySelector('.kwhen')).toHaveTextContent('Mon 9 Nov · 10:00');
+    // The date and time sit at the bottom, after the number and the service.
+    expect(card.lastElementChild).toHaveClass('kfoot');
+    // No pro: an empty dashed circle.
+    const empty = within(card).getByRole('img', { name: 'No pro yet' });
+    expect(empty).toHaveClass('kav', 'empty');
+    expect(empty).toBeEmptyDOMElement();
+    for (const gone of ['One-off', 'Gardening', 'Sara', '€48.40', 'Unassigned']) {
+      expect(card.textContent).not.toContain(gone);
+    }
+    expect(card.querySelector('.badge')).toBeNull();
+
+    const proCard = screen.getByRole('button', { name: /^B-1043/ });
+    const avatar = within(proCard).getByRole('img', { name: 'Pro: Daniel' });
+    expect(avatar).toHaveTextContent('DK');
+    expect(avatar).toHaveAttribute('title', 'Pro: Daniel');
+    expect(proCard).not.toHaveTextContent('Daniel');
+    expect(within(proCard).queryByText('Accepted')).not.toBeInTheDocument();
+    expect(proCard.querySelector('.kalert')).toBeNull();
+  });
+
+  it('falls back to the first two letters of the first name when the list has no initials', async () => {
+    setUp([row({ pro: 'Daniel', status: 'accepted', tab: 'upcoming' })]);
+    renderAt('/admin/bookings?layout=board');
+    const card = await screen.findByRole('button', { name: /^B-1042/ });
+    expect(within(card).getByRole('img', { name: 'Pro: Daniel' })).toHaveTextContent('DA');
+  });
+
+  it('shows problems in red and delays and warnings in orange, with no thick red border', async () => {
+    const problem = row({
+      id: '88888888-8888-4888-8888-888888888888',
+      number: 'B-1050',
+      pro: 'Daniel',
+      proInitials: 'DK',
+      problem: true,
+      proIssue: true,
+      tab: 'needs_action',
+      alerts: [
+        { level: 'problem', key: 'issue', params: { reason: 'unsafe' } },
+        { level: 'problem', key: 'problemWithReason', params: { reason: 'Back lawn not mowed' } },
+        { level: 'problem', key: 'paymentFailed' },
+        { level: 'warning', key: 'late' },
+      ],
+    });
+    const searching = row({
+      id: '99999999-9999-4999-8999-999999999999',
+      number: 'B-1051',
+      status: 'searching',
+      tab: 'needs_action',
+      alerts: [{ level: 'warning', key: 'searching', params: { minutes: 90 } }],
+    });
+    setUp([problem, searching]);
+    renderAt('/admin/bookings?layout=board');
+    const card = await screen.findByRole('button', { name: /^B-1050/ });
+    expect(within(card).getByText('Pro reported: Unsafe to work')).toHaveClass('kalert', 'red');
+    expect(within(card).getByText('Customer reported a problem: Back lawn not mowed')).toHaveClass('red');
+    // Two lines at most, the rest as "+N more".
+    expect(within(card).queryByText('Payment failed')).not.toBeInTheDocument();
+    expect(within(card).getByText('+2 more')).toBeInTheDocument();
+    expect(card.className).toBe('kcard');
+    // Screen readers hear the warnings and the pro as the card's description, not only its label.
+    expect(card).toHaveAccessibleDescription(/Pro reported: Unsafe to work.*Customer reported a problem: Back lawn not mowed.*\+2 more/);
+    expect(within(card).getByText('Pro reported: Unsafe to work')).toHaveAttribute('title', 'Pro reported: Unsafe to work');
+
+    const wait = screen.getByRole('button', { name: /^B-1051/ });
+    expect(within(wait).getByText('Still searching, starts in 1 h 30 min')).toHaveClass('kalert', 'orange');
+    expect(wait.className).toBe('kcard');
+    expect(wait.querySelector('.hl')).toBeNull();
+  });
+
+  it('words the other alerts', async () => {
+    setUp([
+      row({
+        alerts: [
+          { level: 'problem', key: 'problem' },
+          { level: 'warning', key: 'extraPending' },
+        ],
+      }),
+      row({ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', number: 'B-1060', alerts: [{ level: 'warning', key: 'charging' }, { level: 'warning', key: 'late' }] }),
+    ]);
+    renderAt('/admin/bookings?layout=board');
+    const first = await screen.findByRole('button', { name: /^B-1042/ });
+    expect(within(first).getByText('Problem reported')).toHaveClass('red');
+    expect(within(first).getByText('Waiting for customer approval')).toHaveClass('orange');
+    const second = screen.getByRole('button', { name: /^B-1060/ });
+    expect(within(second).getByText('Being charged')).toHaveClass('orange');
+    expect(within(second).getByText('Pro running late')).toHaveClass('orange');
+  });
+
+  it('says "Nothing here" for an empty column', async () => {
     setUp([row(), PROBLEM]);
-    renderAt('/admin/bookings?layout=kanban');
-    const card = await screen.findByRole('button', { name: 'B-1042, Lawn mowing, Mon 9 Nov, 10:00' });
-    expect(card).toHaveTextContent('B-1042');
-    expect(card).toHaveTextContent('One-off');
-    expect(card).toHaveTextContent('Gardening · Mon 9 Nov, 10:00');
-    expect(card).toHaveTextContent('Sara');
-    expect(within(card).getByText('Unassigned')).toHaveClass('unassigned');
-    expect(card).toHaveTextContent('€48.40');
-    expect(card).toHaveTextContent('No pro yet');
-    expect(within(card).queryByText('Problem reported')).not.toBeInTheDocument();
-    const problem = screen.getByRole('button', { name: /^B-1044/ });
-    expect(within(problem).getByText('Problem reported')).toHaveClass('unassigned');
-    expect(within(problem).getByText('Daniel')).toBeInTheDocument();
+    renderAt('/admin/bookings?layout=board');
+    await screen.findByRole('button', { name: /^B-1042/ });
     expect(within(column('In Progress')).getByText('Nothing here')).toBeInTheDocument();
   });
 
@@ -801,7 +899,7 @@ describe('admin bookings board (Kanban view)', () => {
     setUp();
     renderAt(`/admin/bookings?open=b:${BOOKING_ID}`);
     await screen.findByRole('dialog', { name: 'B-1042' });
-    await user().click(screen.getByRole('button', { name: 'Kanban View' }));
+    await user().click(screen.getByRole('button', { name: 'Board View' }));
     expect(screen.getByRole('dialog', { name: 'B-1042' })).toBeInTheDocument();
   });
 
@@ -813,7 +911,7 @@ describe('admin bookings board (Kanban view)', () => {
     expect(screen.getByLabelText('Search')).toHaveValue('b-10');
     await user().selectOptions(screen.getByLabelText('Type'), 'Plan visit');
     await waitFor(() => expect(lastListQuery()?.get('type')).toBe('visit'));
-    expect(screen.getByRole('button', { name: 'Kanban View' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Board View' })).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('shows only the 10 most recent on the board, with "View all"', async () => {

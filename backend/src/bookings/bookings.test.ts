@@ -1006,7 +1006,12 @@ describe('admin booking actions', () => {
       valueCents: 4840,
       paymentStatus: 'held',
       tab: 'upcoming',
+      alerts: [],
     });
+    // Only initials of the pro (no last name in the test data: the first two letters), and no raw reasons.
+    expect(row.proInitials).toMatch(/^[A-Z]{1,2}$/);
+    expect(row).not.toHaveProperty('problemNote');
+    expect(row).not.toHaveProperty('issueReason');
 
     const liveOnly = (await call(t, 'GET', '/admin/bookings?tab=live', { cookie: admin })).json();
     expect(liveOnly.bookings.map((b: { id: string }) => b.id)).toEqual([live.id]);

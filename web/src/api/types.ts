@@ -858,6 +858,16 @@ export interface AdminBookingListItem {
   /** A pro reported "Unsafe to work": the top of Needs action (D94). */
   urgent?: boolean;
   tab: Exclude<AdminTab, 'all'>;
+  /** The pro's initials for the board card (D96). */
+  proInitials?: string | null;
+  /** The short red and orange lines of the board card, worded by the page (D96). */
+  alerts?: AdminListAlert[];
+}
+
+export interface AdminListAlert {
+  level: 'problem' | 'warning';
+  key: 'issue' | 'problem' | 'problemWithReason' | 'paymentFailed' | 'payoutFailed' | 'noPro' | 'searching' | 'late' | 'extraPending' | 'charging';
+  params?: Record<string, string | number>;
 }
 
 export interface AdminBookingList {

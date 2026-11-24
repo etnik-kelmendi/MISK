@@ -21,6 +21,67 @@ const PER_MONTH_CASES = Object.entries(VISITS_PER_MONTH)
   .map(([frequency, visits]) => `WHEN '${frequency}' THEN ${visits}`)
   .join(' ');
 
+/** First and last initial of the pro, or the first two letters of the first name when there is no last name. NULL without a pro. */
+const PRO_INITIALS = `CASE WHEN pu.id IS NULL THEN NULL
+  WHEN COALESCE(pu.last_name, '') <> '' THEN upper(left(pu.first_name, 1) || left(pu.last_name, 1))
+  ELSE upper(left(COALESCE(pu.first_name, ''), 2)) END`;
+const REASON_CHARS = 80;
+
+/** Pro-reported reasons, "Unsafe to work" first (D94). Only the reason key is sent; the page words it. */
+export interface ListAlert {
+  level: 'problem' | 'warning';
+  key: string;
+  params?: Record<string, string | number>;
+}
+
+interface AlertInput {
+  kind: string;
+  status: string;
+  paymentStatus: string;
+  startsAt: Date;
+  pro: string | null;
+  problem: boolean;
+  problemNote: string | null;
+  issueReason: string | null;
+  lateWarned: boolean;
+  extraPending: boolean;
+  payoutFailed: boolean;
+}
+
+const RAW_ALERT_FIELDS = ['problemNote', 'issueReason', 'lateWarned', 'extraPending', 'payoutFailed'] as const;
+
+/**
+ * The short lines a board card shows, worked out from the row so the list stays one query (D96).
+ * Problems (red) come first, then warnings (orange); "Unsafe to work" leads the problems.
+ */
+export function listAlerts(row: AlertInput, now: Date = new Date()): ListAlert[] {
+  const problems: ListAlert[] = [];
+  const warnings: ListAlert[] = [];
+  const minutesToStart = (row.startsAt.getTime() - now.getTime()) / 60000;
+  if (row.issueReason) {
+    const alert: ListAlert = { level: 'problem', key: 'issue', params: { reason: row.issueReason } };
+    if (row.issueReason === 'unsafe') problems.unshift(alert);
+    else problems.push(alert);
+  }
+  if (row.problem) {
+    problems.push(
+      row.problemNote ? { level: 'problem', key: 'problemWithReason', params: { reason: row.problemNote } } : { level: 'problem', key: 'problem' },
+    );
+  }
+  if (row.kind === 'booking') {
+    if (row.paymentStatus === 'failed') problems.push({ level: 'problem', key: 'paymentFailed' });
+    if (row.payoutFailed) problems.push({ level: 'problem', key: 'payoutFailed' });
+    if (!row.pro && row.status === 'unassigned') problems.push({ level: 'problem', key: 'noPro' });
+    if (row.status === 'searching' && minutesToStart < 120) {
+      warnings.push({ level: 'warning', key: 'searching', params: { minutes: Math.max(0, Math.round(minutesToStart)) } });
+    }
+    if (row.lateWarned) warnings.push({ level: 'warning', key: 'late' });
+    if (row.extraPending) warnings.push({ level: 'warning', key: 'extraPending' });
+    if (row.status === 'completed' && row.paymentStatus === 'held' && !row.problem) warnings.push({ level: 'warning', key: 'charging' });
+  }
+  return [...problems, ...warnings];
+}
+
 export const ITEMS = `
   WITH items AS (
     SELECT 'booking' AS kind, b.id, 'B-' || b.number AS number, b.starts_at, b.ends_at, b.service_name AS service,
@@ -45,7 +106,14 @@ export const ITEMS = `
         ELSE 'done'
       END AS tab,
       -- Full names, so search finds "Anna Schmidt" as well as "Anna".
-      concat_ws(' ', cu.first_name, cu.last_name) AS customer_full, concat_ws(' ', pu.first_name, pu.last_name) AS pro_full
+      concat_ws(' ', cu.first_name, cu.last_name) AS customer_full, concat_ws(' ', pu.first_name, pu.last_name) AS pro_full,
+      -- What a board card needs (D96): only initials of the pro, never more personal data.
+      ${PRO_INITIALS} AS pro_initials,
+      left(b.problem_note, ${REASON_CHARS}) AS problem_note,
+      (SELECT i.reason FROM booking_issues i WHERE i.booking_id = b.id AND i.resolved_at IS NULL LIMIT 1) AS issue_reason,
+      (b.late_warned_at IS NOT NULL AND b.status IN ('accepted', 'on_the_way')) AS late_warned,
+      EXISTS (SELECT 1 FROM extra_requests e WHERE e.booking_id = b.id AND e.status = 'pending') AS extra_pending,
+      EXISTS (SELECT 1 FROM payouts p WHERE p.booking_id = b.id AND p.status = 'failed') AS payout_failed
     FROM bookings b
     JOIN users cu ON cu.id = b.customer_id
     LEFT JOIN users pu ON pu.id = b.pro_id
@@ -61,7 +129,8 @@ export const ITEMS = `
         WHEN v.status = 'planned' THEN 'upcoming'
         ELSE 'done'
       END,
-      concat_ws(' ', cu.first_name, cu.last_name), concat_ws(' ', pu.first_name, pu.last_name)
+      concat_ws(' ', cu.first_name, cu.last_name), concat_ws(' ', pu.first_name, pu.last_name),
+      ${PRO_INITIALS}, NULL, NULL, false, false, false
     FROM subscription_visits v
     JOIN subscriptions s ON s.id = v.subscription_id
     JOIN users cu ON cu.id = s.customer_id
@@ -109,7 +178,9 @@ export async function adminListRoutes(app: FastifyInstance, ctx: AppContext) {
           `${ITEMS}
            SELECT kind, id, number, starts_at AS "startsAt", ends_at AS "endsAt", service, category_id AS "categoryId", trade,
              customer, address, postcode, pro, status, value_cents AS "valueCents", payment_status AS "paymentStatus",
-             problem, pro_issue AS "proIssue", urgent, tab
+             problem, pro_issue AS "proIssue", urgent, tab, pro_initials AS "proInitials",
+             problem_note AS "problemNote", issue_reason AS "issueReason", late_warned AS "lateWarned",
+             extra_pending AS "extraPending", payout_failed AS "payoutFailed"
            FROM items
            WHERE ${FILTERS} AND ($4::text = 'all' OR tab = $4)
            ORDER BY urgent DESC, (tab = 'needs_action') DESC, abs(extract(epoch FROM starts_at - now())) ASC
@@ -120,8 +191,14 @@ export async function adminListRoutes(app: FastifyInstance, ctx: AppContext) {
       ]);
       const byTab = Object.fromEntries(counts.rows.map((row) => [row.tab, row.n]));
       const total = counts.rows.reduce((sum, row) => sum + row.n, 0);
+      const now = new Date();
+      const bookings = (rows.rows as AlertInput[]).map((row) => {
+        // The raw reasons stay on the server: the card gets the finished lines.
+        const item = Object.fromEntries(Object.entries(row).filter(([key]) => !(RAW_ALERT_FIELDS as readonly string[]).includes(key)));
+        return { ...item, alerts: listAlerts(row, now) };
+      });
       return {
-        bookings: rows.rows,
+        bookings,
         counts: {
           all: total,
           needs_action: byTab.needs_action ?? 0,

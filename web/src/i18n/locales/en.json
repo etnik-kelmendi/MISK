@@ -1113,7 +1113,25 @@
       "updated": "Updates by itself every 15 seconds.",
       "layoutLabel": "Bookings view",
       "listView": "List View",
-      "kanbanView": "Kanban View",
+      "boardView": "Board View",
+      "card": {
+        "name": "{{number}}, {{service}}, {{when}}",
+        "pro": "Pro: {{name}}",
+        "noPro": "No pro yet",
+        "more": "+{{count}} more"
+      },
+      "alert": {
+        "issue": "Pro reported: {{reason}}",
+        "problem": "Problem reported",
+        "problemWithReason": "Customer reported a problem: {{reason}}",
+        "paymentFailed": "Payment failed",
+        "payoutFailed": "Payout failed",
+        "noPro": "No pro yet",
+        "searching": "Still searching, starts in {{time}}",
+        "late": "Pro running late",
+        "extraPending": "Waiting for customer approval",
+        "charging": "Being charged"
+      },
       "kanban": {
         "todo": "To Do",
         "todoHint": "Waiting for a pro or the start",

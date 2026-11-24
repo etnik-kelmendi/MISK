@@ -24,6 +24,7 @@ import { toXlsx, XLSX_MIME } from '../../lib/xlsx';
 import { usePolling } from '../../lib/usePolling';
 import { RECENT_BOOKINGS } from '../../lib/recent';
 import { AdminBookingDrawer, REFRESH_MS, type OpenItem } from './AdminBookingDrawer';
+import { BoardCard } from './BoardCard';
 import { KANBAN_COLUMNS, kanbanColumn } from './bookingsKanban';
 
 const SEARCH_DELAY_MS = 250;
@@ -68,7 +69,9 @@ export function AdminBookingsPage() {
   // "View all" is kept in the address, so it survives the automatic refresh and a reload.
   const showAll = params.get('view') === 'all';
   // The board or the list, kept in the address too (no value = the list).
-  const kanban = params.get('layout') === 'kanban';
+  // "layout=kanban" is the old name of the board and keeps working in old links (D96).
+  const layoutParam = params.get('layout');
+  const kanban = layoutParam === 'board' || layoutParam === 'kanban';
   const [typed, setTyped] = useState(q);
   const returnFocus = useRef<HTMLElement | null>(null);
 
@@ -210,8 +213,8 @@ export function AdminBookingsPage() {
           <button type="button" className={kanban ? '' : 'on'} aria-pressed={!kanban} onClick={() => change({ layout: '' })}>
             <Icon name="list" /> {t('admin.bookings.listView')}
           </button>
-          <button type="button" className={kanban ? 'on' : ''} aria-pressed={kanban} onClick={() => change({ layout: 'kanban' })}>
-            <Icon name="board" /> {t('admin.bookings.kanbanView')}
+          <button type="button" className={kanban ? 'on' : ''} aria-pressed={kanban} onClick={() => change({ layout: 'board' })}>
+            <Icon name="board" /> {t('admin.bookings.boardView')}
           </button>
         </div>
         <MenuButton
@@ -323,33 +326,7 @@ export function AdminBookingsPage() {
                         <div className="kcards">
                           {cards.length === 0 && <p className="small muted kempty">{t('admin.bookings.kanban.empty')}</p>}
                           {cards.map((item) => (
-                            <button
-                              key={`${item.kind}-${item.id}`}
-                              type="button"
-                              className={`kcard${item.tab === 'needs_action' ? ' hl' : ''}`}
-                              aria-label={`${item.number}, ${item.service}, ${dateTime(item.startsAt, timezone)}`}
-                              onClick={(event) => openItem(item, event.currentTarget)}
-                            >
-                              <span className="row between gap8">
-                                <span className="b">{item.number}</span>
-                                <span className="small muted">{typeLabel(item)}</span>
-                              </span>
-                              <span className="b">{item.service}</span>
-                              <span className="small muted">
-                                {item.trade} · {dateTime(item.startsAt, timezone)}
-                              </span>
-                              <span className="small">{item.customer}</span>
-                              <span className="small">
-                                {item.pro ?? <span className="unassigned">{t('admin.bookings.unassigned')}</span>}
-                              </span>
-                              <span className="row between gap8">
-                                <ItemStatus item={item} />
-                                <span className="b">{euro(item.valueCents)}</span>
-                              </span>
-                              {item.problem && <span className="small unassigned">{t('admin.bookings.problem')}</span>}
-                              {item.urgent && <span className="badge r">{t('admin.bookings.urgent')}</span>}
-                              {item.proIssue && <span className="small unassigned">{t('admin.bookings.proIssue')}</span>}
-                            </button>
+                            <BoardCard key={`${item.kind}-${item.id}`} item={item} timezone={timezone} onOpen={openItem} />
                           ))}
                         </div>
                       </section>
