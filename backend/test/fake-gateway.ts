@@ -60,7 +60,12 @@ export function createFakeGateway(options: { instantHolds?: boolean } = {}) {
     {
       id: string;
       amountCents: number;
-      status: 'incomplete' | 'active' | 'cancelled';
+      /** 'trialing': billed from a later first visit day (D91), nothing charged yet. */
+      status: 'incomplete' | 'trialing' | 'active' | 'cancelled';
+      /** When the first month is charged, for a plan billed from its first visit day (D91). */
+      firstChargeAt: Date | null;
+      /** Whether the customer's card is set up, for a plan billed from a later day (D91). */
+      cardReady: boolean;
       cancelAtPeriodEnd: boolean;
       cancelAt: Date | null;
       paused: boolean;
@@ -73,6 +78,10 @@ export function createFakeGateway(options: { instantHolds?: boolean } = {}) {
   // Every customer has one saved test card, like a returning customer (D73).
   const defaultCards = (): SavedCard[] => [{ id: 'pm_card_visa', brand: 'visa', last4: '4242', expMonth: 8, expYear: 2030 }];
   let cards: SavedCard[] = defaultCards();
+  /** The customer's default card for future payments and plan bills (D92); none until one is chosen. */
+  let defaultCard: string | null = null;
+  /** Card set-ups started on Payment methods (D92), by idempotency key. */
+  const cardSetups: string[] = [];
 
   function hold(input: HoldInput) {
     if (failures.has('hold')) {
@@ -97,6 +106,31 @@ export function createFakeGateway(options: { instantHolds?: boolean } = {}) {
     ensureCustomer: async ({ userId, existing }) => existing ?? `cus_${userId}`,
     createHold: async (input) => hold(input),
     listCards: async () => cards,
+    async createCardSetup({ idempotencyKey }) {
+      cardSetups.push(idempotencyKey);
+      return { clientSecret: `seti_${cardSetups.length}_secret` };
+    },
+    defaultCardId: async () => (defaultCard && cards.some((card) => card.id === defaultCard) ? defaultCard : null),
+    async setDefaultCard(_customerRef, cardId) {
+      if (!cards.some((card) => card.id === cardId)) throw new Error(`fake: no saved card ${cardId}`);
+      defaultCard = cardId;
+    },
+    async detachCard(_customerRef, cardId) {
+      if (!cards.some((card) => card.id === cardId)) throw new Error(`fake: no saved card ${cardId}`);
+      cards = cards.filter((card) => card.id !== cardId);
+      if (defaultCard === cardId) defaultCard = null;
+    },
+    async subscriptionCardId(subscriptionId) {
+      const subscription = subscriptions.get(subscriptionId);
+      if (!subscription || subscription.status === 'cancelled' || subscription.status === 'incomplete') return null;
+      return subscription.paymentMethodId;
+    },
+    async setSubscriptionCard(subscriptionId, cardId) {
+      const subscription = subscriptions.get(subscriptionId);
+      if (!subscription) throw new Error(`fake: no subscription ${subscriptionId}`);
+      if (!cards.some((card) => card.id === cardId)) throw new Error(`fake: no saved card ${cardId}`);
+      subscription.paymentMethodId = cardId;
+    },
     async renewHold(input) {
       if (failures.has('renew')) throw new Error('fake renewal refused');
       const id = `pi_${randomUUID()}`;
@@ -168,17 +202,43 @@ export function createFakeGateway(options: { instantHolds?: boolean } = {}) {
         throw new Error(`fake: no saved card ${input.paymentMethodId}`);
       }
       const id = `sub_${randomUUID()}`;
+      // Like Stripe: billed from a later day (D91), the plan is in its free period at once and only the card is
+      // set up; otherwise the first month is paid at once, or waits for the customer when holds wait.
+      const later = Boolean(input.firstChargeAt);
       subscriptions.set(id, {
         id,
         amountCents: input.amountCents,
-        status: instantHolds ? 'active' : 'incomplete',
+        status: later ? 'trialing' : instantHolds ? 'active' : 'incomplete',
+        firstChargeAt: input.firstChargeAt ?? null,
+        cardReady: instantHolds,
         cancelAtPeriodEnd: false,
         cancelAt: null,
         paused: false,
         metadata: input.metadata,
         paymentMethodId: input.paymentMethodId ?? null,
       });
-      return { subscriptionId: id, clientSecret: instantHolds ? null : `${id}_secret`, active: instantHolds, invoiceId: `in_first_${id}` };
+      if (later) {
+        return {
+          subscriptionId: id,
+          clientSecret: instantHolds ? null : `seti_${id}_secret`,
+          confirm: 'setup',
+          active: instantHolds,
+          paid: false,
+          invoiceId: null,
+        };
+      }
+      return {
+        subscriptionId: id,
+        clientSecret: instantHolds ? null : `${id}_secret`,
+        confirm: 'payment',
+        active: instantHolds,
+        paid: instantHolds,
+        invoiceId: `in_first_${id}`,
+      };
+    },
+    async subscriptionCardReady(subscriptionId) {
+      const subscription = subscriptions.get(subscriptionId);
+      return subscription?.status === 'trialing' && subscription.cardReady;
     },
     async resumeSubscription(subscriptionId) {
       const subscription = subscriptions.get(subscriptionId);
@@ -192,15 +252,23 @@ export function createFakeGateway(options: { instantHolds?: boolean } = {}) {
         throw new Error('fake payment method failure');
       }
       const subscription = subscriptions.get(subscriptionId);
-      if (!subscription || subscription.status === 'incomplete') {
+      if (!subscription || subscription.status === 'incomplete' || (subscription.status === 'trialing' && !subscription.cardReady)) {
         return null;
       }
       // Billed to the saved card chosen, or the card form's default test card.
       const card = cards.find((c) => c.id === subscription.paymentMethodId) ?? defaultCards()[0];
       return card ? { brand: card.brand, last4: card.last4, wallet: null } : null;
     },
-    subscriptionClientSecret: async (subscriptionId) =>
-      subscriptions.get(subscriptionId)?.status === 'incomplete' ? `${subscriptionId}_secret` : null,
+    async subscriptionClientSecret(subscriptionId) {
+      const subscription = subscriptions.get(subscriptionId);
+      if (subscription?.status === 'incomplete') {
+        return { clientSecret: `${subscriptionId}_secret`, confirm: 'payment' };
+      }
+      if (subscription?.status === 'trialing' && !subscription.cardReady) {
+        return { clientSecret: `seti_${subscriptionId}_secret`, confirm: 'setup' };
+      }
+      return null;
+    },
     async cancelSubscription(subscriptionId, atPeriodEnd) {
       const subscription = subscriptions.get(subscriptionId);
       if (subscription) {
@@ -278,6 +346,8 @@ export function createFakeGateway(options: { instantHolds?: boolean } = {}) {
       manualPayouts.length = 0;
       instantHolds = options.instantHolds ?? true;
       cards = defaultCards();
+      defaultCard = null;
+      cardSetups.length = 0;
       paymentMethods.clear();
       methodLookups.length = 0;
     },
@@ -291,8 +361,21 @@ export function createFakeGateway(options: { instantHolds?: boolean } = {}) {
     setCards(next: SavedCard[]) {
       cards = next;
     },
+    /** The saved cards as they are now, e.g. after one was removed on Payment methods (D92). */
+    currentCards: () => cards,
+    /** The customer's default card (D92). */
+    currentDefaultCard: () => defaultCard,
+    /** Card set-ups started on Payment methods (D92), by idempotency key. */
+    cardSetups,
     setInstantHolds(value: boolean) {
       instantHolds = value;
+    },
+    /** The customer set up their card in the browser for a plan billed from a later day (D91). */
+    confirmSetup(subscriptionId: string) {
+      const subscription = subscriptions.get(subscriptionId);
+      if (subscription) {
+        subscription.cardReady = true;
+      }
     },
     /** Marks a waiting intent as held, as the customer's card form plus Stripe's webhook would. */
     authorise(intentId: string) {

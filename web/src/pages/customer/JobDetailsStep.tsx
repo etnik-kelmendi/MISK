@@ -100,8 +100,11 @@ export function JobDetailsStep({
   services: Service[];
   details: Details;
   onChange: (details: Details) => void;
-  /** The last booking's address, for fields the customer has not filled in yet. */
-  onPrefill: (address: string, postcode: string) => void;
+  /**
+   * The default saved address with its notes for the pro (D92), else the last booking's address, for fields the
+   * customer has not filled in yet.
+   */
+  onPrefill: (address: string, postcode: string, notes: string | null) => void;
   onNext: () => void;
 }) {
   const { t } = useTranslation();
@@ -138,17 +141,17 @@ export function JobDetailsStep({
   useEffect(() => {
     if (address || postcode) return;
     let live = true;
-    async function lastAddress(): Promise<{ address: string; postcode: string } | null> {
+    async function lastAddress(): Promise<{ address: string; postcode: string; notes: string | null } | null> {
       const saved = await api.get<{ addresses: SavedAddress[] }>('/addresses');
       const selected = saved.addresses.find((a) => a.selected && a.served);
       if (selected) return selected;
       const result = await api.get<{ bookings: BookingListItem[] }>('/bookings');
       const last = [...result.bookings].sort((a, b) => b.startsAt.localeCompare(a.startsAt)).find((b) => b.address && b.postcode);
-      return last?.address && last.postcode ? { address: last.address, postcode: last.postcode } : null;
+      return last?.address && last.postcode ? { address: last.address, postcode: last.postcode, notes: null } : null;
     }
     lastAddress().then(
       (found) => {
-        if (live && found) onPrefill(found.address, found.postcode);
+        if (live && found) onPrefill(found.address, found.postcode, found.notes);
       },
       // Filling the address is a convenience; the customer can still type it.
       (error: unknown) => console.warn('Could not load the last address', error),

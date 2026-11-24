@@ -76,8 +76,13 @@ export function BookPage() {
           category={category}
           services={services}
           details={details}
-          onPrefill={(address, postcode) =>
-            setDetails((current) => (current.address || current.postcode ? current : { ...current, address, postcode }))
+          onPrefill={(address, postcode, notes) =>
+            setDetails((current) =>
+              current.address || current.postcode
+                ? current
+                : // Notes like a gate code go to the pro with the address (D92), unless the customer wrote some already.
+                  { ...current, address, postcode, notes: current.notes || notes || '' },
+            )
           }
           onChange={(next) => {
             if (next.postcode !== details.postcode) {

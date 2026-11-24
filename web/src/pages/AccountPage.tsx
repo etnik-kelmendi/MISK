@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link, useNavigate } from 'react-router';
+import { useNavigate } from 'react-router';
 import { useApi } from '../api/ApiContext';
 import type { User } from '../api/types';
 import { useAuth, useUser } from '../auth/AuthContext';
@@ -10,31 +10,11 @@ import { PushToggle } from '../components/PushToggle';
 import { useAction } from '../lib/useAction';
 import { useValidation } from '../lib/useValidation';
 import { FieldError } from '../components/FieldError';
-import { useInbox } from '../inbox/InboxContext';
 import { AppHeader } from '../shells/Shells';
 import { AccountPhone } from './AccountPhone';
-import { AddressBook } from './customer/Addresses';
 
-/** The customer's way to Messages from Profile (D89), with the number of unread ones (D87). */
-function MessagesRow() {
-  const { t } = useTranslation();
-  const { inbox } = useInbox();
-  const unread = inbox?.unread ?? 0;
-  return (
-    <Link to="/messages" className="card row link-card">
-      <Icon name="chat" />
-      <span className="grow b">{t('nav.messages')}</span>
-      {unread > 0 && <span className="badge r">{t('account.unread', { count: unread })}</span>}
-      <Icon name="chevR" />
-    </Link>
-  );
-}
-
-/**
- * Name, phone number and sign-out, shared by the customer and pro apps. For customers it is Profile (D89):
- * also their saved addresses and Messages.
- */
-export function AccountPage({ customer = false }: { customer?: boolean }) {
+/** The pro's account: name, phone number, push on this device and sign-out. Customers have Profile (D92). */
+export function AccountPage() {
   const { t } = useTranslation();
   const api = useApi();
   const user = useUser();
@@ -60,9 +40,8 @@ export function AccountPage({ customer = false }: { customer?: boolean }) {
 
   return (
     <>
-      <AppHeader title={customer ? t('nav.profile') : t('account.title')} />
+      <AppHeader title={t('account.title')} />
       <div className="body">
-        {customer && <MessagesRow />}
         <form className="card stack" onSubmit={submit} noValidate>
           <div className="field">
             <label htmlFor="account-name">{t('signIn.firstName')}</label>
@@ -88,7 +67,6 @@ export function AccountPage({ customer = false }: { customer?: boolean }) {
           </button>
         </form>
         <AccountPhone />
-        {customer && <AddressBook />}
         <div className="card">
           <PushToggle />
         </div>

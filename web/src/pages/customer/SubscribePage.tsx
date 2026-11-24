@@ -16,6 +16,7 @@ import {
   builderPrice,
   currentMonth,
   DAYS_PER_WEEK,
+  firstChargeDay,
   firstVisitDay,
   planRuleTexts,
   seasonText,
@@ -24,6 +25,7 @@ import {
   VISITS_PER_MONTH,
 } from '../../lib/plans';
 import { useAction } from '../../lib/useAction';
+import { useNow } from '../../lib/useNow';
 import { useValidation } from '../../lib/useValidation';
 import { CardPayment, confirmSavedCard } from '../../payments/CardPayment';
 import {
@@ -123,6 +125,7 @@ function Subscribed({ subscription, method }: { subscription: Subscription; meth
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { timezone } = useMarket();
+  const now = useNow();
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => heading.current?.focus(), []);
   const days = subscription.days.map((d) => t(weekdayName(d))).join(' & ');
@@ -131,6 +134,9 @@ function Subscribed({ subscription, method }: { subscription: Subscription; meth
     : subscription.firstVisitOn
       ? `${calendarDay(subscription.firstVisitOn)}, ${t(`subscribe.windowShort.${subscription.timeWindow}`)}`
       : t('subscribe.done.planning');
+  // Billing starts on the first visit day (D91); a plan charged at sign-up starts billing now.
+  const billingStart = subscription.billingStartsAt ?? null;
+  const laterCharge = billingStart !== null && new Date(billingStart).getTime() > now;
   return (
     <>
       <div className="body">
@@ -141,7 +147,7 @@ function Subscribed({ subscription, method }: { subscription: Subscription; meth
           <h2 id="subscribed-heading" className="b big" tabIndex={-1} ref={heading}>
             {subscription.status === 'active'
               ? t('subscribe.done.active', { plan: subscription.planName })
-              : t('subscribe.done.starting', { plan: subscription.planName })}
+              : t(laterCharge ? 'subscribe.done.startingCard' : 'subscribe.done.starting', { plan: subscription.planName })}
           </h2>
           <p className="small muted">
             {t('plans.perMonth', { price: euro(subscription.priceCents) })} · {t(`admin.plans.frequency.${subscription.frequency}`)} · {days}{' '}
@@ -155,6 +161,12 @@ function Subscribed({ subscription, method }: { subscription: Subscription; meth
           <dd className="b">{subscription.proName ?? t('subscription.yourPro')}</dd>
           <dt>{t('subscribe.done.billing')}</dt>
           <dd className="b">{t('subscribe.done.billingValue', { price: euro(subscription.priceCents), method })}</dd>
+          {billingStart && (
+            <>
+              <dt>{t('subscribe.done.firstCharge')}</dt>
+              <dd className="b">{laterCharge ? dayName(billingStart, timezone) : t('subscribe.done.chargedToday')}</dd>
+            </>
+          )}
           <dt>{t('subscribe.done.minimum')}</dt>
           <dd className="b">{subscription.minTermEndsAt ? t('subscribe.done.until', { date: longDate(subscription.minTermEndsAt, timezone) }) : '–'}</dd>
         </dl>
@@ -207,7 +219,7 @@ function Builder({ plans, plan, postcodes, methods, address: savedAddress }: Bui
   const [unavailable, setUnavailable] = useState<Wallet[]>([]);
   const [agreed, setAgreed] = useState(false);
   const [showTerms, setShowTerms] = useState(false);
-  const [cardStep, setCardStep] = useState<{ subscription: Subscription; payment: PaymentStep } | null>(null);
+  const [cardStep, setCardStep] = useState<{ subscription: Subscription; payment: PaymentStep; chargeDate: string } | null>(null);
   const [done, setDone] = useState<Subscription | null>(null);
   // The plan a wallet payment made, so it shows once the wallet has confirmed.
   const walletPlan = useRef<Subscription | null>(null);
@@ -219,7 +231,12 @@ function Builder({ plans, plan, postcodes, methods, address: savedAddress }: Bui
   const month = currentMonth(timezone);
   const offSeason = plan.seasonal && (month < (plan.seasonFrom ?? 1) || month > (plan.seasonTo ?? 12));
   const daysOk = days.length === needed;
-  const firstDay = firstVisitDay(todayIn(timezone), start, days, plan);
+  const today = todayIn(timezone);
+  const firstDay = firstVisitDay(today, start, days, plan);
+  // The card is first charged on the first visit day, or today when that is tomorrow (D91).
+  const chargeDay = firstDay ? firstChargeDay(today, firstDay) : null;
+  const chargeLater = chargeDay !== null && chargeDay !== today;
+  const chargeDate = chargeDay ? calendarDay(chargeDay) : '';
   const wallet = walletOf(option);
   const key = methods.publishableKey;
   const rules = planRuleTexts(t, plan);
@@ -286,14 +303,27 @@ function Builder({ plans, plan, postcodes, methods, address: savedAddress }: Bui
       return created;
     });
     if (!result) return;
-    if (result.payment) setCardStep({ subscription: result.subscription, payment: result.payment });
+    if (result.payment) setCardStep({ subscription: result.subscription, payment: result.payment, chargeDate: planChargeDate(result.subscription) });
+    // A saved card the bank asked the customer to confirm: the server checks it, so the plan can start (D91).
+    else if (result.subscription.status === 'awaiting_payment') await showDone(result.subscription);
     else setDone(result.subscription);
   }
 
-  /** The plan as the server has it now, e.g. once the first payment went through. */
+  /** The day the server will first charge the plan's card (D91), as the card form's button says it. */
+  function planChargeDate(subscription: Subscription): string {
+    return subscription.billingStartsAt ? dayName(subscription.billingStartsAt, timezone) : chargeDate;
+  }
+
+  /**
+   * The plan as the server has it now, e.g. once the first payment went through. After a card set-up (D91) the
+   * server is asked to check the card, so the plan starts without waiting for the payment provider's webhook.
+   */
   async function showDone(subscription: Subscription) {
     try {
-      const fresh = await api.get<{ subscription: Subscription }>(`/subscriptions/${subscription.id}`);
+      const fresh =
+        subscription.status === 'awaiting_payment'
+          ? await api.post<{ subscription: Subscription }>(`/subscriptions/${subscription.id}/payment/check`)
+          : await api.get<{ subscription: Subscription }>(`/subscriptions/${subscription.id}`);
       setDone(fresh.subscription);
     } catch {
       setDone(subscription);
@@ -311,6 +341,7 @@ function Builder({ plans, plan, postcodes, methods, address: savedAddress }: Bui
           <CardPayment
             payment={cardStep.payment}
             amountLabel={t('plans.perMonth', { price: euro(cardStep.subscription.priceCents) })}
+            setupLabel={t('subscribe.saveCard', { date: cardStep.chargeDate })}
             onConfirmed={() => void showDone(cardStep.subscription)}
           />
         </section>
@@ -322,7 +353,9 @@ function Builder({ plans, plan, postcodes, methods, address: savedAddress }: Bui
     ? t('subscribe.pickDays', { count: needed - days.length })
     : !agreed
       ? t('subscribe.acceptFirst')
-      : t('subscribe.submit', { price: euro(total) });
+      : chargeLater
+        ? t('subscribe.submitLater', { date: chargeDate })
+        : t('subscribe.submit', { price: euro(total) });
 
   return (
     <form onSubmit={submit} noValidate>
@@ -460,7 +493,14 @@ function Builder({ plans, plan, postcodes, methods, address: savedAddress }: Bui
             <li>✓ {t('subscribe.skipsLine', { count: SKIPS_PER_MONTH })}</li>
             <li>✓ {rules.pause}</li>
             <li>✓ {rules.term}</li>
-            <li>✓ {t('subscribe.firstCharge')}</li>
+            <li>
+              ✓{' '}
+              {!chargeDay
+                ? t('subscribe.firstChargePick')
+                : chargeLater
+                  ? t('subscribe.firstCharge', { date: chargeDate })
+                  : t('subscribe.firstChargeToday')}
+            </li>
           </ul>
         </section>
 
@@ -497,11 +537,12 @@ function Builder({ plans, plan, postcodes, methods, address: savedAddress }: Bui
             </button>
           ) : (
             <WalletButton
-              key={wallet}
+              // Paying now and only setting up the card are different wallet sheets (D91): a new one for each.
+              key={`${wallet}-${chargeLater ? 'setup' : 'pay'}`}
               publishableKey={key}
               wallet={wallet}
               amountCents={total}
-              purpose="subscription"
+              purpose={chargeLater ? 'subscription_setup' : 'subscription'}
               onApproved={async () => {
                 if (!form.check()) throw new Error(t('subscribe.checkDetails'));
                 const created = await createPlan();

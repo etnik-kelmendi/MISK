@@ -2,10 +2,46 @@ import type { PoolClient } from 'pg';
 import { proShareCents } from '../catalogue/pricing.js';
 import type { BookingDeps } from '../bookings/events.js';
 import { withTransaction, type Queryable } from '../db.js';
+import { messages } from '../notifications/messages.js';
+import { enqueue } from '../notifications/outbox.js';
 import type { Frequency } from '../plans/routes.js';
 
 /** How far ahead visits are planned. */
 export const PLANNING_DAYS = 28;
+
+/**
+ * Billing starts on the first visit day (D91): its first month is charged at midnight (market time) of that day.
+ * When that midnight is less than this many hours away, i.e. the first visit is tomorrow, the first month is
+ * charged at sign-up instead, so a card problem shows up while the customer is still in the app, not a few
+ * hours before the pro comes.
+ */
+export const CHARGE_AT_ONCE_HOURS = 24;
+/**
+ * A visit of a plan whose first month is still unpaid is held this long before it starts, when the payment
+ * provider has not told us about the first charge by then (D91). Stripe charges at about 01:00 on the first
+ * visit day and the earliest visit is at 08:00, so this only catches a charge or a webhook that never came.
+ */
+export const HOLD_UNPAID_VISIT_HOURS = 2;
+
+/** The SQL for when a plan's billing starts (D91); plans from before D91 count from their first payment or sign-up. */
+export const BILLING_START = 'COALESCE(s.billing_starts_at, s.started_at, s.created_at)';
+
+/**
+ * When a new plan's billing starts (D91): midnight of its first visit day in the market time zone, or now when
+ * that is less than `CHARGE_AT_ONCE_HOURS` away. `chargeNow` says which.
+ */
+export async function billingStart(db: Queryable, firstDay: string, timezone: string): Promise<{ at: Date; chargeNow: boolean }> {
+  const result = await db.query<{ day_start: Date; now: Date; soon: boolean }>(
+    `SELECT $1::date::timestamp AT TIME ZONE $2 AS day_start, now() AS now,
+       $1::date::timestamp AT TIME ZONE $2 < now() + make_interval(hours => $3::int) AS soon`,
+    [firstDay, timezone, CHARGE_AT_ONCE_HOURS],
+  );
+  const row = result.rows[0];
+  if (!row) {
+    throw new Error('Billing start query returned nothing');
+  }
+  return row.soon ? { at: row.now, chargeNow: true } : { at: row.day_start, chargeNow: false };
+}
 /** An unpaid sign-up is dropped after this, freeing the pro's time. */
 export const SUBSCRIPTION_PAYMENT_MINUTES = 30;
 /** Local start hour of a visit for each time window. */
@@ -260,6 +296,7 @@ export async function planVisits(
 /**
  * A month was paid: the plan becomes active (its pending visits real), the paid month is recorded,
  * and the pro's share is queued for payout. Safe to call twice for the same invoice.
+ * The first paid month starts when billing starts (D91): the first visit day, or sign-up when charged at once.
  */
 export async function recordPaidMonth(
   deps: BookingDeps,
@@ -267,7 +304,7 @@ export async function recordPaidMonth(
 ): Promise<void> {
   const subscription = await withTransaction(deps.pool, async (client) => {
     const found = await client.query<SubscriptionRow & { pro_share_pct: number; status: string }>(
-      `UPDATE subscriptions SET status = 'active', started_at = COALESCE(started_at, now()),
+      `UPDATE subscriptions SET status = 'active', started_at = COALESCE(started_at, billing_starts_at, now()),
          current_period_end = GREATEST(COALESCE(current_period_end, $2), $2), updated_at = now()
        WHERE stripe_subscription_id = $1 AND status IN ('awaiting_payment', 'active', 'past_due')
        RETURNING ${SUBSCRIPTION_PATTERN}, pro_share_pct, status`,
@@ -277,7 +314,12 @@ export async function recordPaidMonth(
     if (!row) {
       return null;
     }
-    await client.query("UPDATE subscription_visits SET status = 'planned' WHERE subscription_id = $1 AND status = 'pending'", [row.id]);
+    // Visits held for the payment take place; one whose time passed while it was held (D91) did not happen.
+    await client.query(
+      `UPDATE subscription_visits SET status = CASE WHEN starts_at > now() THEN 'planned' ELSE 'cancelled' END
+       WHERE subscription_id = $1 AND status = 'pending'`,
+      [row.id],
+    );
     // A month fully covered by credit, e.g. for paused visits (D78), is paid with nothing, so nothing is paid out.
     if (row.pro_id && input.amountCents > 0) {
       await client.query(
@@ -297,12 +339,80 @@ export async function recordPaidMonth(
   await paySubscriptionPayouts(deps, subscription.id);
 }
 
-export async function markPastDue(deps: BookingDeps, stripeSubscriptionId: string): Promise<void> {
-  await deps.pool.query(
-    `UPDATE subscriptions SET status = 'past_due', updated_at = now() WHERE stripe_subscription_id = $1 AND status = 'active'`,
-    [stripeSubscriptionId],
+/**
+ * The card is set up for a plan billed from its first visit day (D91): the plan is active and its visits are
+ * planned, while nothing is charged until that day. Until the first month is paid, "next payment" is that day.
+ * Returns false when the plan was not waiting for its card (e.g. already active). Safe to call twice.
+ */
+export async function activateSubscription(deps: BookingDeps, stripeSubscriptionId: string): Promise<boolean> {
+  const subscription = await withTransaction(deps.pool, async (client) => {
+    const found = await client.query<SubscriptionRow>(
+      `UPDATE subscriptions SET status = 'active', current_period_end = COALESCE(current_period_end, billing_starts_at), updated_at = now()
+       WHERE stripe_subscription_id = $1 AND status = 'awaiting_payment'
+       RETURNING ${SUBSCRIPTION_PATTERN}`,
+      [stripeSubscriptionId],
+    );
+    const row = found.rows[0];
+    if (!row) {
+      return null;
+    }
+    await client.query(
+      `UPDATE subscription_visits SET status = CASE WHEN starts_at > now() THEN 'planned' ELSE 'cancelled' END
+       WHERE subscription_id = $1 AND status = 'pending'`,
+      [row.id],
+    );
+    await planVisits(client, row, deps.config.timezone, 'planned');
+    return row;
+  });
+  if (!subscription) {
+    return false;
+  }
+  deps.log.info({ event: 'subscription_card_ready', subscriptionId: subscription.id });
+  return true;
+}
+
+/**
+ * Holds the upcoming planned visits of a plan whose first month is not paid (D91): they go back to 'pending',
+ * which keeps the pro's time but takes them off the pro's week, so no visit is done unpaid. A paid first month
+ * (`recordPaidMonth`) plans them again. With `withinHours`, only visits starting that soon. Returns how many.
+ */
+async function holdUnpaidVisits(db: Queryable, subscriptionId: string, withinHours: number | null): Promise<number> {
+  const held = await db.query(
+    `UPDATE subscription_visits SET status = 'pending'
+     WHERE subscription_id = $1 AND status = 'planned' AND ends_at > now()
+       AND ($2::int IS NULL OR starts_at < now() + make_interval(hours => $2::int))`,
+    [subscriptionId, withinHours],
   );
-  deps.log.warn({ event: 'subscription_payment_failed', stripeSubscriptionId });
+  return held.rowCount ?? 0;
+}
+
+/**
+ * A monthly charge failed. The plan is past due and Stripe tries again. When it was the first month of a plan
+ * billed from its first visit day (D91), the plan has never been paid: its visits are held until the payment
+ * goes through, and the customer is told to check their card.
+ */
+export async function markPastDue(deps: BookingDeps, stripeSubscriptionId: string): Promise<void> {
+  const held = await withTransaction(deps.pool, async (client) => {
+    const found = await client.query<{ id: string; customer_id: string; plan_name: string; first_month: boolean }>(
+      `UPDATE subscriptions SET status = 'past_due', updated_at = now() WHERE stripe_subscription_id = $1 AND status = 'active'
+       RETURNING id, customer_id, plan_name, started_at IS NULL AS first_month`,
+      [stripeSubscriptionId],
+    );
+    const row = found.rows[0];
+    if (!row?.first_month) {
+      return null;
+    }
+    const visits = await holdUnpaidVisits(client, row.id, null);
+    await enqueue(client, row.customer_id, 'payment_action_needed', messages.planFirstPaymentFailed(row.plan_name), {
+      link: `/my-plans/${row.id}`,
+    });
+    return { subscriptionId: row.id, visits };
+  });
+  if (held) {
+    deps.log.error({ event: 'subscription_first_payment_failed', stripeSubscriptionId, ...held });
+  } else {
+    deps.log.warn({ event: 'subscription_payment_failed', stripeSubscriptionId });
+  }
 }
 
 /** Sends the pros their share of paid months. Failed transfers are retried by the worker. */
@@ -368,12 +478,26 @@ export async function dropUnpaidSubscription(deps: BookingDeps, id: string): Pro
  * spring, and retries payouts.
  */
 export async function subscriptionTick(deps: BookingDeps): Promise<void> {
-  const unpaid = await deps.pool.query<{ id: string }>(
-    `SELECT id FROM subscriptions WHERE status = 'awaiting_payment' AND created_at < now() - make_interval(mins => $1) LIMIT 50`,
+  const unpaid = await deps.pool.query<{ id: string; stripe_subscription_id: string | null; later: boolean }>(
+    `SELECT id, stripe_subscription_id, billing_starts_at > created_at + interval '1 minute' AS later
+     FROM subscriptions WHERE status = 'awaiting_payment' AND created_at < now() - make_interval(mins => $1) LIMIT 50`,
     [SUBSCRIPTION_PAYMENT_MINUTES],
   );
-  for (const { id } of unpaid.rows) {
-    await dropUnpaidSubscription(deps, id);
+  for (const row of unpaid.rows) {
+    // A plan billed from a later day (D91) whose card was set up, but whose webhook never came, starts after all.
+    if (row.later && row.stripe_subscription_id) {
+      try {
+        if (await deps.gateway.subscriptionCardReady(row.stripe_subscription_id)) {
+          await activateSubscription(deps, row.stripe_subscription_id);
+          continue;
+        }
+      } catch (error) {
+        // Asked again on the next pass rather than dropping a plan whose card may be set up.
+        deps.log.error({ event: 'subscription_card_check_failed', subscriptionId: row.id, err: error });
+        continue;
+      }
+    }
+    await dropUnpaidSubscription(deps, row.id);
   }
 
   await deps.pool.query(
@@ -385,6 +509,29 @@ export async function subscriptionTick(deps: BookingDeps): Promise<void> {
   );
   for (const subscription of active.rows) {
     await planVisits(deps.pool, subscription, deps.config.timezone, 'planned');
+  }
+
+  // No visit is done unpaid (D91): billing has started but the first month is still not paid, and Stripe has not
+  // said it failed either, so the visits about to start wait for the payment.
+  const unpaidFirstMonth = await deps.pool.query<{ id: string; customer_id: string; plan_name: string }>(
+    `SELECT s.id, s.customer_id, s.plan_name FROM subscriptions s
+     WHERE s.status IN ('active', 'past_due') AND s.started_at IS NULL AND s.billing_starts_at <= now()
+       AND EXISTS (SELECT 1 FROM subscription_visits v WHERE v.subscription_id = s.id AND v.status = 'planned'
+                   AND v.ends_at > now() AND v.starts_at < now() + make_interval(hours => $1))
+     LIMIT 50`,
+    [HOLD_UNPAID_VISIT_HOURS],
+  );
+  for (const row of unpaidFirstMonth.rows) {
+    const visits = await withTransaction(deps.pool, async (client) => {
+      const count = await holdUnpaidVisits(client, row.id, HOLD_UNPAID_VISIT_HOURS);
+      if (count > 0) {
+        await enqueue(client, row.customer_id, 'payment_action_needed', messages.planFirstPaymentFailed(row.plan_name), {
+          link: `/my-plans/${row.id}`,
+        });
+      }
+      return count;
+    });
+    deps.log.error({ event: 'subscription_unpaid_visits_held', subscriptionId: row.id, visits });
   }
 
   const seasonal = await deps.pool.query<{ id: string; stripe_subscription_id: string; billing_paused: boolean; in_season: boolean }>(

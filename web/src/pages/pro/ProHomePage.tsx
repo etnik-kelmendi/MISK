@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link, useNavigate } from 'react-router';
+import { Link, Navigate, useNavigate } from 'react-router';
 import { useApi } from '../../api/ApiContext';
 import { useMarket } from '../../api/MarketContext';
 import type { BookingStatus, Offer, ProJob, ProProfile } from '../../api/types';
@@ -15,7 +15,6 @@ import { dateTime, dayKey, dayName, euro, time } from '../../lib/format';
 import { loadSchedule, type ScheduleItem } from '../../lib/proSchedule';
 import { useAction } from '../../lib/useAction';
 import { usePolling } from '../../lib/usePolling';
-import { ApplicationForm } from './ApplicationForm';
 import { VisitMoveRequests } from './VisitMoveRequests';
 
 function useCountdown(until: string): number {
@@ -283,19 +282,12 @@ function OnlineSwitch({ online, onChange }: { online: boolean; onChange: (online
   );
 }
 
-function ApplicationStatus({ profile, onChange }: { profile: ProProfile; onChange: (p: ProProfile) => void }) {
+/**
+ * A pro who is not working yet: a new one fills in the Application page, everyone else sees where their
+ * application stands (D93).
+ */
+function ApplicationStatus({ profile }: { profile: ProProfile }) {
   const { t } = useTranslation();
-  if (profile.status === 'submitted') {
-    return (
-      <div className="body">
-        <div className="card center">
-          <Icon name="clock" className="big-icon" />
-          <h2 className="b">{t('apply.underReview')}</h2>
-          <p className="muted small">{t('apply.underReviewText')}</p>
-        </div>
-      </div>
-    );
-  }
   if (profile.status === 'suspended') {
     return (
       <div className="body">
@@ -305,28 +297,7 @@ function ApplicationStatus({ profile, onChange }: { profile: ProProfile; onChang
       </div>
     );
   }
-  return (
-    <div className="body">
-      {profile.status === 'info_requested' && (
-        <div className="info amber" role="alert">
-          <Icon name="chat" />
-          <p>
-            {t('apply.infoRequested')} <b>{profile.reviewNote}</b> {t('apply.infoRequestedHint')}
-          </p>
-        </div>
-      )}
-      {profile.status === 'rejected' && (
-        <div className="info amber" role="alert">
-          <Icon name="file" />
-          <p>
-            {t('apply.rejected')} <b>{profile.reviewNote}</b>
-          </p>
-        </div>
-      )}
-      <p className="muted">{t('apply.intro')}</p>
-      <ApplicationForm profile={profile} onChange={onChange} />
-    </div>
-  );
+  return <Navigate to={profile.status === 'draft' ? '/pro/apply' : '/pro/application'} replace />;
 }
 
 export function ProHomePage() {
@@ -387,7 +358,7 @@ export function ProHomePage() {
               <ApprovedHome profile={current} onOnline={setOnline} />
             </>
           ) : (
-            <ApplicationStatus profile={current} onChange={(next) => update(() => ({ profile: next }))} />
+            <ApplicationStatus profile={current} />
           )
         }
       </ResourceState>

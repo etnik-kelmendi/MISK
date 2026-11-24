@@ -27,15 +27,37 @@ const DAY_MS = 24 * 3600 * 1000;
 function FinishPayment({ subscription, onConfirmed }: { subscription: Subscription; onConfirmed: () => void }) {
   const { t } = useTranslation();
   const api = useApi();
+  const { timezone } = useMarket();
   const load = useCallback(() => api.get<{ payment: PaymentStep | null }>(`/subscriptions/${subscription.id}/payment`), [api, subscription.id]);
   const { state, reload } = useResource(load);
+
+  /** After a card set-up (D91) the server checks the card, so the plan starts without waiting for the webhook. */
+  async function confirmed(payment: PaymentStep) {
+    if (payment.confirm === 'setup') {
+      try {
+        await api.post(`/subscriptions/${subscription.id}/payment/check`);
+      } catch (error) {
+        // The webhook starts the plan instead; the page keeps checking.
+        console.warn('Could not check the card set-up', error);
+      }
+    }
+    onConfirmed();
+  }
+
   return (
     <section aria-label={t('pay.title')}>
       <h2 className="h-sm">{t('pay.finish')}</h2>
       <ResourceState state={state} reload={reload}>
         {({ payment }) =>
           payment ? (
-            <CardPayment payment={payment} amountLabel={t('plans.perMonth', { price: euro(subscription.priceCents) })} onConfirmed={onConfirmed} />
+            <CardPayment
+              payment={payment}
+              amountLabel={t('plans.perMonth', { price: euro(subscription.priceCents) })}
+              setupLabel={
+                subscription.billingStartsAt ? t('subscribe.saveCard', { date: dayName(subscription.billingStartsAt, timezone) }) : undefined
+              }
+              onConfirmed={() => void confirmed(payment)}
+            />
           ) : (
             <p className="muted" role="status">
               {t('pay.checking')}
@@ -438,7 +460,8 @@ function PlanView({ subscription, onChanged, reload }: { subscription: Subscript
       {subscription.status === 'awaiting_payment' && <FinishPayment subscription={subscription} onConfirmed={reload} />}
       {subscription.status === 'past_due' && (
         <p className="info amber" role="alert">
-          {t('subscription.pastDue')}
+          {/* The first month never went through (D91): its visits are on hold until it does. */}
+          {subscription.startedAt ? t('subscription.pastDue') : t('subscription.firstPaymentFailed')}
         </p>
       )}
 

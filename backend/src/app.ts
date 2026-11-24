@@ -22,6 +22,9 @@ import { conversationRoutes } from './bookings/conversation-routes.js';
 import { favouriteRoutes } from './bookings/favourite-routes.js';
 import { addressRoutes } from './customers/addresses.js';
 import { homeRoutes } from './customers/home.js';
+import { profileRoutes } from './customers/profile.js';
+import { notificationPreferenceRoutes } from './notifications/preferences.js';
+import { cardRoutes } from './payments/cards.js';
 import { timeWaitlistRoutes } from './bookings/time-waitlist.js';
 import { proJobRoutes } from './bookings/pro-routes.js';
 import { proJobActionRoutes } from './bookings/pro-job-actions.js';
@@ -182,6 +185,9 @@ export async function buildApp({ config, pool, gateway, sms, email = null, stora
     favouriteRoutes,
     addressRoutes,
     homeRoutes,
+    profileRoutes,
+    notificationPreferenceRoutes,
+    cardRoutes,
     timeWaitlistRoutes,
     proJobRoutes,
     proJobActionRoutes,

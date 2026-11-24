@@ -17,7 +17,16 @@ export function stripeFor(publishableKey: string): Promise<Stripe | null> {
   return stripe;
 }
 
-function PaymentForm({ amountLabel, onConfirmed }: { amountLabel: string; onConfirmed: () => void }) {
+function PaymentForm({
+  label,
+  setup,
+  onConfirmed,
+}: {
+  label: string;
+  /** Only saves the card, for a plan first charged on its first visit day (D91); nothing is paid now. */
+  setup: boolean;
+  onConfirmed: () => void;
+}) {
   const { t } = useTranslation();
   const stripe = useStripe();
   const elements = useElements();
@@ -31,11 +40,8 @@ function PaymentForm({ amountLabel, onConfirmed }: { amountLabel: string; onConf
     }
     setBusy(true);
     setMessage(null);
-    const { error } = await stripe.confirmPayment({
-      elements,
-      redirect: 'if_required',
-      confirmParams: { return_url: window.location.href },
-    });
+    const params = { elements, redirect: 'if_required' as const, confirmParams: { return_url: window.location.href } };
+    const { error } = setup ? await stripe.confirmSetup(params) : await stripe.confirmPayment(params);
     setBusy(false);
     if (error) {
       // Stripe's own message explains card problems ("Your card was declined.") better than a code could.
@@ -58,23 +64,29 @@ function PaymentForm({ amountLabel, onConfirmed }: { amountLabel: string; onConf
         <p>{t('pay.protected')}</p>
       </div>
       <button className="cta" type="submit" disabled={!stripe || busy}>
-        <Icon name="lock" /> {busy ? t('pay.paying') : t('pay.payNow', { amount: amountLabel })}
+        <Icon name="lock" /> {busy ? t('pay.paying') : label}
       </button>
     </form>
   );
 }
 
-/** The card form for a payment the API started. Calls `onConfirmed` once Stripe has the card. */
+/**
+ * The card form for a payment the API started. Calls `onConfirmed` once Stripe has the card. A 'setup' step (D91)
+ * only saves the card; `setupLabel` then says on the button when it is first charged.
+ */
 export function CardPayment({
   payment,
   amountLabel,
+  setupLabel,
   onConfirmed,
 }: {
   payment: PaymentStep;
   amountLabel: string;
+  setupLabel?: string;
   onConfirmed: () => void;
 }) {
   const { t } = useTranslation();
+  const setup = payment.confirm === 'setup';
   if (!payment.publishableKey) {
     return (
       <p className="error-text" role="alert">
@@ -84,7 +96,11 @@ export function CardPayment({
   }
   return (
     <Elements stripe={stripeFor(payment.publishableKey)} options={{ clientSecret: payment.clientSecret }}>
-      <PaymentForm amountLabel={amountLabel} onConfirmed={onConfirmed} />
+      <PaymentForm
+        setup={setup}
+        label={setup ? (setupLabel ?? t('pay.saveCard')) : t('pay.payNow', { amount: amountLabel })}
+        onConfirmed={onConfirmed}
+      />
     </Elements>
   );
 }

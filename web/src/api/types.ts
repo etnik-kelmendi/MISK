@@ -49,6 +49,8 @@ export interface Category {
   name: string;
   icon: IconName;
   approvedPros: number;
+  /** Whether pros of this trade must upload a trade certificate (D93); cleaning needs none. */
+  needsCertificate?: boolean;
   services: Service[];
 }
 
@@ -80,6 +82,8 @@ export interface SavedAddress {
   label: string | null;
   address: string;
   postcode: string;
+  /** For the pro, e.g. "Gate code 4411"; null when there are none (D92). */
+  notes: string | null;
   /** The zone's name, e.g. "Mitte". */
   areaName: string;
   /** False when the team paused the zone since the address was saved. */
@@ -399,6 +403,11 @@ export interface AdminVisit {
 export interface PaymentStep {
   clientSecret: string;
   publishableKey: string | null;
+  /**
+   * What the browser does with the secret: 'payment' (the default) pays or holds money; 'setup' only saves the card,
+   * for a plan whose first month is charged on its first visit day (D91).
+   */
+  confirm?: 'payment' | 'setup';
 }
 
 export interface BookingListItem {
@@ -506,12 +515,16 @@ export type DocumentKind = 'id' | 'certificate' | 'insurance' | 'background';
 export const DOCUMENT_KINDS: DocumentKind[] = ['id', 'certificate', 'insurance', 'background'];
 /** Documents that run out, so the pro gives their expiry date. */
 export const EXPIRING_KINDS: DocumentKind[] = ['id', 'insurance'];
+/** Documents the pro uploads; the background check is a consent and the partner's result, never a file (D93). */
+export type UploadKind = 'id' | 'certificate' | 'insurance';
+export const UPLOAD_KINDS: UploadKind[] = ['id', 'certificate', 'insurance'];
 
 export type ProStatus = 'draft' | 'submitted' | 'info_requested' | 'approved' | 'pending_approval' | 'rejected' | 'suspended';
 export type CheckState = 'missing' | 'waiting_review' | 'rejected' | 'expired' | 'expiring' | 'valid';
 
 export interface ProDocument {
-  uploadId: string;
+  /** Null for the background check, which has no file (D93). */
+  uploadId: string | null;
   fileName: string;
   uploadedAt: string;
   /** "YYYY-MM-DD" */
@@ -540,6 +553,29 @@ export interface ProProfile {
   tradeNames?: string[];
   offersPausedUntil?: string | null;
   documents: Record<DocumentKind, (ProDocument & { state: CheckState }) | null>;
+  /** The application (D93). The home address is private: only the pro and the MISK team see it. */
+  homeAddress?: string | null;
+  backgroundConsentAt?: string | null;
+  submittedAt?: string | null;
+  /** Documents the team asked for again; each gets an upload button on the status page. */
+  requestedDocuments?: UploadKind[];
+  rejectedAt?: string | null;
+  /** The day a turned-down applicant can apply again, YYYY-MM-DD. */
+  reapplyOn?: string | null;
+  /** Whether the pro can still change and send the application. */
+  editable?: boolean;
+  /** False when every chosen trade needs no trade certificate. */
+  certificateRequired?: boolean;
+}
+
+export type ApplicationStepKey = 'sent' | 'documents' | 'background' | 'decision';
+export type ApplicationStepState = 'done' | 'current' | 'attention' | 'failed' | 'upcoming';
+
+/** GET /pro/application: the Application status page (D93). */
+export interface ApplicationView {
+  profile: ProProfile;
+  timeline: { steps: { key: ApplicationStepKey; state: ApplicationStepState }[]; current: ApplicationStepKey } | null;
+  support: { email: string | null; phone: string | null };
 }
 
 export const PRO_TABS = ['applications', 'active', 'pending_approval', 'suspended'] as const;
@@ -587,6 +623,8 @@ export interface ProCheck {
   ok: boolean;
   state: CheckState;
   document: (ProDocument & { reviewedAt: string | null; validUntil: string | null }) | null;
+  /** False for a trade certificate the pro's trades do not need (D93). */
+  required?: boolean;
 }
 
 export type ProActionKind =
@@ -604,7 +642,8 @@ export type ProActionKind =
   | 'suspended'
   | 'reinstated'
   | 'moved_to_pending'
-  | 'back_to_active';
+  | 'back_to_active'
+  | 'info_provided';
 
 export interface ProActionEntry {
   id: string;
@@ -634,6 +673,12 @@ export interface AdminProDetail extends ProNumbers {
   status: ProStatus;
   homePostcode: string | null;
   postcodeName: string | null;
+  /** Private: shown to the team only (D93). */
+  homeAddress?: string | null;
+  backgroundConsentAt?: string | null;
+  requestedDocuments?: UploadKind[];
+  rejectedAt?: string | null;
+  certificateRequired?: boolean;
   radiusKm: number;
   workingDays: number[];
   trades: string[];
@@ -997,7 +1042,9 @@ export interface Subscription {
   firstVisitOn?: string | null;
   /** The next visit still to come, or null. */
   nextVisitAt?: string | null;
-  /** When the minimum term ends (D90). */
+  /** When billing starts: the first visit day, or sign-up when the first month was charged at once (D91). */
+  billingStartsAt?: string | null;
+  /** When the minimum term ends, counted from when billing starts (D90, D91). */
   minTermEndsAt?: string;
   /** When the plan would end if cancelled now: the minimum term's end or 30 days' notice, whichever is later (D90). */
   cancelEndsAt?: string;

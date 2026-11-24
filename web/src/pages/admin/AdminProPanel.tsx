@@ -2,7 +2,7 @@ import { useCallback, useId, useState, type FormEvent, type ReactNode } from 're
 import { useTranslation } from 'react-i18next';
 import { useApi } from '../../api/ApiContext';
 import { useMarket } from '../../api/MarketContext';
-import { EXPIRING_KINDS, type AdminProDetail, type ProActionEntry, type ProCheck } from '../../api/types';
+import { EXPIRING_KINDS, UPLOAD_KINDS, type UploadKind, type AdminProDetail, type ProActionEntry, type ProCheck } from '../../api/types';
 import { useResource } from '../../api/useResource';
 import { Drawer } from '../../components/Drawer';
 import { Fold } from '../../components/Fold';
@@ -29,6 +29,7 @@ function NoteForm({
   onSubmit,
   onCancel,
   busy,
+  children,
 }: {
   label: string;
   submitLabel: string;
@@ -36,6 +37,8 @@ function NoteForm({
   onSubmit: (note: string) => void;
   onCancel: () => void;
   busy: boolean;
+  /** More fields shown under the note, e.g. which documents are missing. */
+  children?: ReactNode;
 }) {
   const { t } = useTranslation();
   const id = useId();
@@ -60,6 +63,7 @@ function NoteForm({
         <textarea id={id} rows={3} maxLength={500} value={note} {...form.describe('note')} onChange={(e) => setNote(e.target.value)} />
         <FieldError id={id} message={form.message('note')} />
       </div>
+      {children}
       <div className="row gap8 wrap">
         <button type="button" className="abtn ghost" onClick={onCancel}>
           {t('admin.pros.panel.cancel')}
@@ -83,6 +87,9 @@ function CheckItem({ pro, check, onChanged }: { pro: AdminProDetail; check: ProC
   const documentName = t(`admin.pros.panel.check.${check.kind}`);
   const expiryId = useId();
   const canDecide = doc !== null && doc.reviewStatus !== 'accepted';
+  // The background check has no file: the team records the partner's result, clear or not clear (D93).
+  const background = check.kind === 'background';
+  const notRequired = check.required === false;
   const canRemind = check.state === 'missing' || check.state === 'rejected' || check.state === 'expired' || check.state === 'expiring';
   // The newest reminder for this document; the server refuses another one within REMINDER_GAP_MINUTES.
   const lastReminder = pro.actions.find((a) => a.action === 'reminder_sent' && a.details.document === check.kind);
@@ -90,6 +97,13 @@ function CheckItem({ pro, check, onChanged }: { pro: AdminProDetail; check: ProC
   const reminded = lastReminder !== undefined && now - new Date(lastReminder.createdAt).getTime() < REMINDER_GAP_MINUTES * 60_000;
 
   const explanation = (() => {
+    if (notRequired && check.state === 'missing') {
+      return t('admin.pros.panel.state.notRequired');
+    }
+    if (background && check.state !== 'expired' && check.state !== 'expiring') {
+      const consent = pro.backgroundConsentAt ?? doc?.uploadedAt;
+      return t(`admin.pros.panel.state.background_${check.state}`, { date: consent ? longDate(consent, timezone) : '' });
+    }
     switch (check.state) {
       case 'missing':
         return t('admin.pros.panel.state.missing');
@@ -121,10 +135,12 @@ function CheckItem({ pro, check, onChanged }: { pro: AdminProDetail; check: ProC
     <li>
       <div className="row between gap8">
         <span className="b">{documentName}</span>
-        <span className={`badge ${check.ok ? 'g' : 'r'}`}>{check.ok ? t('admin.pros.panel.ok') : t('admin.pros.panel.openCheck')}</span>
+        <span className={`badge ${check.ok ? 'g' : notRequired ? 'grey' : 'r'}`}>
+          {check.ok ? t('admin.pros.panel.ok') : notRequired ? t('admin.pros.panel.notNeeded') : t('admin.pros.panel.openCheck')}
+        </span>
       </div>
       <p className={`small ${check.state === 'expired' || check.state === 'rejected' ? 'low' : 'muted'}`}>{explanation}</p>
-      {doc && (
+      {doc?.uploadId && (
         <p className="small">
           {t('admin.pros.panel.file', { name: doc.fileName || documentName, date: longDate(doc.uploadedAt, timezone) })}
           {' · '}
@@ -152,27 +168,27 @@ function CheckItem({ pro, check, onChanged }: { pro: AdminProDetail; check: ProC
             type="button"
             className="abtn"
             disabled={action.busy}
-            aria-label={t('admin.pros.panel.acceptLabel', { document: documentName })}
+            aria-label={background ? t('admin.pros.panel.clearLabel') : t('admin.pros.panel.acceptLabel', { document: documentName })}
             onClick={() => void post('accept', expiresOn && expiresOn !== doc.expiresOn ? { expiresOn } : {})}
           >
-            {t('admin.pros.panel.accept')}
+            {background ? t('admin.pros.panel.clear') : t('admin.pros.panel.accept')}
           </button>
           {doc.reviewStatus === 'pending' && (
             <button
               type="button"
               className="abtn ghost"
-              aria-label={t('admin.pros.panel.rejectLabel', { document: documentName })}
+              aria-label={background ? t('admin.pros.panel.notClearLabel') : t('admin.pros.panel.rejectLabel', { document: documentName })}
               onClick={() => setMode('reject')}
             >
-              {t('admin.pros.panel.reject')}
+              {background ? t('admin.pros.panel.notClear') : t('admin.pros.panel.reject')}
             </button>
           )}
         </div>
       )}
       {mode === 'reject' && (
         <NoteForm
-          label={t('admin.pros.panel.rejectNote', { document: documentName })}
-          submitLabel={t('admin.pros.panel.rejectSend')}
+          label={background ? t('admin.pros.panel.notClearNote') : t('admin.pros.panel.rejectNote', { document: documentName })}
+          submitLabel={background ? t('admin.pros.panel.notClearSend') : t('admin.pros.panel.rejectSend')}
           danger
           busy={action.busy}
           onCancel={() => setMode('idle')}
@@ -214,6 +230,8 @@ function Decision({ pro, onChanged }: { pro: AdminProDetail; onChanged: Changed 
   const api = useApi();
   const action = useAction();
   const [mode, setMode] = useState<'idle' | 'info' | 'reject'>('idle');
+  const [missing, setMissing] = useState<UploadKind[]>([]);
+  const checkName = (kind: string) => t(`admin.pros.panel.check.${kind as UploadKind}`);
 
   async function post(path: string, body?: unknown) {
     const result = await action.run(() => api.post<{ pro: AdminProDetail }>(`/admin/pros/${pro.id}/${path}`, body));
@@ -227,7 +245,15 @@ function Decision({ pro, onChanged }: { pro: AdminProDetail; onChanged: Changed 
     <section className="stack" aria-labelledby="decision-heading">
       <h3 id="decision-heading">{t('admin.pros.panel.decision')}</h3>
       {pro.status === 'info_requested' && pro.reviewNote && (
-        <p className="note">{t('admin.pros.panel.infoRequested', { message: pro.reviewNote })}</p>
+        <p className="note">
+          {t('admin.pros.panel.infoRequested', { message: pro.reviewNote })}
+          {(pro.requestedDocuments ?? []).length > 0 && (
+            <>
+              {' '}
+              {t('admin.pros.panel.requestedDocuments', { documents: (pro.requestedDocuments ?? []).map(checkName).join(', ') })}
+            </>
+          )}
+        </p>
       )}
       {mode === 'idle' && (
         <>
@@ -251,8 +277,24 @@ function Decision({ pro, onChanged }: { pro: AdminProDetail; onChanged: Changed 
           submitLabel={t('admin.pros.panel.requestInfoSend')}
           busy={action.busy}
           onCancel={() => setMode('idle')}
-          onSubmit={(message) => void post('request-info', { message })}
-        />
+          onSubmit={(message) => void post('request-info', { message, documents: missing })}
+        >
+          <fieldset className="stack tight">
+            <legend className="small">{t('admin.pros.panel.requestDocuments')}</legend>
+            {UPLOAD_KINDS.map((kind) => (
+              <label key={kind} className="check-row small">
+                <input
+                  type="checkbox"
+                  checked={missing.includes(kind)}
+                  onChange={(event) =>
+                    setMissing((current) => (event.target.checked ? [...current, kind] : current.filter((k) => k !== kind)))
+                  }
+                />{' '}
+                {checkName(kind)}
+              </label>
+            ))}
+          </fieldset>
+        </NoteForm>
       )}
       {mode === 'reject' && (
         <NoteForm
@@ -585,6 +627,11 @@ function ProDetails({ pro, notice, onChanged }: { pro: AdminProDetail; notice: s
           {t('admin.pros.panel.suspendedNote', { date: longDate(pro.suspendedAt, timezone), reason: pro.suspendedReason ?? '' })}
         </p>
       )}
+      {pro.status === 'rejected' && pro.rejectedAt && (
+        <p className="note warn-note">
+          {t('admin.pros.panel.rejectedOn', { date: longDate(pro.rejectedAt, timezone), note: pro.reviewNote ?? '' })}
+        </p>
+      )}
       {pro.jobsPausedAt && <p className="note warn-note">{t('admin.pros.panel.paused', { date: longDate(pro.jobsPausedAt, timezone) })}</p>}
       {pro.watchListAt && <p className="note">{t('admin.pros.panel.onWatch', { date: longDate(pro.watchListAt, timezone) })}</p>}
       {pro.coachingCallAt && (
@@ -645,6 +692,17 @@ function ProDetails({ pro, notice, onChanged }: { pro: AdminProDetail; notice: s
           )}
           <dt>{t('admin.pros.panel.home')}</dt>
           <dd>{pro.homePostcode ? `${pro.homePostcode}${pro.postcodeName ? ` · ${pro.postcodeName}` : ''}` : '–'}</dd>
+          <dt>{t('admin.pros.panel.homeAddress')}</dt>
+          <dd>
+            {pro.homeAddress ?? '–'}
+            {pro.homeAddress && <div className="tiny muted">{t('admin.pros.panel.homeAddressPrivate')}</div>}
+          </dd>
+          <dt>{t('admin.pros.panel.consent')}</dt>
+          <dd>
+            {pro.backgroundConsentAt
+              ? t('admin.pros.panel.consentOn', { date: dateTime(pro.backgroundConsentAt, timezone) })
+              : t('admin.pros.panel.consentNone')}
+          </dd>
           <dt>{t('admin.pros.panel.travel')}</dt>
           <dd>{t('admin.pros.panel.travelKm', { km: pro.radiusKm })}</dd>
           <dt>{t('admin.pros.panel.days')}</dt>

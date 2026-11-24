@@ -82,7 +82,15 @@ export const messages = {
   bookingUnassigned: (service: string, when: string) =>
     `MISK: we have not found a pro for your ${service} on ${when} yet. Our team is on it and will contact you.`,
   applicationApproved: () => 'MISK: you are approved! Set up payouts in the app to start getting jobs.',
-  applicationRejected: () => 'MISK: we could not approve your application yet. See the app for what to change.',
+  // The pro's application, one message per change of its status (D93).
+  applicationSent: () =>
+    'MISK: we got your application. We check your documents and run the background check, usually within 48 hours. You get a message with each step.',
+  applicationResumed: () => 'MISK: thanks, we got what we asked for. The review of your application carries on where it stopped.',
+  applicationDocumentsChecked: () => 'MISK: your documents are checked. Next is the background check.',
+  applicationBackgroundDone: () => 'MISK: your background check is back. The MISK team now decides on your application.',
+  applicationRejected: (reapplyOn: string) =>
+    `MISK: we could not approve your application this time. See the app for the reason. You can apply again from ${reapplyOn}.`,
+  backgroundConsentReminder: () => 'MISK: please agree to the background check in the app, so we can finish your application.',
   // The Users page (D65): one account, whether customer, pro or both.
   fromTeam: (text: string) => `MISK team: ${text}`,
   // Notices about the account itself (suspended, active again, closed) are in account-notices.ts (D87).
@@ -147,4 +155,7 @@ export const messages = {
       .join(' '),
   planPauseCalledOffForPro: (customer: string, plan: string, visits: string[]) =>
     `MISK: ${customer} called off the pause of the ${plan} plan. These visits are back: ${visits.join('; ')}.`,
+  // The first month of a plan billed from its first visit day (D91) was not paid: its visits wait for the payment.
+  planFirstPaymentFailed: (plan: string) =>
+    `MISK: the first monthly payment for your ${plan} has not gone through, so your visits are on hold until it does. Please check your card in the app.`,
 };

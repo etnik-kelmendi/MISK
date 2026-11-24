@@ -241,8 +241,9 @@ async function fill(
   const services: ServiceRow[] = [];
   for (const [order, [slug, name, icon, items]] of CATALOGUE.entries()) {
     const category = await db.query<{ id: string }>(
-      'INSERT INTO categories (slug, name, icon, sort_order, active) VALUES ($1, $2, $3, $4, true) RETURNING id',
-      [slug, name, icon, order],
+      // Cleaners need no trade certificate (D93).
+      'INSERT INTO categories (slug, name, icon, sort_order, active, needs_certificate) VALUES ($1, $2, $3, $4, true, $5) RETURNING id',
+      [slug, name, icon, order, slug !== 'cleaning'],
     );
     const categoryId = category.rows[0]?.id ?? '';
     categoryIds.set(slug, categoryId);
@@ -321,6 +322,14 @@ async function fill(
          CASE WHEN $2 = 'suspended' THEN $6 END)`,
       [id, pro.status, pro.home, pro.radius, pro.days, pro.note ?? null, worked ? `acct_seed_${pro.key}` : null, worked, applying, index % 3, pro.watchList ?? false],
     );
+    // The application (D93): a private home address, and consent to the background check once sent.
+    await db.query(
+      `UPDATE pro_profiles SET home_address = $2,
+         background_consent_at = CASE WHEN status <> 'draft' THEN COALESCE(submitted_at, now()) END,
+         rejected_at = CASE WHEN status = 'rejected' THEN reviewed_at END
+       WHERE user_id = $1`,
+      [id, `${10 + index} Demo Street`],
+    );
     for (const trade of pro.trades) {
       await db.query('INSERT INTO pro_trades (pro_id, category_id) VALUES ($1, $2)', [id, categoryIds.get(trade)]);
     }
@@ -335,7 +344,9 @@ async function fill(
         if (state === 'missing') {
           continue;
         }
-        const uploadId = await upload(id, 'document', makeDocument(`${title}: ${pro.firstName} (demo)`), 'application/pdf');
+        // The background check is the pro's consent and the partner's result, without a file (D93).
+        const uploadId =
+          kind === 'background' ? null : await upload(id, 'document', makeDocument(`${title}: ${pro.firstName} (demo)`), 'application/pdf');
         // Expiry: as printed on the document; cover: until when an accepted copy lets the pro work.
         const expiresDays = state === 'expiring' ? 12 : years === null ? null : years * 365 - index * 20;
         const coverDays = state === 'renewal' ? -2 : state === 'accepted' || state === 'expiring' ? (expiresDays ?? null) : undefined;
@@ -351,7 +362,7 @@ async function fill(
             id,
             kind,
             uploadId,
-            state === 'renewal' ? 'liability-insurance-2027.pdf' : file,
+            kind === 'background' ? '' : state === 'renewal' ? 'liability-insurance-2027.pdf' : file,
             state === 'renewal' ? 1 : 30 + index,
             state === 'renewal' ? 365 : expiresDays,
             state === 'accepted' || state === 'expiring' ? 'accepted' : state === 'rejected' ? 'rejected' : 'pending',

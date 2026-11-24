@@ -17,6 +17,7 @@ import { useValidation } from '../../lib/useValidation';
 /** The API's limits for a saved address (D89). */
 export const MAX_ADDRESS_LABEL = 30;
 export const MAX_ADDRESS_LENGTH = 200;
+export const MAX_ADDRESS_NOTES = 200;
 
 export interface AddressList {
   addresses: SavedAddress[];
@@ -36,8 +37,8 @@ export function addressTitle(address: SavedAddress): string {
 }
 
 /**
- * Adds or edits a saved address: an optional name, the street and a postcode MISK serves. A postcode MISK
- * does not serve yet offers the waiting list (D76) instead of saving.
+ * Adds or edits a saved address: an optional name, the street, a postcode MISK serves and optional notes for
+ * the pro (D92). A postcode MISK does not serve yet offers the waiting list (D76) instead of saving.
  */
 export function AddressForm({
   editing,
@@ -60,6 +61,7 @@ export function AddressForm({
   const [label, setLabel] = useState(editing?.label ?? '');
   const [address, setAddress] = useState(editing?.address ?? '');
   const [postcode, setPostcode] = useState(editing?.postcode ?? '');
+  const [notes, setNotes] = useState(editing?.notes ?? '');
   const save = useAction();
   const served = postcodes.state.status === 'ready' ? postcodes.state.data.postcodes : null;
   const code = normalizePostcode(postcode);
@@ -77,7 +79,7 @@ export function AddressForm({
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!form.check()) return;
-    const body = { label: label.trim() || null, address: address.trim(), postcode: code };
+    const body = { label: label.trim() || null, address: address.trim(), postcode: code, notes: notes.trim() || null };
     const result = await save.run(() =>
       editing
         ? api.patch<{ address: SavedAddress }>(`/addresses/${editing.id}`, body)
@@ -135,6 +137,23 @@ export function AddressForm({
         )}
       </ResourceState>
       {unserved && <Waitlist key={code} postcode={code} />}
+      <div className="field">
+        <label htmlFor={`${id}-notes`}>
+          {t('addresses.notes')} <span className="h-note">{t('rating.optional')}</span>
+        </label>
+        <textarea
+          id={`${id}-notes`}
+          rows={2}
+          maxLength={MAX_ADDRESS_NOTES}
+          placeholder={t('addresses.notesPlaceholder')}
+          aria-describedby={`${id}-notes-hint`}
+          value={notes}
+          onChange={(event) => setNotes(event.target.value)}
+        />
+        <span id={`${id}-notes-hint`} className="hint">
+          {t('addresses.notesHint')}
+        </span>
+      </div>
       <ErrorText error={save.error} />
       <div className="row gap8">
         <button type="button" className="btn btn-ghost grow" disabled={save.busy} onClick={onCancel}>
@@ -212,7 +231,16 @@ export function AddressSheet({ list, onChanged, onClose }: { list: AddressList; 
   );
 }
 
-/** Saved addresses on the Profile page: choose the one Home uses, add, edit and remove. */
+/** The icon of a saved address: a house for one named Home, a pin for the others. */
+function addressIcon(address: SavedAddress): 'home' | 'pin' {
+  return address.label?.trim().toLowerCase() === 'home' ? 'home' : 'pin';
+}
+
+/**
+ * Saved addresses (D92): each with its name, the address and the notes for the pro. The default one is the
+ * address Home shows and new bookings start from (the one selected on Home, D89). Add, edit, remove and make
+ * another one the default.
+ */
 export function AddressBook() {
   const { t } = useTranslation();
   const api = useApi();
@@ -232,15 +260,12 @@ export function AddressBook() {
   }
 
   return (
-    <section className="card stack" aria-labelledby="addresses-heading">
-      <h2 id="addresses-heading" className="b">
-        {t('addresses.title')}
-      </h2>
-      <ResourceState state={state} reload={reload}>
-        {(list) => (
-          <>
-            {list.addresses.length === 0 && <p className="small muted">{t('addresses.none')}</p>}
-            <ul className="stack address-list" aria-label={t('addresses.title')}>
+    <ResourceState state={state} reload={reload}>
+      {(list) => (
+        <>
+          {list.addresses.length === 0 && editing !== 'new' && <p className="card small muted center-text">{t('addresses.none')}</p>}
+          {list.addresses.length > 0 && (
+            <ul className="stack address-list" aria-label={t('addresses.listLabel')}>
               {list.addresses.map((address) =>
                 editing !== 'new' && editing?.id === address.id ? (
                   <li key={address.id}>
@@ -254,27 +279,23 @@ export function AddressBook() {
                     />
                   </li>
                 ) : (
-                  <li key={address.id} className="row address-row">
-                    <Icon name="pin" />
+                  <li key={address.id} className="card row address-row">
+                    <span className="address-icon" aria-hidden="true">
+                      <Icon name={addressIcon(address)} />
+                    </span>
                     <span className="grow">
-                      <span className="b small block">{addressTitle(address)}</span>
-                      <span className="tiny muted block">
+                      <span className="b small block">
+                        {address.label ?? address.address}{' '}
+                        {address.selected && <span className="badge g">{t('addresses.default')}</span>}
+                      </span>
+                      <span className="small block">
+                        {address.label ? `${address.address}, ` : ''}
                         {address.postcode} {address.areaName}
                       </span>
-                      {address.selected && <span className="badge g">{t('addresses.selected')}</span>}
+                      {address.notes && <span className="tiny muted block address-notes">{address.notes}</span>}
                       {!address.served && <span className="badge a">{t('addresses.notServed')}</span>}
                     </span>
                     <span className="row gap4 wrap address-actions">
-                      {!address.selected && (
-                        <button
-                          type="button"
-                          className="mini-btn"
-                          disabled={action.busy}
-                          onClick={() => void run(() => api.post(`/addresses/${address.id}/select`))}
-                        >
-                          {t('addresses.use')}
-                        </button>
-                      )}
                       <button
                         type="button"
                         className="mini-btn"
@@ -284,9 +305,20 @@ export function AddressBook() {
                       >
                         {t('addresses.edit')}
                       </button>
+                      {!address.selected && (
+                        <button
+                          type="button"
+                          className="mini-btn"
+                          aria-label={t('addresses.makeDefaultLabel', { address: address.address })}
+                          disabled={action.busy}
+                          onClick={() => void run(() => api.post(`/addresses/${address.id}/select`))}
+                        >
+                          {t('addresses.makeDefault')}
+                        </button>
+                      )}
                       <button
                         type="button"
-                        className="mini-btn"
+                        className="mini-btn danger"
                         aria-label={t('addresses.removeLabel', { address: address.address })}
                         disabled={action.busy}
                         onClick={(event) => {
@@ -301,38 +333,40 @@ export function AddressBook() {
                 ),
               )}
             </ul>
-            <ErrorText error={action.error} />
-            {editing === 'new' ? (
-              <AddressForm
-                onSaved={() => {
-                  setEditing(null);
-                  reload();
-                }}
-                onCancel={() => setEditing(null)}
-              />
-            ) : list.addresses.length >= list.max ? (
-              <p className="small muted">{t('addresses.full', { count: list.max })}</p>
-            ) : (
-              <button type="button" className="btn btn-ghost wide" onClick={() => setEditing('new')}>
-                <Icon name="plus" /> {t('addresses.add')}
-              </button>
-            )}
-            {removing && (
-              <ConfirmDialog
-                title={t('addresses.removeTitle')}
-                cancelLabel={t('addresses.keep')}
-                confirmLabel={t('addresses.remove')}
-                busy={action.busy}
-                returnFocusTo={opener.current}
-                onCancel={() => setRemoving(null)}
-                onConfirm={() => void run(() => api.delete(`/addresses/${removing.id}`)).then(() => setRemoving(null))}
-              >
-                <p>{addressTitle(removing)}</p>
-              </ConfirmDialog>
-            )}
-          </>
-        )}
-      </ResourceState>
-    </section>
+          )}
+          <ErrorText error={action.error} />
+          {editing === 'new' ? (
+            <AddressForm
+              onSaved={() => {
+                setEditing(null);
+                reload();
+              }}
+              onCancel={() => setEditing(null)}
+            />
+          ) : list.addresses.length >= list.max ? (
+            <p className="small muted">{t('addresses.full', { count: list.max })}</p>
+          ) : (
+            <button type="button" className="cta ghost" onClick={() => setEditing('new')}>
+              <Icon name="plus" /> {t('addresses.addAddress')}
+            </button>
+          )}
+          <p className="tiny muted">{t('addresses.footer')}</p>
+          {removing && (
+            <ConfirmDialog
+              title={t('addresses.removeTitle')}
+              cancelLabel={t('addresses.keep')}
+              confirmLabel={t('addresses.remove')}
+              busy={action.busy}
+              returnFocusTo={opener.current}
+              onCancel={() => setRemoving(null)}
+              onConfirm={() => void run(() => api.delete(`/addresses/${removing.id}`)).then(() => setRemoving(null))}
+            >
+              <p>{addressTitle(removing)}</p>
+              {removing.selected && list.addresses.length > 1 && <p className="small muted">{t('addresses.removeDefault')}</p>}
+            </ConfirmDialog>
+          )}
+        </>
+      )}
+    </ResourceState>
   );
 }

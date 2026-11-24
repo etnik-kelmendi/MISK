@@ -13,7 +13,7 @@ import {
   SUBSCRIPTION_PATTERN,
   type SubscriptionRow,
 } from '../subscriptions/service.js';
-import { marketToday, type DocumentKind } from './checks.js';
+import { certificateRequiredSql, marketToday, type DocumentKind } from './checks.js';
 
 export type ProAction =
   | 'approved'
@@ -30,7 +30,8 @@ export type ProAction =
   | 'suspended'
   | 'reinstated'
   | 'moved_to_pending'
-  | 'back_to_active';
+  | 'back_to_active'
+  | 'info_provided';
 
 /** Writes one line in the pro's activity log. `adminId` is null when MISK acted by itself. */
 export async function logProAction(
@@ -53,7 +54,7 @@ export const DOCUMENT_NAMES: Record<DocumentKind, string> = {
   id: 'ID card or passport',
   certificate: 'trade certificate',
   insurance: 'liability insurance',
-  background: 'certificate of good conduct',
+  background: 'background check',
 };
 
 /** Takes back the job offers a pro has not answered; the dispatcher then offers those jobs to others. */
@@ -196,7 +197,9 @@ export async function backToActiveIfCovered(db: Queryable, proId: string, adminI
      WHERE p.user_id = $1 AND p.status = 'pending_approval'
        AND NOT EXISTS (
          SELECT 1 FROM pro_documents d WHERE d.pro_id = p.user_id
-           AND (d.valid_until IS NULL OR d.valid_until < $2::date OR d.review_status <> 'accepted'))`,
+           AND (d.valid_until IS NULL OR d.valid_until < $2::date OR d.review_status <> 'accepted')
+           -- A certificate the pro's trades do not need never holds them back (D93).
+           AND (d.kind <> 'certificate' OR ${certificateRequiredSql('p.user_id')}))`,
     [proId, marketToday(timezone)],
   );
   if (!moved.rowCount) {

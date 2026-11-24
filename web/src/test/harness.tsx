@@ -96,6 +96,9 @@ export function fakeApi(user: User | null): FakeApi {
   // Home (D89): no saved addresses, no plans banner and no pros near, unless a test says so.
   routes.set('GET /addresses', { body: { addresses: [], max: 10 } });
   routes.set('GET /home', { body: { plan: null, pros: [] } });
+  // Profile (D92): English, no support contact set up and no favourite pros, unless a test says so.
+  routes.set('GET /account/settings', { body: { language: 'en', languages: ['en'], support: { email: null, phone: null } } });
+  routes.set('GET /favourites/pros', { body: { pros: [] } });
   // A pro has no requests to move a plan visit unless a test says so (D77).
   routes.set('GET /pro/visit-moves', { body: { moves: [] } });
   routes.set('GET /auth/me', user ? { body: { user } } : { status: 401, body: { error: 'unauthenticated' } });

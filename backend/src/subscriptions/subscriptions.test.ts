@@ -75,6 +75,23 @@ async function berlinToday(): Promise<string> {
 const plusDays = (day: string, days: number) => new Date(Date.parse(`${day}T12:00:00Z`) + days * DAY_MS).toISOString().slice(0, 10);
 const isoWeekday = (day: string) => ((new Date(`${day}T12:00:00Z`).getUTCDay() + 6) % 7) + 1;
 const berlinDay = (iso: string) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin' }).format(new Date(iso));
+/**
+ * The weekday of tomorrow in Berlin: "As soon as possible" on it puts the first visit tomorrow, less than 24 hours
+ * from the start of billing, so the first month is charged at once (D91), whatever day the test runs.
+ */
+const tomorrowWeekday = async () => isoWeekday(plusDays(await berlinToday(), 1));
+/** Midnight in Berlin at the start of a day ('YYYY-MM-DD'), when billing from that first visit day starts (D91). */
+async function berlinMidnight(day: string): Promise<number> {
+  const result = await t.pool.query<{ at: Date }>("SELECT $1::date::timestamp AT TIME ZONE 'Europe/Berlin' AS at", [day]);
+  return result.rows[0]?.at.getTime() ?? 0;
+}
+const webhook = (eventId: string, event: unknown) =>
+  t.app.inject({
+    method: 'POST',
+    url: '/payments/webhook',
+    headers: { 'stripe-signature': 'fake-signature', 'content-type': 'application/json' },
+    payload: JSON.stringify({ eventId, event }),
+  });
 
 describe('subscribing to a plan', () => {
   it('prices by size and extra', () => {
@@ -179,14 +196,14 @@ describe('subscribing to a plan', () => {
     expect(subscription.priceCents).toBe(2940 + 1500);
   });
 
-  it("charges a saved card of the customer at once, and refuses someone else's card (D90)", async () => {
+  it("charges a saved card of the customer at once when the first visit is tomorrow, and refuses someone else's card (D90, D91)", async () => {
     await approvedPro(t, '+4915100000101', { trades: [market.gardening] });
     expect((await subscribe({ paymentMethod: { type: 'card', cardId: 'pm_not_mine' } })).json()).toEqual({ error: 'card_not_found' });
     expect((await subscribe({ paymentMethod: { type: 'card' } })).json()).toEqual({ error: 'card_not_found' });
     expect(await t.pool.query('SELECT 1 FROM subscriptions')).toMatchObject({ rowCount: 0 });
     // A returning customer, known to the payment provider with a saved card.
     await t.pool.query("UPDATE users SET stripe_customer_id = 'cus_returning' WHERE first_name = 'Sara'");
-    const paid = await subscribe({ paymentMethod: { type: 'card', cardId: 'pm_card_visa' } });
+    const paid = await subscribe({ days: [await tomorrowWeekday()], paymentMethod: { type: 'card', cardId: 'pm_card_visa' } });
     expect(paid.statusCode).toBe(201);
     expect([...t.fake.subscriptions.values()][0]).toMatchObject({ paymentMethodId: 'pm_card_visa', status: 'active' });
     const mine = (await call(t, 'GET', `/subscriptions/${paid.json().subscription.id}`, { cookie: customer })).json().subscription;
@@ -201,7 +218,8 @@ describe('subscribing to a plan', () => {
     const best = await approvedPro(t, '+4915100000102', { trades: [market.gardening], firstName: 'Daniel' });
     await giveRating(t.pool, best.proId, 5);
 
-    const response = await subscribe();
+    // The first visit is tomorrow, so the first month is charged at sign-up (D91).
+    const response = await subscribe({ days: [await tomorrowWeekday()] });
     expect(response.statusCode).toBe(201);
     const subscription = response.json().subscription;
     expect(subscription).toMatchObject({ status: 'active', planName: 'Lawn care', proName: 'Daniel', priceCents: 6400, withAddon: true });
@@ -278,9 +296,9 @@ describe('subscribing to a plan', () => {
   it('waits for the card when the bank needs the customer, and drops the sign-up if never paid', async () => {
     await approvedPro(t, '+4915100000101', { trades: [market.gardening] });
     t.fake.setInstantHolds(false);
-    const { subscription, payment } = (await subscribe()).json();
+    const { subscription, payment } = (await subscribe({ days: [await tomorrowWeekday()] })).json();
     expect(subscription.status).toBe('awaiting_payment');
-    expect(payment.clientSecret).toMatch(/_secret$/);
+    expect(payment).toMatchObject({ clientSecret: expect.stringMatching(/^sub_.*_secret$/), confirm: 'payment' });
     expect(subscription.visits).toEqual([]);
 
     await t.pool.query("UPDATE subscriptions SET created_at = now() - interval '31 minutes'");
@@ -293,15 +311,8 @@ describe('subscribing to a plan', () => {
   it('activates on the paid-invoice webhook and pays the pro each month', async () => {
     await approvedPro(t, '+4915100000101', { trades: [market.gardening] });
     t.fake.setInstantHolds(false);
-    const { subscription } = (await subscribe()).json();
+    const { subscription } = (await subscribe({ days: [await tomorrowWeekday()] })).json();
     const stripeId = [...t.fake.subscriptions.keys()][0] ?? '';
-    const webhook = (eventId: string, event: unknown) =>
-      t.app.inject({
-        method: 'POST',
-        url: '/payments/webhook',
-        headers: { 'stripe-signature': 'fake-signature', 'content-type': 'application/json' },
-        payload: JSON.stringify({ eventId, event }),
-      });
     const month = (invoiceId: string) => ({
       kind: 'invoice_paid',
       subscriptionId: stripeId,
@@ -321,6 +332,198 @@ describe('subscribing to a plan', () => {
 
     await webhook('evt_3', { kind: 'invoice_failed', subscriptionId: stripeId });
     expect((await call(t, 'GET', `/subscriptions/${subscription.id}`, { cookie: customer })).json().subscription.status).toBe('past_due');
+  });
+});
+
+describe('billing from the first visit day (D91)', () => {
+  let pro: { cookie: string; proId: string };
+  beforeEach(async () => {
+    pro = await approvedPro(t, '+4915100000101', { trades: [market.gardening] });
+  });
+
+  const load = async (id: string) => (await call(t, 'GET', `/subscriptions/${id}`, { cookie: customer })).json().subscription;
+  const stripeIdOf = async (id: string) =>
+    (await t.pool.query<{ ref: string }>('SELECT stripe_subscription_id AS ref FROM subscriptions WHERE id = $1', [id])).rows[0]?.ref ?? '';
+  const payouts = async () => (await t.pool.query('SELECT invoice_id, amount_cents, status FROM subscription_payouts')).rows;
+  const visitStatuses = async (id: string) =>
+    (await t.pool.query<{ status: string }>('SELECT status FROM subscription_visits WHERE subscription_id = $1 ORDER BY starts_at', [id])).rows.map(
+      (r) => r.status,
+    );
+  const time = (iso: string | null) => (iso ? new Date(iso).getTime() : null);
+  const monthsLater = async (at: number, months: number) =>
+    (await t.pool.query<{ at: Date }>('SELECT $1::timestamptz + make_interval(months => $2) AS at', [new Date(at), months])).rows[0]?.at.getTime();
+
+  it('charges nothing at sign-up for a start next week or in 2 weeks: billing, next payment and the minimum term start on the first visit day', async () => {
+    let phone = 2;
+    for (const start of ['next_week', 'in_2_weeks']) {
+      const cookie = await signIn(t, `+49151000000${String(phone).padStart(2, '0')}`, 'customer');
+      phone += 1;
+      const response = await subscribe({ start, timeWindow: start === 'next_week' ? 'morning' : 'afternoon' }, cookie);
+      expect(response.statusCode).toBe(201);
+      const { subscription, payment } = response.json();
+      const midnight = await berlinMidnight(subscription.firstVisitOn);
+      // The card is set up, so the plan is active and its visits planned; nothing is charged or paid out yet.
+      expect(payment).toBeNull();
+      expect(subscription).toMatchObject({ status: 'active', startedAt: null });
+      expect(subscription.visits.length).toBeGreaterThan(0);
+      expect(subscription.visits.every((v: { status: string }) => v.status === 'planned')).toBe(true);
+      const stripe = [...t.fake.subscriptions.values()].find((s) => s.metadata.subscriptionId === subscription.id);
+      expect(stripe?.status).toBe('trialing');
+      expect(stripe?.firstChargeAt?.getTime()).toBe(midnight);
+      expect(time(subscription.billingStartsAt)).toBe(midnight);
+      // My plan's next payment is the first visit day until the first month is paid.
+      expect(time(subscription.currentPeriodEnd)).toBe(midnight);
+      expect(time(subscription.minTermEndsAt)).toBe(await monthsLater(midnight, 3));
+      expect(time(subscription.cancelEndsAt)).toBe(await monthsLater(midnight, 3));
+    }
+    expect(await payouts()).toEqual([]);
+  });
+
+  it('charges at once only when the first visit is tomorrow, less than 24 hours from the first visit day starting', async () => {
+    const today = await berlinToday();
+    const tomorrow = await subscribe({ days: [isoWeekday(plusDays(today, 1))] });
+    const other = await signIn(t, '+4915100000002', 'customer');
+    const dayAfter = await subscribe({ days: [isoWeekday(plusDays(today, 2))], timeWindow: 'afternoon' }, other);
+    const [first, second] = [...t.fake.subscriptions.values()];
+    // Tomorrow: billed from sign-up, the first month paid at once.
+    expect(first).toMatchObject({ status: 'active', firstChargeAt: null });
+    expect(tomorrow.json().subscription.startedAt).not.toBeNull();
+    const startsAt = time(tomorrow.json().subscription.billingStartsAt) ?? 0;
+    expect(Math.abs(startsAt - Date.now())).toBeLessThan(60_000);
+    // The day after tomorrow: nothing charged until that day begins.
+    expect(second).toMatchObject({ status: 'trialing' });
+    expect(second?.firstChargeAt?.getTime()).toBe(await berlinMidnight(plusDays(today, 2)));
+    expect(dayAfter.json().subscription.startedAt).toBeNull();
+    expect((await payouts()).map((p) => p.invoice_id)).toEqual([expect.stringMatching(/^in_first_/)]);
+  });
+
+  it("makes a saved card the plan's card without charging it", async () => {
+    await t.pool.query("UPDATE users SET stripe_customer_id = 'cus_returning' WHERE first_name = 'Sara'");
+    const response = await subscribe({ start: 'next_week', paymentMethod: { type: 'card', cardId: 'pm_card_visa' } });
+    expect(response.json().payment).toBeNull();
+    expect([...t.fake.subscriptions.values()][0]).toMatchObject({ paymentMethodId: 'pm_card_visa', status: 'trialing', cardReady: true });
+    const mine = await load(response.json().subscription.id);
+    expect(mine).toMatchObject({ status: 'active', paymentMethod: { brand: 'visa', last4: '4242', wallet: null } });
+    expect(await payouts()).toEqual([]);
+  });
+
+  it('asks the browser to set up a new card, not to pay, and starts the plan once the card is set up', async () => {
+    t.fake.setInstantHolds(false);
+    const { subscription, payment } = (await subscribe({ start: 'next_week' })).json();
+    expect(subscription.status).toBe('awaiting_payment');
+    expect(subscription.visits).toEqual([]);
+    expect(payment).toEqual({ clientSecret: expect.stringMatching(/^seti_.*_secret$/), confirm: 'setup', publishableKey: null });
+    // After a reload, My plan gets the same set-up to finish.
+    const again = (await call(t, 'GET', `/subscriptions/${subscription.id}/payment`, { cookie: customer })).json();
+    expect(again.payment).toMatchObject({ clientSecret: payment.clientSecret, confirm: 'setup' });
+
+    const check = () => call(t, 'POST', `/subscriptions/${subscription.id}/payment/check`, { cookie: customer });
+    expect((await check()).json().subscription.status).toBe('awaiting_payment');
+    t.fake.confirmSetup(await stripeIdOf(subscription.id));
+    const started = (await check()).json().subscription;
+    expect(started.status).toBe('active');
+    expect(started.visits.length).toBeGreaterThan(0);
+    expect(time(started.currentPeriodEnd)).toBe(await berlinMidnight(subscription.firstVisitOn));
+    expect(await payouts()).toEqual([]);
+    const other = await signIn(t, '+4915100000002', 'customer');
+    expect((await call(t, 'POST', `/subscriptions/${subscription.id}/payment/check`, { cookie: other })).statusCode).toBe(404);
+  });
+
+  it('starts a plan whose card is set up from the webhook, or from the planning job when the webhook never came', async () => {
+    t.fake.setInstantHolds(false);
+    const byWebhook = (await subscribe({ start: 'next_week' })).json().subscription;
+    const byJob = (await subscribe({ start: 'next_week', timeWindow: 'afternoon' }, await signIn(t, '+4915100000002', 'customer'))).json()
+      .subscription;
+    const webhookRef = await stripeIdOf(byWebhook.id);
+    t.fake.confirmSetup(webhookRef);
+    expect((await webhook('evt_ready', { kind: 'subscription_ready', subscriptionId: webhookRef })).statusCode).toBe(200);
+    expect((await load(byWebhook.id)).status).toBe('active');
+
+    t.fake.confirmSetup(await stripeIdOf(byJob.id));
+    await t.pool.query("UPDATE subscriptions SET created_at = now() - interval '31 minutes' WHERE id = $1", [byJob.id]);
+    await subscriptionTick(t.deps);
+    expect((await t.pool.query<{ status: string }>('SELECT status FROM subscriptions WHERE id = $1', [byJob.id])).rows[0]?.status).toBe('active');
+  });
+
+  it('records the first month only when the first invoice is paid, from the first visit day, and pays the pro', async () => {
+    const { subscription } = (await subscribe({ start: 'in_2_weeks' })).json();
+    const midnight = await berlinMidnight(subscription.firstVisitOn);
+    const periodEnd = (await monthsLater(midnight, 1)) ?? 0;
+    const paid = await webhook('evt_first', {
+      kind: 'invoice_paid',
+      subscriptionId: await stripeIdOf(subscription.id),
+      invoiceId: 'in_first_month',
+      amountCents: 6400,
+      periodEnd: new Date(periodEnd).toISOString(),
+    });
+    expect(paid.statusCode).toBe(200);
+    const after = await load(subscription.id);
+    expect(after.status).toBe('active');
+    expect(time(after.startedAt)).toBe(midnight);
+    expect(time(after.currentPeriodEnd)).toBe(periodEnd);
+    expect(await payouts()).toEqual([{ invoice_id: 'in_first_month', amount_cents: Math.floor(6400 * 0.7), status: 'sent' }]);
+  });
+
+  it('holds the visits and tells the customer when the first charge fails, and plans them again once it is paid', async () => {
+    const { subscription } = (await subscribe({ start: 'next_week' })).json();
+    const ref = await stripeIdOf(subscription.id);
+    expect((await webhook('evt_failed', { kind: 'invoice_failed', subscriptionId: ref })).statusCode).toBe(200);
+    const failed = await load(subscription.id);
+    expect(failed.status).toBe('past_due');
+    expect(await visitStatuses(subscription.id)).toEqual(subscription.visits.map(() => 'pending'));
+    // Off the pro's week, and they cannot tick it off.
+    const to = new Date(Date.now() + 30 * DAY_MS).toISOString();
+    expect((await call(t, 'GET', `/pro/visits?to=${encodeURIComponent(to)}`, { cookie: pro.cookie })).json().visits).toEqual([]);
+    const firstVisit = subscription.visits[0].id as string;
+    await t.pool.query("UPDATE subscription_visits SET starts_at = now() - interval '1 hour', ends_at = now() + interval '1 minute' WHERE id = $1", [
+      firstVisit,
+    ]);
+    const done = await call(t, 'POST', `/pro/visits/${firstVisit}/complete`, { cookie: pro.cookie, body: { tasksDone: ['Mow'] } });
+    expect(done.json()).toEqual({ error: 'invalid_status' });
+    const told = await t.pool.query<{ body: string; link: string }>("SELECT body, link FROM inbox WHERE kind = 'payment_action_needed'");
+    expect(told.rows).toEqual([{ body: expect.stringContaining('on hold'), link: `/my-plans/${subscription.id}` }]);
+    // A second failed attempt does not tell them again.
+    await webhook('evt_failed_2', { kind: 'invoice_failed', subscriptionId: ref });
+    expect((await t.pool.query("SELECT 1 FROM inbox WHERE kind = 'payment_action_needed'")).rowCount).toBe(1);
+
+    // Stripe's retry goes through: the visits take place again, except the one whose time passed meanwhile.
+    await webhook('evt_paid', {
+      kind: 'invoice_paid',
+      subscriptionId: ref,
+      invoiceId: 'in_retry',
+      amountCents: 6400,
+      periodEnd: new Date(Date.now() + 40 * DAY_MS).toISOString(),
+    });
+    expect((await load(subscription.id)).status).toBe('active');
+    const statuses = await visitStatuses(subscription.id);
+    expect(statuses[0]).toBe('cancelled');
+    expect(statuses.slice(1).every((s) => s === 'planned')).toBe(true);
+    expect((await payouts()).map((p) => p.invoice_id)).toEqual(['in_retry']);
+  });
+
+  it('holds a visit about to start when billing has started but the first month is still not paid', async () => {
+    const { subscription } = (await subscribe({ start: 'next_week' })).json();
+    const [soon, later] = subscription.visits as { id: string }[];
+    // The first visit day has come, the charge has not been reported, and a visit starts within the hour.
+    await t.pool.query("UPDATE subscriptions SET billing_starts_at = now() - interval '7 hours' WHERE id = $1", [subscription.id]);
+    await t.pool.query("UPDATE subscription_visits SET starts_at = now() + interval '1 hour', ends_at = now() + interval '2 hours' WHERE id = $1", [
+      soon?.id,
+    ]);
+    await subscriptionTick(t.deps);
+    const status = async (id: string | undefined) =>
+      (await t.pool.query<{ status: string }>('SELECT status FROM subscription_visits WHERE id = $1', [id])).rows[0]?.status;
+    expect(await status(soon?.id)).toBe('pending');
+    expect(await status(later?.id)).toBe('planned');
+    await subscriptionTick(t.deps);
+    expect((await t.pool.query("SELECT 1 FROM inbox WHERE kind = 'payment_action_needed'")).rowCount).toBe(1);
+  });
+
+  it('ends a cancelled plan at the end of the minimum term counted from the first visit day', async () => {
+    const { subscription } = (await subscribe({ start: 'in_2_weeks' })).json();
+    const termEnds = await monthsLater(await berlinMidnight(subscription.firstVisitOn), 3);
+    const cancelled = (await call(t, 'POST', `/subscriptions/${subscription.id}/cancel`, { cookie: customer })).json().subscription;
+    expect(time(cancelled.endsAt)).toBe(termEnds);
+    expect([...t.fake.subscriptions.values()][0]?.cancelAt?.getTime()).toBe(termEnds);
   });
 });
 
@@ -703,7 +906,8 @@ describe('managing a plan', () => {
 
   it('cancels during the minimum term: the plan ends when the term is over (D90)', async () => {
     const subscription = (await subscribe()).json().subscription;
-    const term = await t.pool.query<{ ends: Date }>("SELECT started_at + interval '3 months' AS ends FROM subscriptions");
+    // Counted from when billing starts (D91), whatever day that is.
+    const term = await t.pool.query<{ ends: Date }>("SELECT billing_starts_at + interval '3 months' AS ends FROM subscriptions");
     const termEnds = term.rows[0]?.ends.getTime() ?? 0;
     expect(new Date(subscription.minTermEndsAt).getTime()).toBe(termEnds);
     expect(new Date(subscription.cancelEndsAt).getTime()).toBe(termEnds);
@@ -715,7 +919,7 @@ describe('managing a plan', () => {
     expect((cancelled.visits as Visit[]).every((v) => v.status === 'planned')).toBe(true);
 
     // Near the term's end, the 30 days' notice still applies.
-    await t.pool.query("UPDATE subscriptions SET ends_at = NULL, started_at = now() - interval '3 months' + interval '10 days'");
+    await t.pool.query("UPDATE subscriptions SET ends_at = NULL, billing_starts_at = now() - interval '3 months' + interval '10 days'");
     const late = Date.now();
     const again = (await call(t, 'POST', `/subscriptions/${subscription.id}/cancel`, { cookie: customer })).json().subscription;
     expect(new Date(again.endsAt).getTime()).toBeGreaterThanOrEqual(late + 30 * DAY - 1000);
@@ -724,7 +928,7 @@ describe('managing a plan', () => {
 
   it('keeps the plan after all with Keep my plan, until it has ended (D90)', async () => {
     const subscription = (await subscribe()).json().subscription;
-    await t.pool.query("UPDATE subscriptions SET started_at = now() - interval '4 months'");
+    await t.pool.query("UPDATE subscriptions SET billing_starts_at = now() - interval '4 months'");
     const keep = () => call(t, 'POST', `/subscriptions/${subscription.id}/keep`, { cookie: customer });
     expect((await keep()).json()).toEqual({ error: 'not_cancelled' });
 
@@ -760,7 +964,7 @@ describe('managing a plan', () => {
 
   it('cancels after the minimum term with 30 days notice', async () => {
     const subscription = (await subscribe()).json().subscription;
-    await t.pool.query("UPDATE subscriptions SET started_at = now() - interval '4 months'");
+    await t.pool.query("UPDATE subscriptions SET billing_starts_at = now() - interval '4 months'");
     // A visit after the notice ends, e.g. planned before the plan was cancelled.
     const late = await t.pool.query<{ id: string }>(
       `INSERT INTO subscription_visits (subscription_id, pro_id, starts_at, ends_at, status)

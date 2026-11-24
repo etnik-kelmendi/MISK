@@ -37,9 +37,19 @@ import { BookPage } from './pages/customer/BookPage';
 import { CategoryPage } from './pages/customer/CategoryPage';
 import { CustomerPlansPage } from './pages/customer/CustomerPlansPage';
 import { FavouritesPage } from './pages/customer/FavouritesPage';
+import { BecomeProPage } from './pages/customer/profile/BecomeProPage';
+import { HelpPage } from './pages/customer/profile/HelpPage';
+import { NotificationSettingsPage } from './pages/customer/profile/NotificationSettingsPage';
+import { PaymentMethodsPage } from './pages/customer/profile/PaymentMethodsPage';
+import { PersonalPage } from './pages/customer/profile/PersonalPage';
+import { ProfilePage } from './pages/customer/profile/ProfilePage';
+import { SavedAddressesPage } from './pages/customer/profile/SavedAddressesPage';
+import { TermsPrivacyPage } from './pages/customer/profile/TermsPrivacyPage';
 import { MyPlanPage } from './pages/customer/MyPlanPage';
 import { SubscribePage } from './pages/customer/SubscribePage';
 import { HomePage } from './pages/customer/HomePage';
+import { ApplicationPage } from './pages/pro/ApplicationPage';
+import { ApplicationStatusPage } from './pages/pro/ApplicationStatusPage';
 import { ProHomePage } from './pages/pro/ProHomePage';
 import { ProJobPage } from './pages/pro/ProJobPage';
 import { ProProfilePage } from './pages/pro/ProProfilePage';
@@ -96,9 +106,16 @@ function CustomerAndProRoutes() {
         <Route path="my-plans/:id" element={<MyPlanPage />} />
         <Route path="messages" element={<MessagesPage />} />
         <Route path="favourites" element={<FavouritesPage />} />
-        {/* Profile is the customer's Account page (D89); the older /account address keeps working. */}
-        <Route path="profile" element={<AccountPage customer />} />
-        <Route path="account" element={<AccountPage customer />} />
+        {/* The customer's Profile and its pages (D92); the older /account address opens Personal information. */}
+        <Route path="profile" element={<ProfilePage />} />
+        <Route path="profile/personal" element={<PersonalPage />} />
+        <Route path="profile/addresses" element={<SavedAddressesPage />} />
+        <Route path="profile/payments" element={<PaymentMethodsPage />} />
+        <Route path="profile/notifications" element={<NotificationSettingsPage />} />
+        <Route path="profile/become-a-pro" element={<BecomeProPage />} />
+        <Route path="profile/help" element={<HelpPage />} />
+        <Route path="profile/terms" element={<TermsPrivacyPage />} />
+        <Route path="account" element={<Navigate to="/profile/personal" replace />} />
       </Route>
       <Route
         path="pro"
@@ -114,6 +131,9 @@ function CustomerAndProRoutes() {
         <Route path="visits/:id" element={<ProVisitPage />} />
         <Route path="week" element={<ProWeekPage />} />
         <Route path="profile" element={<ProProfilePage />} />
+        {/* The pro's application and where it stands (D93). */}
+        <Route path="apply" element={<ApplicationPage />} />
+        <Route path="application" element={<ApplicationStatusPage />} />
         <Route path="messages" element={<MessagesPage />} />
         <Route path="account" element={<AccountPage />} />
       </Route>

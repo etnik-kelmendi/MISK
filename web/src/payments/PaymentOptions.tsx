@@ -38,6 +38,11 @@ const BRAND: Record<string, { label: string; bg: string }> = {
   amex: { label: 'AMEX', bg: '#2E77BC' },
 };
 
+/** The small coloured logo of a card brand, e.g. "VISA" on blue. */
+export function brandBadge(brand: string): { label: string; bg: string } {
+  return BRAND[brand] ?? { label: brand.toUpperCase().slice(0, 4), bg: '#3A4A43' };
+}
+
 /** "Visa", "Mastercard" for a card brand as the payment provider names it. */
 export function brandName(brand: string): string {
   return BRAND[brand]?.label === 'MC' ? 'Mastercard' : brand.charAt(0).toUpperCase() + brand.slice(1);

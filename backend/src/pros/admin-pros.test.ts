@@ -40,12 +40,11 @@ async function applicant(phone = PRO_PHONE, firstName = 'Daniel') {
   const cookie = await signIn(t, phone, 'pro', firstName);
   await call(t, 'PATCH', '/pro/profile', {
     cookie,
-    body: { trades: [market.gardening], homePostcode: '10115', radiusKm: 15, workingDays: [1, 2, 3] },
+    body: { trades: [market.gardening], homePostcode: '10115', homeAddress: 'Linden Street 4', radiusKm: 15, workingDays: [1, 2, 3], backgroundConsent: true },
   });
   await upload(t, '/pro/documents/id?expiresOn=2031-05-01', cookie, FILES.jpeg, 'passport.jpg');
   await upload(t, '/pro/documents/certificate', cookie, FILES.pdf, 'gardener-certificate.pdf');
   await upload(t, '/pro/documents/insurance?expiresOn=2030-01-31', cookie, FILES.png, 'insurance.png');
-  await upload(t, '/pro/documents/background', cookie, FILES.pdf, 'good-conduct.pdf');
   await call(t, 'POST', '/pro/submit', { cookie });
   const { id } = (await call(t, 'GET', '/auth/me', { cookie })).json().user as { id: string };
   return { cookie, id };
@@ -435,7 +434,7 @@ describe('documents that run out', () => {
     await t.pool.query("DELETE FROM pro_documents WHERE pro_id = $1 AND kind = 'background'", [id]);
     const missing = await post(`/admin/pros/${id}/documents/background/remind`);
     expect(missing.statusCode).toBe(200);
-    expect((await texts(id)).at(-1)).toContain('upload your certificate of good conduct');
+    expect((await texts(id)).at(-1)).toContain('agree to the background check');
     expect((await post(`/admin/pros/${id}/documents/background/remind`)).json()).toEqual({ error: 'reminder_recent' });
 
     await post(`/admin/pros/${id}/documents/insurance/remind`);

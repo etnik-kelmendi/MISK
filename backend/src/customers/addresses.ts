@@ -9,12 +9,16 @@ import { uuidParams } from '../http.js';
 /** A customer keeps at most this many saved addresses (D89). */
 export const MAX_ADDRESSES = 10;
 export const MAX_ADDRESS_LABEL = 30;
+/** Notes for the pro, e.g. a gate code (D92). */
+export const MAX_ADDRESS_NOTES = 200;
 
 export interface SavedAddress {
   id: string;
   label: string | null;
   address: string;
   postcode: string;
+  /** For the pro, e.g. "Gate code 4411"; null when there are none (D92). */
+  notes: string | null;
   /** The zone's name, e.g. "Mitte". */
   areaName: string;
   /** Whether MISK still serves the postcode; a zone the team paused leaves the address saved but unserved. */
@@ -23,7 +27,7 @@ export interface SavedAddress {
   createdAt: Date;
 }
 
-const ADDRESS_COLUMNS = `a.id, a.label, a.address, a.postcode, pc.name AS "areaName", pc.active AS served,
+const ADDRESS_COLUMNS = `a.id, a.label, a.address, a.postcode, a.notes, pc.name AS "areaName", pc.active AS served,
   a.is_selected AS selected, a.created_at AS "createdAt"`;
 const ADDRESS_FROM = 'customer_addresses a JOIN postcodes pc ON pc.code = a.postcode';
 
@@ -31,6 +35,7 @@ interface AddressBody {
   label?: string | null;
   address?: string;
   postcode?: string;
+  notes?: string | null;
   /** Makes the new address the selected one; a customer's first address is always selected. */
   select?: boolean;
 }
@@ -39,9 +44,10 @@ const addressProperties = {
   label: { anyOf: [{ type: 'string', maxLength: MAX_ADDRESS_LABEL }, { type: 'null' }] },
   address: { type: 'string', minLength: 3, maxLength: 200, pattern: '\\S' },
   postcode: { type: 'string', minLength: 2, maxLength: POSTCODE_INPUT_MAX_LENGTH },
+  notes: { anyOf: [{ type: 'string', maxLength: MAX_ADDRESS_NOTES }, { type: 'null' }] },
 } as const;
 
-/** A blank label is no label. */
+/** A blank label or blank notes are none. */
 function cleanLabel(label: string | null | undefined): string | null {
   const trimmed = label?.trim() ?? '';
   return trimmed ? trimmed : null;
@@ -146,8 +152,8 @@ export async function addressRoutes(app: FastifyInstance, ctx: AppContext) {
         const count = onlyRow(await client.query<{ n: number }>('SELECT count(*)::int AS n FROM customer_addresses WHERE customer_id = $1', [customerId])).n;
         if (count >= MAX_ADDRESSES) throw conflict('address_limit');
         const inserted = await client.query<{ id: string }>(
-          `INSERT INTO customer_addresses (customer_id, label, address, postcode, lat, lng) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-          [customerId, cleanLabel(body.label), body.address.trim(), zone.code, zone.lat, zone.lng],
+          `INSERT INTO customer_addresses (customer_id, label, address, postcode, lat, lng, notes) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+          [customerId, cleanLabel(body.label), body.address.trim(), zone.code, zone.lat, zone.lng, cleanLabel(body.notes)],
         );
         const id = onlyRow(inserted).id;
         if (count === 0 || body.select) await selectOnly(client, customerId, id);
@@ -178,6 +184,7 @@ export async function addressRoutes(app: FastifyInstance, ctx: AppContext) {
              label = CASE WHEN $3 THEN $4 ELSE label END,
              address = COALESCE($5, address),
              postcode = COALESCE($6, postcode), lat = COALESCE($7, lat), lng = COALESCE($8, lng),
+             notes = CASE WHEN $9 THEN $10 ELSE notes END,
              updated_at = now()
            WHERE id = $1 AND customer_id = $2`,
           [
@@ -189,6 +196,8 @@ export async function addressRoutes(app: FastifyInstance, ctx: AppContext) {
             zone?.code ?? null,
             zone?.lat ?? null,
             zone?.lng ?? null,
+            body.notes !== undefined,
+            cleanLabel(body.notes),
           ],
         );
         return loadOwn(client, customerId, request.params.id);

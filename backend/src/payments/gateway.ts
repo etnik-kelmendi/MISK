@@ -16,14 +16,25 @@ export type GatewayEvent =
   /** A monthly plan invoice was paid; `periodEnd` is when the paid month ends. */
   | { kind: 'invoice_paid'; subscriptionId: string; invoiceId: string; amountCents: number; periodEnd: Date }
   | { kind: 'invoice_failed'; subscriptionId: string }
+  /** A plan billed from its first visit day has the customer's card set up (D91): nothing is charged yet. */
+  | { kind: 'subscription_ready'; subscriptionId: string }
   | { kind: 'ignored' };
+
+/**
+ * What the customer's browser does with a plan's secret (D91): 'payment' pays the first month now; 'setup' only
+ * saves the card, which is first charged on the first visit day.
+ */
+export type SubscriptionConfirm = 'payment' | 'setup';
 
 export interface SubscriptionStart {
   subscriptionId: string;
-  /** Secret the customer's browser needs to pay the first month; null when nothing is left to do. */
+  /** Secret the customer's browser needs to pay the first month or set up the card; null when nothing is left to do. */
   clientSecret: string | null;
-  /** True when the first month is already paid. */
+  confirm: SubscriptionConfirm;
+  /** True when nothing is left for the customer: the first month is paid, or the card is set up for a later first charge. */
   active: boolean;
+  /** True when the first month is already paid (billing started at once). */
+  paid: boolean;
   /** The provider's first invoice, so the immediate payment and its paid-invoice webhook are recorded once. */
   invoiceId: string | null;
 }
@@ -37,6 +48,24 @@ export interface PaymentGateway {
   createHold(input: HoldInput): Promise<HoldResult>;
   /** The cards a customer saved, newest first; wallet cards (Apple Pay, Google Pay) are left out. */
   listCards(customerRef: string): Promise<SavedCard[]>;
+  /**
+   * Starts adding a card on Payment methods (D92): the browser sends the card straight to the provider with the
+   * returned secret, and the card is saved for later payments without charging anything.
+   */
+  createCardSetup(input: { customerRef: string; idempotencyKey: string }): Promise<{ clientSecret: string }>;
+  /** The customer's default card for future payments and plan bills, or null when none is set (D92). */
+  defaultCardId(customerRef: string): Promise<string | null>;
+  /** Makes one of the customer's saved cards their default for future payments and plan bills (D92). */
+  setDefaultCard(customerRef: string, cardId: string): Promise<void>;
+  /** Removes a saved card from the customer (D92). Throws when the card is not theirs. */
+  detachCard(customerRef: string, cardId: string): Promise<void>;
+  /**
+   * The id of the card a plan is billed to while the plan is still billing (D92); null when it has no card of
+   * its own (its bills then go to the customer's default card) or no longer bills.
+   */
+  subscriptionCardId(subscriptionId: string): Promise<string | null>;
+  /** Bills a plan to another of the customer's saved cards from its next bill on (D92). */
+  setSubscriptionCard(subscriptionId: string, cardId: string): Promise<void>;
   /** Authorises another amount on the card used for `fromIntentId`, e.g. approved extra work. */
   holdOnSavedCard(input: HoldInput & { fromIntentId: string }): Promise<HoldResult>;
   /**
@@ -70,18 +99,28 @@ export interface PaymentGateway {
   createConnectedAccount(input: { userId: string; idempotencyKey: string }): Promise<string>;
   /** The provider's product a plan is billed under, created once per plan. */
   ensureProduct(input: { planId: string; name: string; existing: string | null }): Promise<string>;
-  /** Starts monthly billing; the first month is paid by the customer in the browser. */
+  /**
+   * Starts monthly billing. With `firstChargeAt` (D91) nothing is charged until then: the card is only set up now,
+   * the first full month is charged at that moment and every month on that date after. Without it the first month
+   * is charged at once.
+   */
   createSubscription(input: {
     customerRef: string;
     productId: string;
     amountCents: number;
     idempotencyKey: string;
     metadata: Record<string, string>;
-    /** A card the customer saved before (D90): the first month is charged on it at once. */
+    /** A card the customer saved before (D90): it becomes the plan's card, charged at once or on `firstChargeAt`. */
     paymentMethodId?: string;
+    firstChargeAt?: Date;
   }): Promise<SubscriptionStart>;
-  /** The browser secret of an unpaid first month, so the customer can finish paying after a reload. */
-  subscriptionClientSecret(subscriptionId: string): Promise<string | null>;
+  /**
+   * The browser secret of a plan still waiting for the customer: its unpaid first month, or its card set-up for a
+   * later first charge (D91), so the customer can finish after a reload. Null when nothing is waiting.
+   */
+  subscriptionClientSecret(subscriptionId: string): Promise<{ clientSecret: string; confirm: SubscriptionConfirm } | null>;
+  /** True when a plan billed from a later day has its card set up, so it can start (D91). */
+  subscriptionCardReady(subscriptionId: string): Promise<boolean>;
   /** Stops billing, either now or once the paid month ends. */
   cancelSubscription(subscriptionId: string, atPeriodEnd: boolean): Promise<void>;
   /**

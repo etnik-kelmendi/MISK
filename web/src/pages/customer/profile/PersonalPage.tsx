@@ -1,0 +1,165 @@
+import { useCallback, useState, type FormEvent } from 'react';
+import { useTranslation } from 'react-i18next';
+import { useApi } from '../../../api/ApiContext';
+import type { User } from '../../../api/types';
+import { useResource } from '../../../api/useResource';
+import { useAuth, useUser } from '../../../auth/AuthContext';
+import { ErrorText } from '../../../components/ErrorText';
+import { FieldError } from '../../../components/FieldError';
+import { Icon } from '../../../components/Icon';
+import { LANGUAGE } from '../../../i18n';
+import { useAction } from '../../../lib/useAction';
+import { useValidation } from '../../../lib/useValidation';
+import { AppHeader } from '../../../shells/Shells';
+import { AccountPhone } from '../../AccountPhone';
+
+/** The API's limit for a first or last name. */
+export const MAX_NAME_LENGTH = 60;
+
+/** The languages the app has texts for (one translation file each). The API keeps the same list. */
+export const APP_LANGUAGES = [LANGUAGE] as const;
+
+/** What `GET /account/settings` answers (D92). */
+export interface AccountSettings {
+  language: string;
+  languages: string[];
+  support: { email: string | null; phone: string | null };
+}
+
+/** The account's language and the support contact, for Personal information and Help & support. */
+export function useAccountSettings() {
+  const api = useApi();
+  const load = useCallback(() => api.get<AccountSettings>('/account/settings'), [api]);
+  return useResource(load);
+}
+
+/**
+ * Personal information (D92): first and last name, the phone number (changed with a texted code, D87), the
+ * email address (read-only: it is how the account logs in) and the language, saved with "Save changes".
+ */
+export function PersonalPage() {
+  const { t } = useTranslation();
+  const api = useApi();
+  const user = useUser();
+  const { setUser } = useAuth();
+  const settings = useAccountSettings();
+  const [firstName, setFirstName] = useState(user.firstName ?? '');
+  const [lastName, setLastName] = useState(user.lastName ?? '');
+  const [chosenLanguage, setLanguage] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const save = useAction();
+  const form = useValidation(
+    { firstName: !firstName.trim() && t('validation.firstNameMissing') },
+    { firstName: 'personal-first-name' },
+  );
+
+  const loaded = settings.state.status === 'ready' ? settings.state.data : null;
+  // Only languages both the app and the API have; the saved one starts selected.
+  const languages = APP_LANGUAGES.filter((code) => !loaded || loaded.languages.includes(code));
+  const savedLanguage = loaded && (APP_LANGUAGES as readonly string[]).includes(loaded.language) ? loaded.language : LANGUAGE;
+  const language = chosenLanguage ?? savedLanguage;
+
+  async function submit(event?: FormEvent) {
+    event?.preventDefault();
+    setSaved(false);
+    if (!form.check()) return;
+    const result = await save.run(() =>
+      api.patch<{ user: User; language: string }>('/account/personal', {
+        firstName: firstName.trim(),
+        lastName: lastName.trim() || null,
+        language,
+      }),
+    );
+    if (result) {
+      setUser(result.user);
+      setSaved(true);
+    }
+  }
+
+  return (
+    <>
+      <AppHeader title={t('profile.personal')} back="/profile" />
+      <div className="body">
+        <form id="personal-form" className="card stack" onSubmit={submit} noValidate aria-label={t('personal.nameTitle')}>
+          <div className="field">
+            <label htmlFor="personal-first-name">{t('personal.firstName')}</label>
+            <input
+              id="personal-first-name"
+              required
+              maxLength={MAX_NAME_LENGTH}
+              autoComplete="given-name"
+              value={firstName}
+              {...form.describe('firstName')}
+              onChange={(event) => setFirstName(event.target.value)}
+            />
+            <FieldError id="personal-first-name" message={form.message('firstName')} />
+          </div>
+          <div className="field">
+            <label htmlFor="personal-last-name">
+              {t('personal.lastName')} <span className="h-note">{t('rating.optional')}</span>
+            </label>
+            <input
+              id="personal-last-name"
+              maxLength={MAX_NAME_LENGTH}
+              autoComplete="family-name"
+              value={lastName}
+              onChange={(event) => setLastName(event.target.value)}
+            />
+          </div>
+        </form>
+
+        <AccountPhone />
+
+        <div className="card stack">
+          <div className="field">
+            <label htmlFor="personal-email">{t('personal.email')}</label>
+            <input
+              id="personal-email"
+              type="email"
+              readOnly
+              aria-describedby="personal-email-note"
+              value={user.email ?? ''}
+              placeholder={t('personal.noEmail')}
+            />
+            <span id="personal-email-note" className="hint">
+              {user.email ? t('personal.emailNote') : t('personal.noEmailNote')}
+            </span>
+          </div>
+          <div className="field">
+            <label htmlFor="personal-language">{t('personal.language')}</label>
+            <select
+              id="personal-language"
+              form="personal-form"
+              aria-describedby="personal-language-note"
+              value={language}
+              onChange={(event) => setLanguage(event.target.value)}
+            >
+              {languages.map((code) => (
+                <option key={code} value={code}>
+                  {t(`personal.languages.${code}`)}
+                </option>
+              ))}
+            </select>
+            <span id="personal-language-note" className="hint">
+              {t('personal.languageNote')}
+            </span>
+          </div>
+        </div>
+
+        <div className="info">
+          <Icon name="shield" />
+          <p>{t('personal.privacy')}</p>
+        </div>
+        <ErrorText error={save.error} />
+        {saved && (
+          <p className="small brand-text" role="status">
+            {t('personal.saved')}
+          </p>
+        )}
+        <button className="cta" type="button" disabled={save.busy} onClick={() => void submit()}>
+          {t('personal.save')}
+        </button>
+      </div>
+    </>
+  );
+}

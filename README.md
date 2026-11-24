@@ -171,9 +171,10 @@ files, which git ignores.
    `NODE_ENV=production`.
 2. Enable **Connect** in the Stripe dashboard, with Express accounts.
 3. Add a webhook endpoint for `https://<api host>/payments/webhook` listening to
-   `payment_intent.amount_capturable_updated`, `payment_intent.payment_failed`, `invoice.paid` and
-   `invoice.payment_failed` (the last two bill monthly plans), and put its signing secret in
-   `STRIPE_WEBHOOK_SECRET`.
+   `payment_intent.amount_capturable_updated`, `payment_intent.payment_failed`, `invoice.paid`,
+   `invoice.payment_failed`, `customer.subscription.created` and `customer.subscription.updated` (the last four
+   bill monthly plans; the subscription events say when a plan billed from its first visit day has its card set
+   up, D91), and put its signing secret in `STRIPE_WEBHOOK_SECRET`.
 
 ### Push notifications
 

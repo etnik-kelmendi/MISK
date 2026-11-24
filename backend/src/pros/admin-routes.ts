@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import type { PoolClient } from 'pg';
 import { currentUser } from '../auth/guard.js';
 import type { BookingDeps } from '../bookings/events.js';
 import type { AppContext } from '../context.js';
@@ -7,9 +8,11 @@ import { ApiError, badRequest, conflict, notFound } from '../errors.js';
 import { uuidParams } from '../http.js';
 import { formatSlot, messages } from '../notifications/messages.js';
 import { enqueue } from '../notifications/outbox.js';
-import { sendExpiringReminder } from './document-reminders.js';
+import { readableDay, sendExpiringReminder } from './document-reminders.js';
 import {
   addDays,
+  certificateRequiredSql,
+  checksPassed,
   DOCUMENT_COLUMNS,
   DOCUMENT_KINDS,
   EXPIRING_KINDS,
@@ -19,6 +22,8 @@ import {
   PRO_STATS,
   PRO_STATS_COLUMNS,
   proNumbers,
+  UPLOAD_KINDS,
+  type Check,
   type DocumentKind,
   type DocumentRow,
   type StatsRow,
@@ -31,6 +36,7 @@ import {
   logProAction,
   withdrawOffers,
 } from './management.js';
+import { APPLICATION_LINK, REAPPLY_INTERVAL } from './routes.js';
 
 export const PRO_TABS = ['applications', 'active', 'pending_approval', 'suspended'] as const;
 type ProTab = (typeof PRO_TABS)[number];
@@ -74,6 +80,7 @@ interface ListRow extends StatsRow {
   jobsPaused: boolean;
   watchList: boolean;
   checksDone: number;
+  certificateRequired: boolean;
   expiringDocuments: number;
   expiredDocuments: number;
   waitingDocuments: number;
@@ -93,6 +100,29 @@ export async function adminProRoutes(app: FastifyInstance, ctx: AppContext) {
     if (!updated.rowCount) {
       const exists = await pool.query('SELECT 1 FROM pro_profiles WHERE user_id = $1', [proId]);
       throw exists.rowCount ? conflict('invalid_status') : notFound();
+    }
+  }
+
+  /**
+   * Tells an applicant when their application moves on after a check (D93): once every document they need is
+   * accepted ("documents checked"), and when the background check result is in. `before` are the checks
+   * before the change, so each step is announced once.
+   */
+  async function notifyApplicationStep(client: PoolClient, proId: string, kind: DocumentKind, before: Check[]) {
+    const status = await client.query<{ status: string }>('SELECT status FROM pro_profiles WHERE user_id = $1', [proId]);
+    if (!['submitted', 'info_requested'].includes(status.rows[0]?.status ?? '')) {
+      return;
+    }
+    const after = await loadChecks(client, proId, ctx.config.timezone);
+    const documentsDone = (checks: Check[]) => checks.every((c) => c.kind === 'background' || !c.required || c.ok);
+    const backgroundOf = (checks: Check[]) => checks.find((c) => c.kind === 'background')?.state;
+    if (kind === 'background') {
+      const result = backgroundOf(after);
+      if ((result === 'valid' || result === 'rejected') && result !== backgroundOf(before)) {
+        await enqueue(client, proId, 'application_reviewed', messages.applicationBackgroundDone(), { link: APPLICATION_LINK });
+      }
+    } else if (documentsDone(after) && !documentsDone(before)) {
+      await enqueue(client, proId, 'application_reviewed', messages.applicationDocumentsChecked(), { link: APPLICATION_LINK });
     }
   }
 
@@ -120,6 +150,10 @@ export async function adminProRoutes(app: FastifyInstance, ctx: AppContext) {
         payoutsEnabled: boolean;
         stripeAccountId: string | null;
         earnedThisMonthCents: number;
+        homeAddress: string | null;
+        backgroundConsentAt: Date | null;
+        requestedDocuments: DocumentKind[];
+        rejectedAt: Date | null;
       }
     >(
       `SELECT p.user_id AS id, u.first_name AS "firstName", u.last_name AS "lastName", u.phone, u.email, p.status,
@@ -128,6 +162,9 @@ export async function adminProRoutes(app: FastifyInstance, ctx: AppContext) {
          p.suspended_at AS "suspendedAt", p.suspended_reason AS "suspendedReason", p.jobs_paused_at AS "jobsPausedAt",
          p.watch_list_at AS "watchListAt", p.coaching_call_at AS "coachingCallAt", p.payouts_enabled AS "payoutsEnabled",
          p.stripe_account_id AS "stripeAccountId",
+         -- The application (D93); the home address is for the team only, never for customers.
+         p.home_address AS "homeAddress", p.background_consent_at AS "backgroundConsentAt",
+         p.requested_documents AS "requestedDocuments", p.rejected_at AS "rejectedAt",
          COALESCE((SELECT array_agg(c.name ORDER BY c.name) FROM pro_trades t JOIN categories c ON c.id = t.category_id
                    WHERE t.pro_id = p.user_id), '{}') AS trades,
          (SELECT COALESCE(sum(x.amount_cents), 0)::int FROM (
@@ -194,6 +231,11 @@ export async function adminProRoutes(app: FastifyInstance, ctx: AppContext) {
       status: rest.status,
       homePostcode: rest.homePostcode,
       postcodeName: rest.postcodeName,
+      homeAddress: rest.homeAddress,
+      backgroundConsentAt: rest.backgroundConsentAt,
+      requestedDocuments: rest.requestedDocuments,
+      rejectedAt: rest.rejectedAt,
+      certificateRequired: checks.find((c) => c.kind === 'certificate')?.required ?? true,
       radiusKm: rest.radiusKm,
       workingDays: rest.workingDays,
       trades: rest.trades,
@@ -209,7 +251,7 @@ export async function adminProRoutes(app: FastifyInstance, ctx: AppContext) {
       ...numbers,
       earnedThisMonthCents: rest.earnedThisMonthCents,
       checks,
-      allChecksOk: checks.every((c) => c.ok),
+      allChecksOk: checksPassed(checks),
       regulars: regulars.rows,
       reviews: reviews.rows,
       payouts: payouts.rows,
@@ -301,8 +343,11 @@ export async function adminProRoutes(app: FastifyInstance, ctx: AppContext) {
                      WHERE t.pro_id = p.user_id), '{}') AS trades,
            p.submitted_at AS "submittedAt", p.suspended_at AS "suspendedAt", p.suspended_reason AS "suspendedReason",
            p.review_note AS "reviewNote", p.jobs_paused_at IS NOT NULL AS "jobsPaused", p.watch_list_at IS NOT NULL AS "watchList",
+           -- Only the checks the pro needs count: a certificate is not needed when no chosen trade needs one (D93).
            (SELECT count(*)::int FROM pro_documents d WHERE d.pro_id = p.user_id AND d.review_status = 'accepted'
-              AND (d.expires_on IS NULL OR d.expires_on >= $2::date)) AS "checksDone",
+              AND (d.expires_on IS NULL OR d.expires_on >= $2::date)
+              AND (d.kind <> 'certificate' OR ${certificateRequiredSql('p.user_id')})) AS "checksDone",
+           ${certificateRequiredSql('p.user_id')} AS "certificateRequired",
            (SELECT count(*)::int FROM pro_documents d WHERE d.pro_id = p.user_id AND d.valid_until <> 'infinity'
               AND d.valid_until BETWEEN $2::date AND $3::date) AS "expiringDocuments",
            (SELECT count(*)::int FROM pro_documents d WHERE d.pro_id = p.user_id AND d.valid_until < $2::date) AS "expiredDocuments",
@@ -322,6 +367,7 @@ export async function adminProRoutes(app: FastifyInstance, ctx: AppContext) {
       return {
         pros: result.rows.map((row) => {
           const numbers = proNumbers(row);
+          const checksTotal = row.certificateRequired ? DOCUMENT_KINDS.length : DOCUMENT_KINDS.length - 1;
           return {
             id: row.id,
             firstName: row.firstName,
@@ -335,8 +381,8 @@ export async function adminProRoutes(app: FastifyInstance, ctx: AppContext) {
             jobsPaused: row.jobsPaused,
             watchList: row.watchList,
             checksDone: row.checksDone,
-            checksTotal: DOCUMENT_KINDS.length,
-            ready: row.checksDone === DOCUMENT_KINDS.length,
+            checksTotal,
+            ready: row.checksDone >= checksTotal,
             expiringDocument: row.expiringDocuments > 0,
             expiredDocument: row.expiredDocuments > 0,
             waitingDocuments: row.waitingDocuments,
@@ -361,12 +407,13 @@ export async function adminProRoutes(app: FastifyInstance, ctx: AppContext) {
     async (request) => {
       const proId = request.params.id;
       const checks = await loadChecks(pool, proId, ctx.config.timezone);
-      if (!checks.every((c) => c.ok)) {
+      if (!checksPassed(checks)) {
         throw conflict('checks_open');
       }
       await withTransaction(pool, async (client) => {
         const updated = await client.query(
-          `UPDATE pro_profiles SET status = 'approved', review_note = NULL, reviewed_at = now(), reviewed_by = $2, updated_at = now()
+          `UPDATE pro_profiles SET status = 'approved', review_note = NULL, requested_documents = '{}', reviewed_at = now(),
+             reviewed_by = $2, updated_at = now()
            WHERE user_id = $1 AND status IN ('submitted', 'info_requested')`,
           [proId, currentUser(request).id],
         );
@@ -374,30 +421,48 @@ export async function adminProRoutes(app: FastifyInstance, ctx: AppContext) {
           throw conflict('invalid_status');
         }
         await logProAction(client, proId, currentUser(request).id, 'approved');
-        await enqueue(client, proId, 'application_reviewed', messages.applicationApproved());
+        await enqueue(client, proId, 'application_reviewed', messages.applicationApproved(), { link: APPLICATION_LINK });
       });
       request.log.info({ event: 'pro_approved', proId, by: currentUser(request).id });
       return { pro: await detail(proId) };
     },
   );
 
-  app.post<{ Params: { id: string }; Body: { message: string } }>(
+  // The team's own words go to the pro as written. Naming documents gives the pro an upload button for each
+  // on the Application status page; once all are in, the review carries on by itself (D93).
+  app.post<{ Params: { id: string }; Body: { message: string; documents?: DocumentKind[] } }>(
     '/admin/pros/:id/request-info',
-    { preHandler: guards.admin, schema: { params: uuidParams, body: noteBody('message') } },
+    {
+      preHandler: guards.admin,
+      schema: {
+        params: uuidParams,
+        body: {
+          type: 'object',
+          required: ['message'],
+          additionalProperties: false,
+          properties: {
+            message: { type: 'string', minLength: 3, maxLength: 500, pattern: '\\S' },
+            documents: { type: 'array', uniqueItems: true, maxItems: UPLOAD_KINDS.length, items: { type: 'string', enum: UPLOAD_KINDS } },
+          },
+        },
+      },
+    },
     async (request) => {
       const proId = request.params.id;
       const message = request.body.message.trim();
+      const documents = UPLOAD_KINDS.filter((kind) => request.body.documents?.includes(kind));
       await withTransaction(pool, async (client) => {
         const updated = await client.query(
-          `UPDATE pro_profiles SET status = 'info_requested', review_note = $2, reviewed_at = now(), reviewed_by = $3, updated_at = now()
+          `UPDATE pro_profiles SET status = 'info_requested', review_note = $2, requested_documents = $4, reviewed_at = now(),
+             reviewed_by = $3, updated_at = now()
            WHERE user_id = $1 AND status IN ('submitted', 'info_requested')`,
-          [proId, message, currentUser(request).id],
+          [proId, message, currentUser(request).id, documents],
         );
         if (!updated.rowCount) {
           throw conflict('invalid_status');
         }
-        await logProAction(client, proId, currentUser(request).id, 'info_requested', { message });
-        await enqueue(client, proId, 'application_reviewed', messages.infoRequested(message));
+        await logProAction(client, proId, currentUser(request).id, 'info_requested', { message, documents });
+        await enqueue(client, proId, 'application_reviewed', messages.infoRequested(message), { link: APPLICATION_LINK });
       });
       return { pro: await detail(proId) };
     },
@@ -409,17 +474,23 @@ export async function adminProRoutes(app: FastifyInstance, ctx: AppContext) {
     async (request) => {
       const proId = request.params.id;
       const note = request.body.note.trim();
+      // The reason is shown to the applicant in plain words; they can apply again 6 months later (D93).
       await withTransaction(pool, async (client) => {
-        const updated = await client.query(
-          `UPDATE pro_profiles SET status = 'rejected', review_note = $2, reviewed_at = now(), reviewed_by = $3, updated_at = now()
-           WHERE user_id = $1 AND status IN ('submitted', 'info_requested')`,
-          [proId, note, currentUser(request).id],
+        const updated = await client.query<{ reapplyOn: string }>(
+          `UPDATE pro_profiles SET status = 'rejected', review_note = $2, requested_documents = '{}', rejected_at = now(),
+             reviewed_at = now(), reviewed_by = $3, updated_at = now()
+           WHERE user_id = $1 AND status IN ('submitted', 'info_requested')
+           RETURNING to_char((rejected_at + ${REAPPLY_INTERVAL}) AT TIME ZONE $4, 'YYYY-MM-DD') AS "reapplyOn"`,
+          [proId, note, currentUser(request).id, ctx.config.timezone],
         );
-        if (!updated.rowCount) {
+        const row = updated.rows[0];
+        if (!row) {
           throw conflict('invalid_status');
         }
         await logProAction(client, proId, currentUser(request).id, 'rejected', { note });
-        await enqueue(client, proId, 'application_reviewed', messages.applicationRejected());
+        await enqueue(client, proId, 'application_reviewed', messages.applicationRejected(readableDay(row.reapplyOn)), {
+          link: APPLICATION_LINK,
+        });
       });
       request.log.info({ event: 'pro_rejected', proId, by: currentUser(request).id });
       return { pro: await detail(proId) };
@@ -456,6 +527,7 @@ export async function adminProRoutes(app: FastifyInstance, ctx: AppContext) {
         if (expiresOn && expiresOn < today()) {
           throw badRequest('document_expired');
         }
+        const before = await loadChecks(client, proId, ctx.config.timezone);
         await client.query(
           `UPDATE pro_documents SET review_status = 'accepted', review_note = NULL, reviewed_at = now(), reviewed_by = $3,
              expires_on = $4, valid_until = COALESCE($4::date, 'infinity'::date)
@@ -463,6 +535,7 @@ export async function adminProRoutes(app: FastifyInstance, ctx: AppContext) {
           [proId, kind, adminId, expiresOn],
         );
         await logProAction(client, proId, adminId, 'document_accepted', { document: kind, expiresOn });
+        await notifyApplicationStep(client, proId, kind, before);
         return backToActiveIfCovered(client, proId, adminId, ctx.config.timezone);
       });
       return { pro: await detail(proId), backToActive: moved };
@@ -476,6 +549,7 @@ export async function adminProRoutes(app: FastifyInstance, ctx: AppContext) {
       const { id: proId, kind } = request.params;
       const note = request.body.note.trim();
       await withTransaction(pool, async (client) => {
+        const before = await loadChecks(client, proId, ctx.config.timezone);
         const updated = await client.query(
           `UPDATE pro_documents SET review_status = 'rejected', review_note = $3, reviewed_at = now(), reviewed_by = $4
            WHERE pro_id = $1 AND kind = $2`,
@@ -485,7 +559,11 @@ export async function adminProRoutes(app: FastifyInstance, ctx: AppContext) {
           throw notFound('document_not_found');
         }
         await logProAction(client, proId, currentUser(request).id, 'document_rejected', { document: kind, note });
-        await enqueue(client, proId, 'pro_documents', messages.documentRejected(DOCUMENT_NAMES[kind], note));
+        // "Not clear" ends the background check; the pro learns the team's decision next, not the note (D93).
+        if (kind !== 'background') {
+          await enqueue(client, proId, 'pro_documents', messages.documentRejected(DOCUMENT_NAMES[kind], note));
+        }
+        await notifyApplicationStep(client, proId, kind, before);
       });
       return { pro: await detail(proId) };
     },
@@ -518,6 +596,8 @@ export async function adminProRoutes(app: FastifyInstance, ctx: AppContext) {
       await withTransaction(pool, async (client) => {
         // An expiring document gets the same reminder as the automatic one: app, push and email (D59).
         if (expiresOn) await sendExpiringReminder(client, ctx.config, proId, kind, expiresOn);
+        // The background check is a consent, not a file (D93).
+        else if (kind === 'background') await enqueue(client, proId, 'pro_documents', messages.backgroundConsentReminder());
         else await enqueue(client, proId, 'pro_documents', messages.documentReminder(name));
         await logProAction(client, proId, currentUser(request).id, 'reminder_sent', { document: kind, state: check.state });
       });

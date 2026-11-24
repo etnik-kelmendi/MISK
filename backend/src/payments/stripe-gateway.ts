@@ -29,6 +29,25 @@ function chargeIdOf(intent: Stripe.PaymentIntent): string {
   return id;
 }
 
+/** The card set-up Stripe made for a plan billed from a later day (D91), when it was expanded. */
+function setupIntentOf(subscription: Stripe.Subscription): Stripe.SetupIntent | null {
+  const setup = subscription.pending_setup_intent;
+  return setup && typeof setup !== 'string' ? setup : null;
+}
+
+/**
+ * Whether a plan billed from a later day (D91) has its card: still in its free period before the first charge,
+ * with a card on the plan and no card set-up left for the customer to confirm.
+ */
+function isCardReady(subscription: Stripe.Subscription): boolean {
+  if (subscription.status !== 'trialing' && subscription.status !== 'active') {
+    return false;
+  }
+  const setup = subscription.pending_setup_intent;
+  const setupDone = !setup || (typeof setup !== 'string' && setup.status === 'succeeded');
+  return setupDone && Boolean(subscription.default_payment_method);
+}
+
 export function createStripeGateway(config: StripeConfig): PaymentGateway {
   const stripe = new Stripe(config.secretKey, { maxNetworkRetries: 2, timeout: 20_000 });
 
@@ -78,6 +97,59 @@ export function createStripeGateway(config: StripeConfig): PaymentGateway {
           expMonth: method.card?.exp_month ?? 0,
           expYear: method.card?.exp_year ?? 0,
         }));
+    },
+
+    async createCardSetup({ customerRef, idempotencyKey }) {
+      const setup = await stripe.setupIntents.create(
+        {
+          customer: customerRef,
+          usage: 'off_session',
+          // Like the booking payments (D73); Payment methods then lists the saved cards (D92).
+          automatic_payment_methods: { enabled: true, allow_redirects: 'never' },
+          metadata: { purpose: 'saved_card' },
+        },
+        { idempotencyKey },
+      );
+      if (!setup.client_secret) {
+        throw new Error(`SetupIntent ${setup.id} has no client secret`);
+      }
+      return { clientSecret: setup.client_secret };
+    },
+
+    async defaultCardId(customerRef) {
+      const customer = await stripe.customers.retrieve(customerRef);
+      if (customer.deleted) {
+        return null;
+      }
+      const method = customer.invoice_settings.default_payment_method;
+      return typeof method === 'string' ? method : (method?.id ?? null);
+    },
+
+    async setDefaultCard(customerRef, cardId) {
+      await stripe.customers.update(customerRef, { invoice_settings: { default_payment_method: cardId } });
+    },
+
+    async detachCard(customerRef, cardId) {
+      // Only a card of this customer may be removed; another customer's card answers like a missing one.
+      const method = await stripe.paymentMethods.retrieve(cardId);
+      const owner = typeof method.customer === 'string' ? method.customer : method.customer?.id;
+      if (owner !== customerRef) {
+        throw new Error(`Payment method ${cardId} does not belong to ${customerRef}`);
+      }
+      await stripe.paymentMethods.detach(cardId);
+    },
+
+    async subscriptionCardId(subscriptionId) {
+      const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+      if (!['active', 'trialing', 'past_due', 'unpaid'].includes(subscription.status)) {
+        return null;
+      }
+      const method = subscription.default_payment_method;
+      return typeof method === 'string' ? method : (method?.id ?? null);
+    },
+
+    async setSubscriptionCard(subscriptionId, cardId) {
+      await stripe.subscriptions.update(subscriptionId, { default_payment_method: cardId });
     },
 
     async renewHold(input) {
@@ -192,25 +264,56 @@ export function createStripeGateway(config: StripeConfig): PaymentGateway {
         {
           customer: input.customerRef,
           items: [{ price_data: { currency: CURRENCY, product: input.productId, unit_amount: input.amountCents, recurring: { interval: 'month' } } }],
-          // A saved card is charged at once (the bank may still ask the customer to confirm); otherwise the
-          // customer pays the first month in the browser with a card or a wallet.
+          // A saved card is used straight away (the bank may still ask the customer to confirm); otherwise the
+          // customer pays the first month, or sets up the card for a later first charge, in the browser.
           ...(input.paymentMethodId
             ? { default_payment_method: input.paymentMethodId, payment_behavior: 'allow_incomplete' as const }
             : { payment_behavior: 'default_incomplete' as const }),
+          // Billing from the first visit day (D91): a free period until then, after which the first full month is
+          // charged and the billing date stays on that day of the month. Without a card by then, the plan ends.
+          ...(input.firstChargeAt
+            ? {
+                trial_end: Math.floor(input.firstChargeAt.getTime() / 1000),
+                trial_settings: { end_behavior: { missing_payment_method: 'cancel' as const } },
+              }
+            : {}),
+          // The card the customer pays or sets up with becomes the plan's card for every month.
           payment_settings: { save_default_payment_method: 'on_subscription' },
           metadata: input.metadata,
-          expand: ['latest_invoice.confirmation_secret'],
+          expand: ['latest_invoice.confirmation_secret', 'pending_setup_intent'],
         },
         { idempotencyKey: input.idempotencyKey },
       );
+      if (subscription.status === 'trialing') {
+        const setup = setupIntentOf(subscription);
+        const ready = isCardReady(subscription);
+        if (!ready && !setup?.client_secret) {
+          throw new Error(`Subscription ${subscription.id} has neither a card nor a card set-up`);
+        }
+        return {
+          subscriptionId: subscription.id,
+          clientSecret: ready ? null : (setup?.client_secret ?? null),
+          confirm: 'setup',
+          active: ready,
+          paid: false,
+          invoiceId: null,
+        };
+      }
       const invoice = subscription.latest_invoice;
       const active = subscription.status === 'active';
       return {
         subscriptionId: subscription.id,
         clientSecret: active || typeof invoice === 'string' ? null : (invoice?.confirmation_secret?.client_secret ?? null),
+        confirm: 'payment',
         active,
+        paid: active,
         invoiceId: typeof invoice === 'string' ? invoice : (invoice?.id ?? null),
       };
+    },
+
+    async subscriptionCardReady(subscriptionId) {
+      const subscription = await stripe.subscriptions.retrieve(subscriptionId, { expand: ['pending_setup_intent'] });
+      return isCardReady(subscription);
     },
 
     async resumeSubscription(subscriptionId) {
@@ -227,12 +330,19 @@ export function createStripeGateway(config: StripeConfig): PaymentGateway {
     },
 
     async subscriptionClientSecret(subscriptionId) {
-      const subscription = await stripe.subscriptions.retrieve(subscriptionId, { expand: ['latest_invoice.confirmation_secret'] });
+      const subscription = await stripe.subscriptions.retrieve(subscriptionId, {
+        expand: ['latest_invoice.confirmation_secret', 'pending_setup_intent'],
+      });
+      if (subscription.status === 'trialing') {
+        const secret = isCardReady(subscription) ? null : setupIntentOf(subscription)?.client_secret;
+        return secret ? { clientSecret: secret, confirm: 'setup' } : null;
+      }
       const invoice = subscription.latest_invoice;
       if (subscription.status !== 'incomplete' || !invoice || typeof invoice === 'string') {
         return null;
       }
-      return invoice.confirmation_secret?.client_secret ?? null;
+      const secret = invoice.confirmation_secret?.client_secret;
+      return secret ? { clientSecret: secret, confirm: 'payment' } : null;
     },
 
     async cancelSubscription(subscriptionId, atPeriodEnd) {
@@ -341,11 +451,21 @@ export function createStripeGateway(config: StripeConfig): PaymentGateway {
         parsed = { kind: 'hold_confirmed', intentId: event.data.object.id };
       } else if (event.type === 'payment_intent.payment_failed') {
         parsed = { kind: 'payment_failed', intentId: event.data.object.id };
+      } else if (event.type === 'customer.subscription.created' || event.type === 'customer.subscription.updated') {
+        // A plan billed from its first visit day (D91) whose card is now set up. The subscription in the event is
+        // not expanded, so a set-up still pending is only known by its id: the plan is not ready then.
+        const subscription = event.data.object;
+        if (subscription.status === 'trialing' && !subscription.pending_setup_intent && subscription.default_payment_method) {
+          parsed = { kind: 'subscription_ready', subscriptionId: subscription.id };
+        }
       } else if (event.type === 'invoice.paid' || event.type === 'invoice.payment_failed') {
         const invoice = event.data.object;
         const owner = invoice.parent?.subscription_details?.subscription;
         const subscriptionId = typeof owner === 'string' ? owner : owner?.id;
-        if (subscriptionId && invoice.id) {
+        // The free period before the first visit day is a €0 invoice Stripe marks paid at sign-up (D91): it is no
+        // paid month. (A month paid with credit still has a subtotal; only its amount paid is 0.)
+        const freePeriod = invoice.billing_reason === 'subscription_create' && invoice.subtotal === 0;
+        if (subscriptionId && invoice.id && !freePeriod) {
           parsed =
             event.type === 'invoice.paid'
               ? {

@@ -108,6 +108,15 @@ export function firstVisitDay(
   return null;
 }
 
+/**
+ * The day a new plan's card is first charged (D91), by the server's rule: the first visit day, from its midnight,
+ * then every month on that date. When the first visit is tomorrow (that midnight is less than 24 hours away), the
+ * first month is charged today, at sign-up.
+ */
+export function firstChargeDay(today: string, firstVisit: string): string {
+  return firstVisit === addDays(today, 1) ? today : firstVisit;
+}
+
 /** The months a plan runs: "April – October" for a seasonal plan, else "All year". */
 export function seasonText(t: TFunction, plan: { seasonal: boolean; seasonFrom: number | null; seasonTo: number | null }): string {
   if (!plan.seasonal) return t('plans.allYear');

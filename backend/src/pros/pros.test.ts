@@ -27,12 +27,11 @@ const PRO_PHONE = '+4915111111111';
 async function completeApplication(cookie: string) {
   await call(t, 'PATCH', '/pro/profile', {
     cookie,
-    body: { trades: [market.gardening], homePostcode: '10115', radiusKm: 15, workingDays: [1, 2, 3] },
+    body: { trades: [market.gardening], homePostcode: '10115', homeAddress: 'Linden Street 4', radiusKm: 15, workingDays: [1, 2, 3], backgroundConsent: true },
   });
   await upload(t, '/pro/documents/id?expiresOn=2031-05-01', cookie, FILES.jpeg, 'id.jpg');
   await upload(t, '/pro/documents/certificate', cookie, FILES.pdf, 'cert.pdf');
   await upload(t, '/pro/documents/insurance?expiresOn=2030-01-31', cookie, FILES.png, 'insurance.png');
-  await upload(t, '/pro/documents/background', cookie, FILES.pdf, 'good-conduct.pdf');
 }
 
 describe('pro application', () => {
@@ -86,7 +85,7 @@ describe('pro application', () => {
   it('only submits a complete application', async () => {
     const cookie = await signIn(t, PRO_PHONE, 'pro');
     const early = await call(t, 'POST', '/pro/submit', { cookie });
-    expect(early.json()).toEqual({ error: 'application_incomplete' });
+    expect(early.json()).toEqual({ error: 'trades_missing' });
     await completeApplication(cookie);
     const submitted = await call(t, 'POST', '/pro/submit', { cookie });
     expect(submitted.json().profile.status).toBe('submitted');
@@ -115,8 +114,11 @@ describe('pro documents', () => {
       reviewStatus: 'pending',
       state: 'waiting_review',
     });
-    const noExpiryNeeded = await upload(t, '/pro/documents/background', cookie, FILES.pdf, 'conduct.pdf');
-    expect(noExpiryNeeded.json().profile.documents.background).toMatchObject({ expiresOn: null, fileName: 'conduct.pdf' });
+    const noExpiryNeeded = await upload(t, '/pro/documents/certificate', cookie, FILES.pdf, 'certificate.pdf');
+    expect(noExpiryNeeded.json().profile.documents.certificate).toMatchObject({ expiresOn: null, fileName: 'certificate.pdf' });
+    // The background check is a consent, never a file (D93).
+    const background = await upload(t, '/pro/documents/background', cookie, FILES.pdf, 'conduct.pdf');
+    expect(background.json()).toEqual({ error: 'background_is_a_check' });
   });
 
   it('refuses to send an application with a document that has run out, until it is replaced', async () => {

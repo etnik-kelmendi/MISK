@@ -28,6 +28,8 @@
   },
   "errors": {
     "generic": "That did not work. Please try again.",
+    "card_pays_for_plan": "This card pays for your plan. Make another card the default first, then you can remove this one.",
+    "already_pro": "Your account is already a pro account. Open the pro app to see your application.",
     "network": "MISK could not be reached. Check your connection and try again.",
     "validation_failed": "Some of the details are not valid. Please check them.",
     "invalid_phone": "Enter an international phone number, e.g. +49 151 23456789.",
@@ -54,6 +56,15 @@
     "too_many_photos": "No more photos can be added.",
     "already_submitted": "Your application has already been sent.",
     "application_incomplete": "Please choose your trades, home postcode and working days, and upload all three documents first.",
+    "trades_missing": "Please choose at least one trade.",
+    "home_address_missing": "Please enter your home address: street and house number, and postcode.",
+    "radius_invalid": "Please choose a travel distance from 3 to 30 km.",
+    "documents_missing": "Please upload your ID card or passport, your liability insurance and, for your trades, your trade certificate. A document the team turned down needs a new copy.",
+    "background_consent_missing": "Please agree to the background check first.",
+    "working_days_missing": "Please choose at least one working day.",
+    "consent_locked": "Your background check has started, so your consent cannot be taken back here. Please contact the MISK team.",
+    "background_is_a_check": "The background check needs no file: tick the box to agree to it.",
+    "reapply_not_yet": "You can apply again 6 months after the decision on your application.",
     "not_approved": "Your account is not approved for this yet.",
     "note_required": "Write the note to send it to the customer, or untick \"Send this note to the customer\".",
     "invalid_status": "This is not possible at this stage. The page has old information; please reload it.",
@@ -365,6 +376,7 @@
     "finish": "Finish your payment",
     "protected": "The amount is held on your card and only taken once the job is done.",
     "payNow": "Hold {{amount}} on my card",
+    "saveCard": "Save my card",
     "paying": "Confirming…",
     "checking": "Checking your payment…"
   },
@@ -619,14 +631,52 @@
     "title": "Become a MISK pro",
     "intro": "Tell us what you do, where and when. The MISK team checks every application, usually within 48 hours.",
     "trades": "Your trades",
+    "tradesHint": "Choose every trade you offer, at least one.",
     "tradesLocked": "Checked trades can only be changed by the MISK team.",
-    "documents": "Documents ({{done}}/4)",
+    "documents": "Documents ({{done}}/{{total}})",
     "doc": {
       "id": "ID card or passport",
       "certificate": "Trade certificate",
       "insurance": "Liability insurance",
-      "background": "Certificate of good conduct"
+      "background": "Background check"
     },
+    "progress": "Your application: {{done}} of 4 parts done",
+    "part": {
+      "trades": "Trades",
+      "documents": "Documents",
+      "background": "Background check",
+      "days": "Working days"
+    },
+    "partDone": "{{part}}, done",
+    "partOpen": "{{part}}, not done yet",
+    "homeTitle": "Home address",
+    "street": "Street and house number",
+    "postcode": "Postcode",
+    "addressHint": "Jobs are matched by distance from here.",
+    "addressPrivate": "Customers never see your address",
+    "travelTitle": "How far will you travel?",
+    "fromHome": "From your home address",
+    "radiusLabel": "Travel distance",
+    "radiusValue": "{{km}} km",
+    "radiusRange": "From 3 to 30 km",
+    "certificateNotNeeded": "Not needed for your trades.",
+    "backgroundTitle": "Background check",
+    "backgroundConsent": "I agree to a background check.",
+    "backgroundConsentText": "A partner checks your criminal record. MISK only sees \"clear\" or \"not clear\", usually within 2 days.",
+    "backgroundState": {
+      "missing": "Not agreed yet.",
+      "waiting_review": "Agreed. The check is running, usually within 2 days.",
+      "rejected": "Not clear.",
+      "expired": "Clear.",
+      "expiring": "Clear.",
+      "valid": "Clear."
+    },
+    "daysHint": "You can change your hours, days off and holidays later in your profile",
+    "agreeFirst": "Agree to the background check first",
+    "saving": "Saving…",
+    "saved": "Saved",
+    "continue": "Continue your application",
+    "seeStatus": "See your application",
     "uploaded": "Uploaded",
     "fileTypes": "PDF or photo, up to 8 MB",
     "upload": "Upload",
@@ -636,7 +686,7 @@
     "radius": "How far you travel: {{km}} km",
     "days": "Working days",
     "hours": "Jobs start between 08:00 and 18:00 and end by 20:00.",
-    "submit": "Send application",
+    "submit": "Submit application",
     "underReview": "Under review",
     "underReviewText": "The MISK team is checking your documents, usually within 48 hours. We text you when you are approved.",
     "rejected": "Your application needs a change:",
@@ -655,7 +705,7 @@
     "expiredDate": "This date has passed, so the document has expired. A valid document is required: use one that is valid until today or later.",
     "docState": {
       "missing": "PDF or photo, up to 8 MB",
-      "waiting_review": "Uploaded {{date}}. The MISK team checks it soon.",
+      "waiting_review": "Uploaded, waiting for check",
       "rejected": "Please upload a new copy: {{note}}",
       "expired": "Expired on {{date}}. A valid document is required: please replace it.",
       "expiring": "Runs out on {{date}}. Please upload the new one soon.",
@@ -668,6 +718,83 @@
     "pendingApprovalHint": "Upload the new one below. As soon as the MISK team has checked it, jobs come in again.",
     "jobsPaused": "The MISK team has paused new jobs for you. Your booked jobs stay. They will contact you.",
     "uploadNow": "Upload it in your profile."
+  },
+  "application": {
+    "title": "Your application",
+    "card": {
+      "review": "Under review",
+      "reviewText": "We check your documents and run the background check, usually within 48 hours. You'll get a notification with the result.",
+      "info": "We need one more thing",
+      "infoUpload": "Upload it and the review carries on where it stopped. No need to apply again.",
+      "infoEdit": "Change your application and send it again. The review carries on where it stopped.",
+      "approved": "You're approved!",
+      "approvedText": "Welcome to MISK. Go online and you'll start getting job offers near you.",
+      "rejected": "Not approved this time",
+      "suspended": "Your pro account is suspended"
+    },
+    "fromTeam": "From the MISK team",
+    "reason": "The reason",
+    "upload": "Upload {{document}}",
+    "uploaded": "{{document}}: uploaded, waiting for check",
+    "changeApplication": "Change my application",
+    "goToJobs": "Go to my jobs",
+    "contactSupport": "Contact support",
+    "contactNone": "Reply to the message we sent you about your application, and the team will look again.",
+    "applyAgainIn": "You can apply again in 6 months",
+    "applyAgainFrom": "From {{date}}.",
+    "applyAgainNow": "6 months have passed: you can apply again.",
+    "applyAgain": "Apply again",
+    "steps": "Application steps",
+    "step": {
+      "sent": "Application sent",
+      "documents": "Documents checked",
+      "background": "Background check",
+      "decision": "Decision"
+    },
+    "stepNote": {
+      "sent": "Sent {{date}}",
+      "documents": {
+        "done": "Done",
+        "current": "In progress",
+        "attention": "Waiting for you",
+        "upcoming": "Next",
+        "failed": "Not accepted"
+      },
+      "background": {
+        "done": "Clear",
+        "failed": "Not clear",
+        "current": "Usually 1–2 days",
+        "upcoming": "Usually 1–2 days",
+        "attention": "Waiting for you"
+      },
+      "decision": {
+        "done": "Approved",
+        "failed": "Not approved",
+        "current": "Within 48 h",
+        "upcoming": "Within 48 h",
+        "attention": "Waiting for you"
+      }
+    },
+    "stepState": {
+      "done": "done",
+      "current": "in progress",
+      "attention": "waiting for you",
+      "failed": "not passed",
+      "upcoming": "not started"
+    },
+    "summary": "What you sent",
+    "trades": "Trades",
+    "home": "Home",
+    "travel": "Travel",
+    "travelValue": "Up to {{km}} km",
+    "days": "Working days",
+    "documents": "Documents",
+    "documentsValue": "{{count}} of {{total}} uploaded",
+    "background": "Background",
+    "consentGiven": "Consent given {{date}}",
+    "consentMissing": "No consent yet",
+    "notSent": "You have not sent your application yet.",
+    "toForm": "Go to the application"
   },
   "pro": {
     "jobsTitle": "Jobs",
@@ -1209,6 +1336,12 @@
         "email": "Email",
         "trades": "Trades",
         "home": "Lives in",
+        "homeAddress": "Home address",
+        "homeAddressPrivate": "Only the MISK team sees this; customers never do.",
+        "consent": "Background check consent",
+        "consentOn": "Given {{date}}",
+        "consentNone": "Not given yet",
+        "rejectedOn": "Not approved on {{date}}: {{note}}",
         "travel": "Travels up to",
         "travelKm": "{{km}} km",
         "days": "Working days",
@@ -1231,6 +1364,7 @@
         },
         "ok": "OK",
         "openCheck": "Open",
+        "notNeeded": "Not needed",
         "state": {
           "missing": "Not uploaded yet.",
           "waiting_review": "Uploaded {{date}}, waiting for your check.",
@@ -1238,7 +1372,12 @@
           "expired": "Ran out on {{date}}.",
           "expiring": "Valid, but runs out on {{date}}.",
           "valid": "Checked. Valid until {{date}}.",
-          "validForever": "Checked. Does not run out."
+          "validForever": "Checked. Does not run out.",
+          "notRequired": "Not needed for these trades.",
+          "background_missing": "The pro has not agreed to the background check yet.",
+          "background_waiting_review": "Consent given {{date}}. Waiting for the partner's result.",
+          "background_rejected": "Not clear.",
+          "background_valid": "Clear."
         },
         "file": "{{name}} · uploaded {{date}}",
         "expires": "Valid until {{date}}",
@@ -1249,6 +1388,12 @@
         "acceptLabel": "Accept {{document}}",
         "reject": "Reject",
         "rejectLabel": "Reject {{document}}",
+        "clear": "Clear",
+        "clearLabel": "Background check clear",
+        "notClear": "Not clear",
+        "notClearLabel": "Background check not clear",
+        "notClearNote": "Note for the team (the pro only sees \"not clear\")",
+        "notClearSend": "Record not clear",
         "rejectNote": "What is wrong with the {{document}}? The pro gets this by text.",
         "rejectSend": "Ask for a new copy",
         "expiryLabel": "Valid until (as printed on the document)",
@@ -1258,10 +1403,12 @@
         "backToActive": "All documents are fine again: the pro is back in Active.",
         "decision": "Decision",
         "approve": "Approve",
-        "approveHint": "Approve works once all four checks are OK.",
+        "approveHint": "Approve works once every check the pro needs is OK.",
         "requestInfo": "Request more info",
         "requestInfoLabel": "What do you need from the applicant? They get this by text.",
         "requestInfoSend": "Send request",
+        "requestDocuments": "Missing documents (the pro gets an upload button for each, and the review carries on once they are in)",
+        "requestedDocuments": "Upload asked for: {{documents}}",
         "rejectApplication": "Reject",
         "rejectApplicationLabel": "Why is the application rejected? The applicant sees this in the app.",
         "rejectApplicationSend": "Reject application",
@@ -1334,7 +1481,8 @@
           "suspended": "Suspended: {{reason}}",
           "reinstated": "Reinstated",
           "moved_to_pending": "Moved to Pending approval: {{documents}} ran out",
-          "back_to_active": "Back to Active after the documents were checked"
+          "back_to_active": "Back to Active after the documents were checked",
+          "info_provided": "The pro sent the {{document}} the team asked for"
         },
         "remindedAt": "Reminder sent at {{time}}",
         "remindedLabel": "Reminder about the {{document}} sent at {{time}}",
@@ -2293,6 +2441,8 @@
     "pickDays_one": "Pick {{count}} more day",
     "pickDays_other": "Pick {{count}} more days",
     "submit": "Subscribe · {{price}}/month",
+    "submitLater": "Subscribe — first charge on {{date}}",
+    "saveCard": "Save my card — first charge on {{date}}",
     "title": "Build your plan",
     "choosePlan": "Plan",
     "howOften": "How often",
@@ -2318,7 +2468,9 @@
     "seasonLine": "Season: {{season}}",
     "skipsLine_one": "Skip up to {{count}} visit a month; a skipped visit is still part of the monthly price",
     "skipsLine_other": "Skip up to {{count}} visits a month; a skipped visit is still part of the monthly price",
-    "firstCharge": "The first month is charged when you subscribe, then every month on that day",
+    "firstCharge": "Your card is charged on {{date}}, then every month on that date.",
+    "firstChargeToday": "Your card is charged today, as your first visit is tomorrow, then every month on that date.",
+    "firstChargePick": "Your card is first charged on the day of your first visit, then every month on that date.",
     "agree": "I agree to the",
     "termsLink": "subscription terms",
     "acceptFirst": "Accept the terms to subscribe",
@@ -2332,7 +2484,7 @@
     "terms": {
       "title": "Subscription terms",
       "billing": "Billing",
-      "billingText": "One monthly price, charged in advance: the first month when you subscribe, then every month on that day. Never per visit.",
+      "billingText": "One monthly price, charged in advance, never per visit. Nothing is charged when you subscribe: your card is first charged on the day of your first visit, for a full month, then every month on that date. Only when your first visit is tomorrow is the first month charged when you subscribe. If the first payment does not go through, your visits are on hold until it does. The minimum term counts from your first charge.",
       "minimum": "Minimum term",
       "skips": "Skips",
       "skipsText_one": "Skip up to {{count}} visit a calendar month in the app, at least 24 hours before it. A skipped visit is still part of the monthly price: nothing is refunded. You can undo a skip until 24 hours before.",
@@ -2349,6 +2501,9 @@
       "summary": "Your new plan",
       "active": "{{plan}} is active",
       "starting": "{{plan}} starts once your payment goes through",
+      "startingCard": "{{plan}} starts once your card is set up",
+      "firstCharge": "First charge",
+      "chargedToday": "Today",
       "firstVisit": "First visit",
       "pro": "Your pro",
       "billing": "Billing",
@@ -2376,6 +2531,7 @@
     "seasonPaused": "Paused for winter: no charge until the season starts again.",
     "endsOn": "Ends on {{date}}. Visits until then still take place; nothing is charged after that.",
     "pastDue": "Your last monthly payment did not go through. Please update your card; Stripe will try again.",
+    "firstPaymentFailed": "Your first monthly payment did not go through, so your visits are on hold until it does. Please update your card; Stripe will try again.",
     "upcoming": "Upcoming visits",
     "noVisits": "Visits are being planned.",
     "noVisitsWinter": "No visits in winter. They start again in spring.",
@@ -2574,7 +2730,7 @@
       },
       "plans": {
         "title": "7. Monthly plans",
-        "body": "Plans are billed every month. Once its minimum term is over, you can cancel a plan in the app with 30 days' notice; visits until it ends still take place and are charged. You can move a single visit to another day of the same week if your pro confirms. Seasonal plans only run from April to October."
+        "body": "Plans are billed every month, from the day of your first visit: nothing is charged when you subscribe (unless your first visit is tomorrow). Once its minimum term is over, you can cancel a plan in the app with 30 days' notice; visits until it ends still take place and are charged. You can move a single visit to another day of the same week if your pro confirms. Seasonal plans only run from April to October."
       },
       "pros": {
         "title": "8. For pros",
@@ -3004,6 +3160,16 @@
   },
   "addresses": {
     "title": "Your addresses",
+    "listLabel": "Saved addresses",
+    "notes": "Notes for the pro",
+    "notesPlaceholder": "e.g. Gate code 4411",
+    "notesHint": "Gate codes, where the key is or how to get in. Your pro sees them with the job.",
+    "default": "Default",
+    "makeDefault": "Make default",
+    "makeDefaultLabel": "Make {{address}} the default",
+    "addAddress": "Add address",
+    "footer": "Choose any saved address when you book. Notes like gate codes go to the pro automatically.",
+    "removeDefault": "This is your default address. The newest address left becomes the default.",
     "choose": "Choose the address for your bookings",
     "add": "Add an address",
     "addTitle": "New address",
@@ -3024,9 +3190,164 @@
     "keep": "Keep it"
   },
   "favourites": {
-    "title": "Favourites",
-    "none": "No favourite pros yet. After a job, tap the heart to save your pro here.",
-    "unavailable": "Not taking jobs right now"
+    "title": "Favourite pros",
+    "none": "No favourites yet.",
+    "unavailable": "Not taking jobs right now",
+    "hint": "Booking a favourite offers them the job first. Save a pro with the heart after you rate a job.",
+    "book": "Book",
+    "bookLabel": "Book {{name}}",
+    "remove": "Remove {{name}} from your favourites",
+    "removed": "{{name}} is no longer one of your favourites."
+  },
+  "profile": {
+    "you": "Your profile",
+    "noName": "Your name",
+    "noPhone": "No phone number yet",
+    "edit": "Edit",
+    "editLabel": "Edit personal information",
+    "account": "Account",
+    "misk": "MISK",
+    "personal": "Personal information",
+    "addresses": "Saved addresses",
+    "payments": "Payment methods",
+    "receipts": "Receipts",
+    "notifications": "Notifications",
+    "favourites": "Favourite pros",
+    "becomePro": "Become a pro",
+    "sameAccount": "Same account",
+    "help": "Help & support",
+    "legal": "Terms & privacy",
+    "logOut": "Log out"
+  },
+  "personal": {
+    "nameTitle": "Your name",
+    "firstName": "First name",
+    "lastName": "Last name",
+    "email": "Email",
+    "noEmail": "No email address",
+    "emailNote": "You log in with this email address. To change it, contact MISK support from Help & support.",
+    "noEmailNote": "Your account logs in with your phone number.",
+    "language": "Language",
+    "languages": {
+      "en": "English"
+    },
+    "languageNote": "MISK is in English for now. More languages will follow.",
+    "privacy": "Pros only see your first name and the job address.",
+    "save": "Save changes",
+    "saved": "Your changes are saved."
+  },
+  "cards": {
+    "listLabel": "Saved cards",
+    "card": "{{brand}} •••• {{last4}}",
+    "expires": "Expires {{date}}",
+    "default": "Default",
+    "makeDefault": "Make default",
+    "makeDefaultLabel": "Make {{card}} the default",
+    "madeDefault": "{{card}} is now your default card.",
+    "remove": "Remove",
+    "removeLabel": "Remove {{card}}",
+    "removeTitle": "Remove this card?",
+    "removed": "{{card}} is removed.",
+    "keep": "Keep it",
+    "paysPlan": "Pays for your plan",
+    "planHint": "A card that pays for your plan can be removed once another card is the default. Making a card the default also moves your plan to it.",
+    "none": "No saved cards yet. Add one to pay faster next time.",
+    "add": "Add a card",
+    "addTitle": "Add a card",
+    "saveCard": "Save card",
+    "saving": "Saving…",
+    "added": "Your card is saved.",
+    "safe": "Card details are stored by our payment provider, never by MISK."
+  },
+  "notify": {
+    "listLabel": "What we tell you about",
+    "topics": {
+      "booking_updates": {
+        "title": "Booking updates",
+        "text": "Confirmed, pro assigned, new time, job done"
+      },
+      "pro_on_the_way": {
+        "title": "Pro is on the way",
+        "text": "When your pro sets off to you"
+      },
+      "reminders": {
+        "title": "Reminders",
+        "text": "The day before a job"
+      },
+      "plan_changes": {
+        "title": "Plan changes",
+        "text": "Pauses, moved visits and a new regular pro"
+      },
+      "offers": {
+        "title": "Offers & tips",
+        "text": "Seasonal deals, at most twice a month"
+      }
+    },
+    "always": "Messages about payments and safety are always sent.",
+    "inApp": "What you switch off here still shows in Messages in the app.",
+    "device": "This device"
+  },
+  "becomePro": {
+    "title": "Earn with MISK",
+    "text": "Use this same account. Your bookings and plans stay, and you can still book for yourself from the pro app.",
+    "how": "How it works",
+    "steps": {
+      "apply": {
+        "title": "Apply in the app",
+        "text": "Trades, documents and working area, about 10 minutes"
+      },
+      "check": {
+        "title": "MISK checks you",
+        "text": "ID, certificate, insurance and background check, usually 48 h"
+      },
+      "jobs": {
+        "title": "Get jobs",
+        "text": "Go online and accept jobs near you"
+      }
+    },
+    "start": "Start my pro application",
+    "open": "Open my pro application"
+  },
+  "help": {
+    "questions": "Common questions",
+    "faq": {
+      "charged": {
+        "q": "When am I charged?",
+        "a": "24 hours after the job is marked done, unless you report a problem. Plans are charged monthly."
+      },
+      "cancel": {
+        "q": "Can I cancel a booking?",
+        "a": "Free up to 24 hours before the visit. Closer than 24 hours, you pay the full price."
+      },
+      "unhappy": {
+        "q": "What if I'm not happy with the work?",
+        "a": "Report a problem within 24 hours of the job. The payment is put on hold until the MISK team has sorted it out with you."
+      },
+      "pause": {
+        "q": "How do I pause my plan?",
+        "a": "Open your plan and turn on Holiday pause. Paused weeks are not charged, within your plan's own pause rules."
+      }
+    },
+    "chat": "Chat with us",
+    "call": "Call",
+    "mailSubject": "Help with MISK",
+    "chatNote": "Chat with us opens an email to the MISK team. We answer as soon as we can.",
+    "noContact": "Reply to any message from MISK and the team gets back to you.",
+    "bookingProblem": "Problem with a booking? Open Bookings"
+  },
+  "legal": {
+    "terms": "Terms of Service",
+    "privacy": "Privacy Policy",
+    "notPublished": "Coming soon",
+    "subscription": "Subscription terms",
+    "cookies": "Cookie settings",
+    "cookiesTitle": "Cookie settings",
+    "cookiesText": "MISK only keeps what the app needs to work: a cookie that keeps you logged in, and settings of this device such as notifications.",
+    "necessary": "Necessary",
+    "necessaryText": "Logging in and the app's settings. Always on.",
+    "noTracking": "MISK uses no advertising or tracking cookies, so there is nothing else to switch on or off.",
+    "cookiesOk": "OK",
+    "cookiesSaved": "You confirmed this on this device."
   },
   "picked": {
     "title": "Booking with {{name}}.",

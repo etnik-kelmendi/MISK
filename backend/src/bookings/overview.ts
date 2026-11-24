@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { canOpen } from '../auth/access.js';
 import { currentUser } from '../auth/guard.js';
 import type { AppContext } from '../context.js';
-import { DOCUMENT_KINDS, loadChecks, QUALITY } from '../pros/checks.js';
+import { checksPassed, loadChecks, QUALITY } from '../pros/checks.js';
 import { ITEMS } from './admin-list.js';
 
 export const PERIODS = ['1', '7', '30'] as const;
@@ -175,13 +175,11 @@ export async function overviewRoutes(app: FastifyInstance, ctx: AppContext) {
             firstName: string | null;
             lastName: string | null;
             trades: string[];
-            documentsUploaded: number;
             waiting: number;
           }>(
             `SELECT p.user_id AS id, u.first_name AS "firstName", u.last_name AS "lastName",
                COALESCE((SELECT array_agg(c.name ORDER BY c.name) FROM pro_trades t JOIN categories c ON c.id = t.category_id
                          WHERE t.pro_id = p.user_id), '{}') AS trades,
-               (SELECT count(*)::int FROM pro_documents d WHERE d.pro_id = p.user_id) AS "documentsUploaded",
                count(*) OVER ()::int AS waiting
              FROM pro_profiles p JOIN users u ON u.id = p.user_id
              WHERE p.status = 'submitted'
@@ -200,9 +198,10 @@ export async function overviewRoutes(app: FastifyInstance, ctx: AppContext) {
             firstName: row.firstName,
             lastName: row.lastName,
             trades: row.trades,
-            documentsUploaded: row.documentsUploaded,
-            documentsTotal: DOCUMENT_KINDS.length,
-            ready: checks.every((c) => c.ok),
+            // Only the checks this pro needs count: no trade certificate for cleaning only (D93).
+            documentsUploaded: checks.filter((c) => c.required && c.document).length,
+            documentsTotal: checks.filter((c) => c.required).length,
+            ready: checksPassed(checks),
           };
         }),
       );

@@ -271,7 +271,7 @@ describe('pro side panel', () => {
     expect(checks[1]).toHaveTextContent('Open');
     expect(checks[1]).toHaveTextContent('New copy asked for: Blurry');
     expect(checks[2]).toHaveTextContent('Valid until 1 Nov 2027');
-    expect(checks[3]).toHaveTextContent('Not uploaded yet.');
+    expect(checks[3]).toHaveTextContent('The pro has not agreed to the background check yet.');
     expect(within(checks[3] as HTMLElement).getByRole('button', { name: 'Send reminder about Background check' })).toBeInTheDocument();
     expect(within(dialog).getByRole('button', { name: 'Approve' })).toBeDisabled();
   });
@@ -300,8 +300,61 @@ describe('pro side panel', () => {
     expect(api.calls).not.toContain(`POST /admin/pros/${PRO_ID}/request-info`);
     await user().type(within(dialog).getByLabelText(/What do you need/), 'Send the back of your ID.');
     await user().click(send);
-    expect(api.bodies[`POST /admin/pros/${PRO_ID}/request-info`]).toEqual({ message: 'Send the back of your ID.' });
+    expect(api.bodies[`POST /admin/pros/${PRO_ID}/request-info`]).toEqual({ message: 'Send the back of your ID.', documents: [] });
     expect(await within(dialog).findByText('You asked: Send the back of your ID.')).toBeInTheDocument();
+  });
+
+  it('(D93) can name the missing document when asking for more information', async () => {
+    const api = setUp();
+    api.on(`POST /admin/pros/${PRO_ID}/request-info`, {
+      body: { pro: detail({ status: 'info_requested', reviewNote: 'The photo is too blurry.', requestedDocuments: ['certificate'] }) },
+    });
+    renderAt(`/admin/providers?open=${PRO_ID}`);
+    const dialog = await screen.findByRole('dialog', { name: 'Erion Krasniqi' });
+    await user().click(within(dialog).getByRole('button', { name: 'Request more info' }));
+    await user().type(within(dialog).getByLabelText(/What do you need/), 'The photo is too blurry.');
+    await user().click(within(dialog).getByRole('checkbox', { name: 'Trade certificate' }));
+    expect(within(dialog).queryByRole('checkbox', { name: 'Background check' })).not.toBeInTheDocument();
+    await user().click(within(dialog).getByRole('button', { name: 'Send request' }));
+    expect(api.bodies[`POST /admin/pros/${PRO_ID}/request-info`]).toEqual({ message: 'The photo is too blurry.', documents: ['certificate'] });
+    expect(await within(dialog).findByText(/Upload asked for: Trade certificate/)).toBeInTheDocument();
+  });
+
+  it('(D93) shows the private home address, the consent, a certificate cleaning does not need, and records a clear background check', async () => {
+    const api = setUp();
+    api.on(`GET /admin/pros/${PRO_ID}`, {
+      body: {
+        pro: detail({
+          homeAddress: 'Oranienstraße 12',
+          backgroundConsentAt: '2026-11-07T09:30:00.000Z',
+          certificateRequired: false,
+          allChecksOk: false,
+          checks: [
+            check('id'),
+            check('certificate', { ok: false, state: 'missing', document: null, required: false }),
+            check('insurance'),
+            check('background', {
+              ok: false,
+              state: 'waiting_review',
+              document: { ...docOf('background'), uploadId: null, fileName: '', reviewStatus: 'pending' },
+            }),
+          ],
+        }),
+      },
+    });
+    api.on(`POST /admin/pros/${PRO_ID}/documents/background/accept`, { body: { pro: detail({ homeAddress: 'Oranienstraße 12' }) } });
+    renderAt(`/admin/providers?open=${PRO_ID}`);
+    const dialog = await screen.findByRole('dialog', { name: 'Erion Krasniqi' });
+    expect(within(dialog).getByText('Oranienstraße 12')).toBeInTheDocument();
+    expect(within(dialog).getByText('Only the MISK team sees this; customers never do.')).toBeInTheDocument();
+    expect(within(dialog).getByText(/^Given /)).toBeInTheDocument();
+    const checks = within(dialog).getAllByRole('listitem').filter((li) => li.closest('.check-list'));
+    expect(checks[1]).toHaveTextContent('Not needed for these trades.');
+    expect(checks[1]).toHaveTextContent('Not needed');
+    expect(checks[3]).toHaveTextContent(/Consent given 7 Nov 2026\. Waiting for the partner's result\./);
+    expect(within(checks[3] as HTMLElement).queryByText('View file')).not.toBeInTheDocument();
+    await user().click(within(checks[3] as HTMLElement).getByRole('button', { name: 'Background check clear' }));
+    expect(api.calls).toContain(`POST /admin/pros/${PRO_ID}/documents/background/accept`);
   });
 
   it('shows a quality warning with its reason and lets the team pause jobs and suspend', async () => {

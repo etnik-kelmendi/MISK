@@ -6,7 +6,7 @@ import { normalizePostcode, POSTCODE_INPUT_MAX_LENGTH } from '../catalogue/route
 import type { AppContext } from '../context.js';
 import { withTransaction } from '../db.js';
 import { ApiError, badRequest, conflict, notFound } from '../errors.js';
-import type { PaymentMethodInfo } from '../payments/gateway.js';
+import type { PaymentMethodInfo, SubscriptionConfirm } from '../payments/gateway.js';
 import { PAYMENT_CHOICES, type PaymentChoice } from '../bookings/customer-routes.js';
 import {
   CANCEL_NOTICE_DAYS,
@@ -29,6 +29,9 @@ import {
   withdrawMove,
 } from './moves.js';
 import {
+  activateSubscription,
+  BILLING_START,
+  billingStart,
   chooseRegularPro,
   dayAnchor,
   dropUnpaidSubscription,
@@ -85,8 +88,11 @@ interface SubscribeBody {
   acceptTerms: true;
 }
 
-/** When a cancelled plan ends (D90): its minimum term's end, or 30 days' notice from now if that is later. */
-const CANCEL_ENDS_AT = `GREATEST(COALESCE(s.started_at, s.created_at) + make_interval(months => s.min_term_months),
+/**
+ * When a cancelled plan ends (D90): its minimum term's end, or 30 days' notice from now if that is later. The
+ * minimum term counts from when billing starts, the first visit day (D91).
+ */
+const CANCEL_ENDS_AT = `GREATEST(${BILLING_START} + make_interval(months => s.min_term_months),
   now() + make_interval(days => ${CANCEL_NOTICE_DAYS}))`;
 
 const SUBSCRIPTION_COLUMNS = `s.id, s.plan_id AS "planId", s.plan_name AS "planName", s.category_id AS "categoryId", s.tasks, s.size,
@@ -98,11 +104,13 @@ const SUBSCRIPTION_COLUMNS = `s.id, s.plan_id AS "planId", s.plan_name AS "planN
   s.current_period_end AS "currentPeriodEnd", s.ends_at AS "endsAt", s.created_at AS "createdAt",
   pu.first_name AS "proName",
   (SELECT c.icon FROM categories c WHERE c.id = s.category_id) AS "categoryIcon",
-  CASE WHEN s.started_at IS NULL THEN NULL ELSE s.started_at + make_interval(months => s.min_term_months) END AS "cancelableFrom",
+  CASE WHEN s.status = 'awaiting_payment' THEN NULL ELSE ${BILLING_START} + make_interval(months => s.min_term_months) END AS "cancelableFrom",
   to_char(s.first_visit_on, 'YYYY-MM-DD') AS "firstVisitOn",
-  -- The end of the minimum term, counted from the first payment (from sign-up while it is still unpaid), and
-  -- when the plan would end if the customer cancelled now (D90).
-  COALESCE(s.started_at, s.created_at) + make_interval(months => s.min_term_months) AS "minTermEndsAt",
+  -- When billing starts: the first visit day, or sign-up when the first month was charged at once (D91).
+  ${BILLING_START} AS "billingStartsAt",
+  -- The end of the minimum term, counted from when billing starts (D91), and when the plan would end if the
+  -- customer cancelled now (D90).
+  ${BILLING_START} + make_interval(months => s.min_term_months) AS "minTermEndsAt",
   ${CANCEL_ENDS_AT} AS "cancelEndsAt",
   (SELECT min(fv.starts_at) FROM subscription_visits fv
    WHERE fv.subscription_id = s.id AND fv.status IN ('pending', 'planned') AND fv.starts_at > now()) AS "nextVisitAt"`;
@@ -259,6 +267,8 @@ export async function subscriptionRoutes(app: FastifyInstance, ctx: AppContext) 
           // A seasonal plan whose season ends before the first visit could be.
           throw conflict('off_season');
         }
+        // Billing starts on the first visit day (D91), or now when that day begins within 24 hours.
+        const billing = await billingStart(client, firstDay, config.timezone);
         const pattern = {
           days,
           frequency,
@@ -286,9 +296,9 @@ export async function subscriptionRoutes(app: FastifyInstance, ctx: AppContext) 
           `INSERT INTO subscriptions (customer_id, plan_id, category_id, plan_name, tasks, size, frequency, days, time_window,
              visit_minutes, address, postcode, notes, with_addon, addon_name, price_cents, pro_share_pct, seasonal,
              season_from, season_to, skips_per_month, min_term_months, pause_notice_days, max_pause_weeks, pro_id,
-             first_visit_on, terms_accepted_at)
+             first_visit_on, terms_accepted_at, billing_starts_at)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $25, $21, $22, $23, $24,
-             $26, now())
+             $26, now(), $27)
            RETURNING id, created_at`,
           [
             customer.id,
@@ -317,12 +327,14 @@ export async function subscriptionRoutes(app: FastifyInstance, ctx: AppContext) 
             proId,
             MAX_SKIPS_PER_MONTH,
             firstDay,
+            billing.at,
           ],
         );
-        const row = inserted.rows[0];
-        if (!row) {
+        const saved = inserted.rows[0];
+        if (!saved) {
           throw new Error('Subscription insert returned nothing');
         }
+        const row = { ...saved, billing };
         // The pro's time is held while the customer pays; the planner keeps it filled afterwards.
         await client.query(
           `INSERT INTO subscription_visits (subscription_id, pro_id, starts_at, ends_at, status)
@@ -332,7 +344,7 @@ export async function subscriptionRoutes(app: FastifyInstance, ctx: AppContext) 
         return row;
       });
 
-      let clientSecret: string | null = null;
+      let payment: { clientSecret: string; confirm: SubscriptionConfirm } | null = null;
       try {
         const existing = await pool.query<{ stripe_customer_id: string | null }>('SELECT stripe_customer_id FROM users WHERE id = $1', [customer.id]);
         const customerRef = await gateway.ensureCustomer({ userId: customer.id, existing: existing.rows[0]?.stripe_customer_id ?? null });
@@ -346,11 +358,13 @@ export async function subscriptionRoutes(app: FastifyInstance, ctx: AppContext) 
           idempotencyKey: `subscription-${created.id}`,
           metadata: { subscriptionId: created.id },
           ...(cardId ? { paymentMethodId: cardId } : {}),
+          // Nothing is charged before the first visit day (D91), unless that day begins within 24 hours.
+          ...(created.billing.chargeNow ? {} : { firstChargeAt: created.billing.at }),
         });
         await pool.query('UPDATE subscriptions SET stripe_subscription_id = $2 WHERE id = $1', [created.id, start.subscriptionId]);
-        clientSecret = start.clientSecret;
-        if (start.active) {
-          const periodEnd = new Date(created.created_at);
+        payment = start.clientSecret ? { clientSecret: start.clientSecret, confirm: start.confirm } : null;
+        if (start.paid) {
+          const periodEnd = new Date(created.billing.at);
           periodEnd.setMonth(periodEnd.getMonth() + 1);
           await recordPaidMonth(deps(), {
             subscriptionId: start.subscriptionId,
@@ -359,6 +373,9 @@ export async function subscriptionRoutes(app: FastifyInstance, ctx: AppContext) 
             amountCents: priceCents,
             periodEnd,
           });
+        } else if (start.active) {
+          // The saved card is now the plan's card (D91): the plan starts, and its first month is charged later.
+          await activateSubscription(deps(), start.subscriptionId);
         }
       } catch (error) {
         request.log.error({ event: 'subscription_payment_start_failed', subscriptionId: created.id, err: error });
@@ -368,7 +385,7 @@ export async function subscriptionRoutes(app: FastifyInstance, ctx: AppContext) 
       request.log.info({ event: 'subscription_created', subscriptionId: created.id, customerId: customer.id, frequency, payment: choice });
       return reply.code(201).send({
         subscription: await loadSubscription(created.id, customer.id),
-        payment: clientSecret ? { clientSecret, publishableKey: gateway.publishableKey } : null,
+        payment: payment ? { ...payment, publishableKey: gateway.publishableKey } : null,
       });
     },
   );
@@ -423,8 +440,39 @@ export async function subscriptionRoutes(app: FastifyInstance, ctx: AppContext) 
       if (row.status !== 'awaiting_payment' || !row.stripe_subscription_id) {
         return { payment: null };
       }
-      const clientSecret = await gateway.subscriptionClientSecret(row.stripe_subscription_id);
-      return { payment: clientSecret ? { clientSecret, publishableKey: gateway.publishableKey } : null };
+      const waiting = await gateway.subscriptionClientSecret(row.stripe_subscription_id);
+      return { payment: waiting ? { ...waiting, publishableKey: gateway.publishableKey } : null };
+    },
+  );
+
+  // The browser set up the card for a plan billed from its first visit day (D91): asks the payment provider and
+  // starts the plan when the card is there, without waiting for the webhook. Answers the plan as it is now.
+  app.post<{ Params: { id: string } }>(
+    '/subscriptions/:id/payment/check',
+    { preHandler: guards.customer, schema: { params: idParams } },
+    async (request) => {
+      const customerId = currentUser(request).id;
+      const found = await pool.query<{ stripe_subscription_id: string | null; status: string }>(
+        'SELECT stripe_subscription_id, status FROM subscriptions WHERE id = $1 AND customer_id = $2',
+        [request.params.id, customerId],
+      );
+      const row = found.rows[0];
+      if (!row) {
+        throw notFound();
+      }
+      if (row.status === 'awaiting_payment' && row.stripe_subscription_id) {
+        let ready = false;
+        try {
+          ready = await gateway.subscriptionCardReady(row.stripe_subscription_id);
+        } catch (error) {
+          // The webhook or the planning job starts the plan instead.
+          request.log.error({ event: 'subscription_card_check_failed', subscriptionId: request.params.id, err: error });
+        }
+        if (ready) {
+          await activateSubscription(deps(), row.stripe_subscription_id);
+        }
+      }
+      return { subscription: await loadSubscription(request.params.id, customerId) };
     },
   );
 

@@ -262,7 +262,8 @@ test.describe.serial('MISK marketplace', () => {
     await customer.getByLabel('Postcode').selectOption('10115');
     await customer.getByRole('checkbox', { name: 'I agree to the subscription terms' }).check();
     await expectAccessible(customer);
-    await customer.getByRole('button', { name: 'Subscribe · €49/month' }).click();
+    // "Subscribe · €49/month" when the first visit is tomorrow, else "Subscribe — first charge on …" (D91).
+    await customer.getByRole('button', { name: /^Subscribe/ }).click();
     await expect(customer.getByText('Weekly lawn care is active')).toBeVisible();
     await customer.getByRole('button', { name: 'See my visits' }).click();
     await expect(customer.getByRole('button', { name: /^Move the visit on/ }).first()).toBeVisible();

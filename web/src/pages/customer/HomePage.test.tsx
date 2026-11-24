@@ -36,6 +36,7 @@ function address(overrides: Partial<SavedAddress> = {}): SavedAddress {
     label: 'Home',
     address: '12 Linden Street',
     postcode: '10115',
+    notes: null,
     areaName: 'Mitte',
     served: true,
     selected: true,
@@ -146,7 +147,7 @@ describe('Home (D89)', () => {
     await user().type(within(sheet).getByLabelText('Postcode'), '10115');
     expect(within(sheet).getByText('Mitte')).toBeInTheDocument();
     await user().click(save);
-    await waitFor(() => expect(api.bodies['POST /addresses']).toEqual({ label: null, address: '9 Cedar Close', postcode: '10115', select: true }));
+    await waitFor(() => expect(api.bodies['POST /addresses']).toEqual({ label: null, address: '9 Cedar Close', postcode: '10115', notes: null, select: true }));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 
@@ -291,12 +292,14 @@ describe('Home (D89)', () => {
     });
     renderAt('/');
     await user().click(await screen.findByRole('link', { name: 'Favourites' }));
-    const list = await screen.findByRole('list', { name: 'Favourites' });
-    expect(within(list).getByRole('link', { name: /Daniel/ })).toHaveAttribute('href', '/category/gardening?pro=u-daniel');
-    expect(within(list).getByText('Not taking jobs right now')).toBeInTheDocument();
+    const list = await screen.findByRole('list', { name: 'Favourite pros' });
+    expect(within(list).getByRole('link', { name: 'Book Daniel' })).toHaveAttribute('href', '/category/gardening?pro=u-daniel');
+    expect(within(list).getByText(/Not taking jobs right now/)).toBeInTheDocument();
+    // Opened from Home, the back arrow goes back to Home.
+    expect(screen.getByRole('link', { name: 'Back' })).toHaveAttribute('href', '/');
   });
 
-  it('manages saved addresses on Profile, with a way to Messages', async () => {
+  it('manages saved addresses from Profile, with a way to Messages', async () => {
     const api = setUp();
     api.on('DELETE /addresses/a-work', { status: 204 });
     api.on('POST /addresses/a-work/select', { body: { address: address({ id: 'a-work', selected: true }) } });
@@ -304,9 +307,10 @@ describe('Home (D89)', () => {
     await user().click(within(await screen.findByRole('navigation', { name: 'Main menu' })).getByRole('link', { name: 'Profile' }));
     expect(await screen.findByRole('heading', { level: 1, name: 'Profile' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Messages' })).toHaveAttribute('href', '/messages');
-    const book = await screen.findByRole('list', { name: 'Your addresses' });
-    expect(within(book).getByText('Selected')).toBeInTheDocument();
-    await user().click(within(book).getByRole('button', { name: 'Use this one' }));
+    await user().click(screen.getByRole('link', { name: /Saved addresses/ }));
+    const book = await screen.findByRole('list', { name: 'Saved addresses' });
+    expect(within(book).getByText('Default')).toBeInTheDocument();
+    await user().click(within(book).getByRole('button', { name: 'Make 5 Unter den Linden the default' }));
     await waitFor(() => expect(api.calls).toContain('POST /addresses/a-work/select'));
     await user().click(within(book).getByRole('button', { name: 'Remove 5 Unter den Linden' }));
     const confirm = screen.getByRole('alertdialog', { name: 'Remove this address?' });

@@ -1,8 +1,35 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type { ReactNode } from 'react';
+import { vi } from 'vitest';
 import type { PublicPlan, SavedAddress, Subscription, SubscriptionPause, SubscriptionVisit } from '../../api/types';
 import { fakeApi, renderAt, users } from '../../test/harness';
-import { firstVisitDay, todayIn } from '../../lib/plans';
+import { dayName } from '../../lib/format';
+import { addDays, firstChargeDay, firstVisitDay, isoWeekday, todayIn } from '../../lib/plans';
+
+/** Stripe.js stands in for the browser's card form: what was confirmed, a payment or only a card set-up (D91). */
+const stripe = vi.hoisted(() => ({
+  confirmPayment: vi.fn(async () => ({})),
+  confirmSetup: vi.fn(async () => ({})),
+  handleNextAction: vi.fn(async () => ({})),
+}));
+vi.mock('@stripe/stripe-js', () => ({ loadStripe: vi.fn(async () => stripe) }));
+vi.mock('@stripe/react-stripe-js', () => ({
+  Elements: ({ children }: { children: ReactNode }) => children,
+  PaymentElement: () => null,
+  // The wallet sheet, approved at once.
+  ExpressCheckoutElement: ({ onConfirm }: { onConfirm: () => void }) => (
+    <button type="button" onClick={() => onConfirm()}>
+      Pay with wallet
+    </button>
+  ),
+  useStripe: () => stripe,
+  useElements: () => ({ submit: async () => ({}) }),
+}));
+beforeEach(() => {
+  stripe.confirmPayment.mockClear();
+  stripe.confirmSetup.mockClear();
+});
 
 const user = () => userEvent.setup();
 /** The page's top bar, which carries the plan's status badge on My plan. */
@@ -158,6 +185,7 @@ const address: SavedAddress = {
   label: 'Home',
   address: '12 Linden Street',
   postcode: '10115',
+  notes: null,
   areaName: 'Mitte',
   served: true,
   selected: true,
@@ -303,6 +331,8 @@ describe('Plan builder (D90)', () => {
       status: 'active',
       nextVisitAt: '2026-12-01T07:00:00.000Z',
       minTermEndsAt: '2027-03-01T10:00:00.000Z',
+      billingStartsAt: future(14),
+      startedAt: null,
     });
     api.on('POST /subscriptions', { status: 201, body: { subscription: created, payment: null } });
     api.on('GET /subscriptions/sub-1', { body: { subscription: created } });
@@ -355,10 +385,15 @@ describe('Plan builder (D90)', () => {
     const terms = await screen.findByRole('dialog', { name: 'Subscription terms' });
     expect(terms).toHaveTextContent("Minimum term: 3 months, then cancel with 30 days' notice");
     expect(terms).toHaveTextContent('A skipped visit is still part of the monthly price: nothing is refunded.');
+    expect(terms).toHaveTextContent('Nothing is charged when you subscribe: your card is first charged on the day of your first visit');
     await user().click(within(terms).getByRole('button', { name: 'Close' }));
     await user().click(screen.getByRole('checkbox', { name: 'I agree to the subscription terms' }));
     expect(subscribe).toBeEnabled();
-    expect(subscribe).toHaveAccessibleName('Subscribe · €134.07/month');
+    // Starting in 2 weeks, the card is first charged on the first visit day (D91).
+    const firstDay = expectedFirst(14, [2, 4]);
+    expect(subscribe).toHaveAccessibleName(`Subscribe — first charge on ${firstDay}`);
+    expect(summary).toHaveTextContent(`Your card is charged on ${firstDay}, then every month on that date.`);
+    expect(summary).not.toHaveTextContent('when you subscribe');
 
     // Payment: card, Apple Pay and Google Pay; the selected address filled in where.
     const pay = screen.getByRole('group', { name: 'Pay with' });
@@ -388,6 +423,7 @@ describe('Plan builder (D90)', () => {
     expect(done).toHaveTextContent('First visitTue 1 Dec, morning');
     expect(done).toHaveTextContent('Your proDaniel');
     expect(done).toHaveTextContent('Billing€134.07 monthly · Card');
+    expect(done).toHaveTextContent(`First charge${dayName(created.billingStartsAt ?? '', 'Europe/Berlin')}`);
     expect(done).toHaveTextContent('Minimum termUntil 1 Mar 2027');
     await user().click(screen.getByRole('button', { name: 'See my visits' }));
     expect(await screen.findByRole('heading', { name: 'My plan' })).toBeInTheDocument();
@@ -432,7 +468,7 @@ describe('Plan builder (D90)', () => {
     expect(await screen.findByRole('radio', { name: /Visa •••• 4242/ })).toBeChecked();
     await user().click(screen.getByRole('checkbox', { name: 'Tue' }));
     await user().click(screen.getByRole('checkbox', { name: 'I agree to the subscription terms' }));
-    await user().click(screen.getByRole('button', { name: 'Subscribe · €49/month' }));
+    await user().click(screen.getByRole('button', { name: /^Subscribe/ }));
     expect(await screen.findByText('€64 monthly · Visa •••• 4242')).toBeInTheDocument();
     expect(api.bodies['POST /subscriptions']).toMatchObject({ paymentMethod: { type: 'card', cardId: 'pm_card_visa' }, acceptTerms: true });
   });
@@ -443,7 +479,7 @@ describe('Plan builder (D90)', () => {
     renderAt('/plans/plan-lawn');
     await user().click(await screen.findByRole('checkbox', { name: 'Tue' }));
     await user().click(screen.getByRole('checkbox', { name: 'I agree to the subscription terms' }));
-    await user().click(screen.getByRole('button', { name: 'Subscribe · €49/month' }));
+    await user().click(screen.getByRole('button', { name: /^Subscribe/ }));
     expect(screen.getByText('Enter the street and house number where the job is.')).toBeInTheDocument();
     expect(screen.getByText('Choose your postcode.')).toBeInTheDocument();
     expect(api.calls).not.toContain('POST /subscriptions');
@@ -459,6 +495,77 @@ describe('Plan builder (D90)', () => {
     expect(firstVisitDay(today, 'asap', [], season)).toBeNull();
     // A seasonal plan from April finds no day in the 4 planning weeks of November.
     expect(firstVisitDay(today, 'asap', [2], { seasonal: true, seasonFrom: 4, seasonTo: 10 })).toBeNull();
+  });
+
+  it('charges the card on the first visit day, or today when the first visit is tomorrow (D91)', () => {
+    const today = '2026-11-23'; // a Monday
+    expect(firstChargeDay(today, '2026-11-24')).toBe('2026-11-23');
+    expect(firstChargeDay(today, '2026-11-25')).toBe('2026-11-25');
+    expect(firstChargeDay(today, '2026-12-02')).toBe('2026-12-02');
+  });
+
+  /** The builder's weekday checkbox for a calendar day, e.g. "Tue". */
+  const weekdayLabel = (day: string) => ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][isoWeekday(day) - 1] ?? '';
+  const shortDay = (day: string) => dayName(`${day}T12:00:00Z`, 'UTC');
+
+  it('says when the card is first charged: today when the first visit is tomorrow, else on the first visit day (D91)', async () => {
+    builderApi();
+    renderAt('/plans/plan-lawn');
+    const tomorrow = addDays(todayIn('Europe/Berlin'), 1);
+    await user().click(await screen.findByRole('checkbox', { name: weekdayLabel(tomorrow) }));
+    await user().click(screen.getByRole('checkbox', { name: 'I agree to the subscription terms' }));
+    const summary = screen.getByRole('region', { name: 'Your monthly price' });
+    expect(summary).toHaveTextContent('Your card is charged today, as your first visit is tomorrow, then every month on that date.');
+    expect(screen.getByRole('button', { name: 'Subscribe · €49/month' })).toBeEnabled();
+
+    await user().click(screen.getByRole('radio', { name: 'Next week' }));
+    const first = addDays(tomorrow, 7);
+    expect(summary).toHaveTextContent(`Your card is charged on ${shortDay(first)}, then every month on that date.`);
+    expect(screen.getByRole('button', { name: `Subscribe — first charge on ${shortDay(first)}` })).toBeEnabled();
+  });
+
+  it('only sets up a new card, without paying, when the first charge is on the first visit day (D91)', async () => {
+    const api = builderApi();
+    const waiting = subscription({ status: 'awaiting_payment', startedAt: null, billingStartsAt: '2026-12-01T23:00:00.000Z', visits: [] });
+    const started = subscription({ status: 'active', startedAt: null, billingStartsAt: '2026-12-01T23:00:00.000Z' });
+    api.on('POST /subscriptions', {
+      status: 201,
+      body: { subscription: waiting, payment: { clientSecret: 'seti_1_secret', publishableKey: 'pk_test_1', confirm: 'setup' } },
+    });
+    api.on('POST /subscriptions/sub-1/payment/check', { body: { subscription: started } });
+    renderAt('/plans/plan-lawn');
+    await user().click(await screen.findByRole('checkbox', { name: 'Tue' }));
+    await user().click(screen.getByRole('radio', { name: 'Next week' }));
+    await user().click(screen.getByRole('checkbox', { name: 'I agree to the subscription terms' }));
+    await user().click(screen.getByRole('button', { name: /^Subscribe — first charge on/ }));
+
+    // The card form saves the card and says when it is first charged; nothing is paid now.
+    const save = await screen.findByRole('button', { name: 'Save my card — first charge on Wed 2 Dec' });
+    await user().click(save);
+    expect(await screen.findByRole('heading', { name: 'Lawn care is active' })).toBeInTheDocument();
+    expect(stripe.confirmSetup).toHaveBeenCalledTimes(1);
+    expect(stripe.confirmPayment).not.toHaveBeenCalled();
+    expect(api.calls).toContain('POST /subscriptions/sub-1/payment/check');
+  });
+
+  it('sets up the wallet card instead of paying when the first charge is later (D91)', async () => {
+    const api = builderApi();
+    api.on('GET /payment-methods', { body: { cards: [], cardsAvailable: true, last: null, publishableKey: 'pk_test_1' } });
+    const waiting = subscription({ status: 'awaiting_payment', startedAt: null, billingStartsAt: '2026-12-01T23:00:00.000Z', visits: [] });
+    api.on('POST /subscriptions', {
+      status: 201,
+      body: { subscription: waiting, payment: { clientSecret: 'seti_1_secret', publishableKey: 'pk_test_1', confirm: 'setup' } },
+    });
+    api.on('POST /subscriptions/sub-1/payment/check', { body: { subscription: subscription({ startedAt: null }) } });
+    renderAt('/plans/plan-lawn');
+    await user().click(await screen.findByRole('radio', { name: /Apple Pay/ }));
+    await user().click(screen.getByRole('checkbox', { name: 'Tue' }));
+    await user().click(screen.getByRole('radio', { name: 'In 2 weeks' }));
+    await user().click(screen.getByRole('checkbox', { name: 'I agree to the subscription terms' }));
+    await user().click(screen.getByRole('button', { name: 'Pay with wallet' }));
+    expect(await screen.findByRole('heading', { name: 'Lawn care is active' })).toBeInTheDocument();
+    expect(stripe.confirmSetup).toHaveBeenCalledWith(expect.objectContaining({ clientSecret: 'seti_1_secret' }));
+    expect(stripe.confirmPayment).not.toHaveBeenCalled();
   });
 });
 
@@ -491,6 +598,25 @@ describe('My plan (D90)', () => {
     expect(card).toHaveTextContent('€64/month');
     expect(card).toHaveTextContent('Next charge Tue 12 Jan · Visa •••• 4242');
     expect(appbar()).toHaveTextContent('Active');
+  });
+
+  it('says the visits are on hold when the first monthly payment failed (D91)', async () => {
+    planApi({ status: 'past_due', startedAt: null });
+    renderAt('/my-plans/sub-1');
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Your first monthly payment did not go through, so your visits are on hold until it does.',
+    );
+  });
+
+  it('finishes a card set-up from My plan and asks the server to check the card (D91)', async () => {
+    const api = planApi({ status: 'awaiting_payment', startedAt: null, billingStartsAt: '2026-12-01T23:00:00.000Z', visits: [] });
+    api.on('GET /subscriptions/sub-1/payment', { body: { payment: { clientSecret: 'seti_1_secret', publishableKey: 'pk_test_1', confirm: 'setup' } } });
+    api.on('POST /subscriptions/sub-1/payment/check', { body: { subscription: subscription() } });
+    renderAt('/my-plans/sub-1');
+    await user().click(await screen.findByRole('button', { name: 'Save my card — first charge on Wed 2 Dec' }));
+    await waitFor(() => expect(api.calls).toContain('POST /subscriptions/sub-1/payment/check'));
+    expect(stripe.confirmSetup).toHaveBeenCalledTimes(1);
+    expect(stripe.confirmPayment).not.toHaveBeenCalled();
   });
 
   it('lists the visits of the next 4 weeks with date, time window and pro, and the skips left', async () => {

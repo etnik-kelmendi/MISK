@@ -2,6 +2,7 @@ import type { FastifyBaseLogger } from 'fastify';
 import type { Pool } from 'pg';
 import type { Queryable } from '../db.js';
 import type { EmailSender } from './email.js';
+import { topicOf } from './preferences.js';
 import { PushGoneError, type PushSender } from './push.js';
 import type { SmsSender } from './sms.js';
 
@@ -116,7 +117,9 @@ export function subjectOf(kind: NotificationKind): string {
 
 /**
  * Queues a message for one person on every channel chosen for it. Disabled people get none; a channel
- * the person cannot be reached on (no phone, no email, no push on any device) is skipped.
+ * the person cannot be reached on (no phone, no email, no push on any device) is skipped, and so is every
+ * channel of a topic a customer switched off on their Notifications page (D92), though the message still
+ * reaches their inbox in the app. Messages about payments, safety and the account have no topic.
  * Customers and pros also get it in their inbox in the app.
  * Pass the transaction's client so the message is only sent if the change it reports is saved.
  * Returns true when at least one channel was queued.
@@ -149,7 +152,13 @@ export async function enqueueChannels(
   }
   const result = await db.query<{ channel: Channel }>(
     `WITH person AS (
-       SELECT id, phone, email FROM users WHERE id = $1 AND disabled_at IS NULL
+       SELECT u.id, u.phone, u.email FROM users u
+       WHERE u.id = $1 AND u.disabled_at IS NULL
+         -- A topic the customer switched off (D92); only customers have the switches.
+         AND NOT EXISTS (
+           SELECT 1 FROM user_notification_prefs np
+           WHERE np.user_id = u.id AND np.topic = $10::text AND NOT np.enabled AND u.role = 'customer'
+         )
      ), chosen AS (
        SELECT COALESCE($5::boolean, s.push, false) AS push,
               COALESCE($6::boolean, s.sms, (SELECT phone IS NOT NULL FROM person)) AS sms,
@@ -174,6 +183,7 @@ export async function enqueueChannels(
       channels?.email ?? null,
       email?.text ?? null,
       link,
+      topicOf(kind),
     ],
   );
   // Customers and pros also find every message in the app (Messages), whatever the channels did.

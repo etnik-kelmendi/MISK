@@ -1,5 +1,6 @@
+import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router';
+import { useLocation, useNavigate } from 'react-router';
 import { Icon } from '../components/Icon';
 
 /** The sections of the terms, in order; each has a title and a body in the translations. */
@@ -37,6 +38,11 @@ export function TermsContent({ headingLevel = 2 }: { headingLevel?: 2 | 3 }) {
 export function TermsPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const { hash } = useLocation();
+  // A link to one part, e.g. the subscription terms from Profile (D92), opens at that part.
+  useEffect(() => {
+    if (hash) document.getElementById(decodeURIComponent(hash.slice(1)))?.scrollIntoView?.();
+  }, [hash]);
   // Back to where the terms were opened from; a link opened on its own goes to sign-in.
   const back = () => (window.history.length > 1 ? navigate(-1) : navigate('/signin'));
   return (

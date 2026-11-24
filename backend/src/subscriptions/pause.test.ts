@@ -298,7 +298,7 @@ describe('pausing a plan (D78)', () => {
 
   it('must end by the end of a cancelled plan during its notice', async () => {
     const subscription = await subscribe();
-    await t.pool.query("UPDATE subscriptions SET started_at = now() - interval '4 months'");
+    await t.pool.query("UPDATE subscriptions SET billing_starts_at = now() - interval '4 months'");
     expect((await call(t, 'POST', `/subscriptions/${subscription.id}/cancel`, { cookie: customer })).statusCode).toBe(200);
     const startsOn = mondayFrom(addDays(await today(), 7));
     expect((await pause(subscription.id, startsOn, 4)).json()).toEqual({ error: 'pause_after_end' });
@@ -313,7 +313,7 @@ describe('pausing a plan (D78)', () => {
     const startsOn = mondayFrom(addDays(await today(), 24));
     const made = (await pause(subscription.id, startsOn, 2)).json().subscription.pauses[0];
     expect(made.visitsCalledOff).toBe(2);
-    await t.pool.query("UPDATE subscriptions SET started_at = now() - interval '4 months'");
+    await t.pool.query("UPDATE subscriptions SET billing_starts_at = now() - interval '4 months'");
     await call(t, 'POST', `/subscriptions/${subscription.id}/cancel`, { cookie: customer });
     const afterEnd = await t.pool.query<{ n: number }>(
       `SELECT count(*)::int AS n FROM subscription_visits v JOIN subscriptions s ON s.id = v.subscription_id

@@ -62,6 +62,8 @@ const categoryProperties = {
   icon: { type: 'string', enum: ICONS },
   sortOrder: { type: 'integer', minimum: 0, maximum: 1000 },
   active: { type: 'boolean' },
+  // Whether pros of this trade must upload a trade certificate (D93); cleaning needs none.
+  needsCertificate: { type: 'boolean' },
 } as const;
 
 /** A service lists at most this many tasks for the pro, each this long at most (D86). */
@@ -89,7 +91,7 @@ const serviceProperties = {
   },
 } as const;
 
-type CategoryBody = { slug?: string; name: string; icon: string; sortOrder?: number; active?: boolean };
+type CategoryBody = { slug?: string; name: string; icon: string; sortOrder?: number; active?: boolean; needsCertificate?: boolean };
 type ServiceBody = {
   categoryId: string;
   name: string;
@@ -110,7 +112,7 @@ export function normalizeTasks(tasks: string[]): string[] {
   return [...new Set(tasks.map((task) => task.trim()).filter((task) => task.length > 0))];
 }
 
-const CATEGORY_FIELDS: Record<string, string> = { slug: 'slug', name: 'name', icon: 'icon', sortOrder: 'sort_order', active: 'active' };
+const CATEGORY_FIELDS: Record<string, string> = { slug: 'slug', name: 'name', icon: 'icon', sortOrder: 'sort_order', active: 'active', needsCertificate: 'needs_certificate' };
 const SERVICE_FIELDS: Record<string, string> = {
   categoryId: 'category_id',
   name: 'name',
@@ -146,7 +148,7 @@ export async function catalogueRoutes(app: FastifyInstance, ctx: AppContext) {
   app.get('/catalogue', async () => {
     const [categories, services, settings] = await Promise.all([
       pool.query(
-        `SELECT c.id, c.slug, c.name, c.icon,
+        `SELECT c.id, c.slug, c.name, c.icon, c.needs_certificate AS "needsCertificate",
            (SELECT count(*)::int FROM pro_trades t JOIN pro_profiles p ON p.user_id = t.pro_id
             WHERE t.category_id = c.id AND p.status = 'approved') AS "approvedPros"
          FROM categories c WHERE c.active ORDER BY c.sort_order, c.name`,
@@ -178,7 +180,7 @@ export async function catalogueRoutes(app: FastifyInstance, ctx: AppContext) {
   app.get('/admin/catalogue', { preHandler: guards.admin }, async () => {
     const [categories, services, settings, changes] = await Promise.all([
       pool.query(
-        `SELECT c.id, c.slug, c.name, c.icon, c.sort_order AS "sortOrder", c.active,
+        `SELECT c.id, c.slug, c.name, c.icon, c.sort_order AS "sortOrder", c.active, c.needs_certificate AS "needsCertificate",
            (SELECT count(*)::int FROM services s WHERE s.category_id = c.id AND s.active) AS "visibleServices",
            (SELECT count(*)::int FROM services s WHERE s.category_id = c.id AND s.removed_at IS NULL) AS "totalServices",
            (SELECT count(*)::int FROM pro_trades t JOIN pro_profiles p ON p.user_id = t.pro_id
@@ -217,7 +219,7 @@ export async function catalogueRoutes(app: FastifyInstance, ctx: AppContext) {
     },
     // A new trade is a draft: hidden from customers until the team publishes it.
     async (request, reply) => {
-      const { name, icon, sortOrder, active = false } = request.body;
+      const { name, icon, sortOrder, active = false, needsCertificate = true } = request.body;
       const chosenSlug = request.body.slug;
       const base = chosenSlug ?? slugify(name);
       // Without a chosen slug, "window-cleaning" becomes "window-cleaning-2" when the first is taken.
@@ -227,10 +229,10 @@ export async function catalogueRoutes(app: FastifyInstance, ctx: AppContext) {
           const category = await withTransaction(pool, async (client) => {
             const result = await client.query<{ id: string }>(
               // Without a chosen place, a new trade goes to the end of the order the app shows (D89).
-              `INSERT INTO categories (slug, name, icon, sort_order, active)
-               VALUES ($1, $2, $3, COALESCE($4, (SELECT COALESCE(max(sort_order) + 1, 0) FROM categories)), $5)
-               RETURNING id, slug, name, icon, sort_order AS "sortOrder", active`,
-              [slug, name.trim(), icon, sortOrder ?? null, active],
+              `INSERT INTO categories (slug, name, icon, sort_order, active, needs_certificate)
+               VALUES ($1, $2, $3, COALESCE($4, (SELECT COALESCE(max(sort_order) + 1, 0) FROM categories)), $5, $6)
+               RETURNING id, slug, name, icon, sort_order AS "sortOrder", active, needs_certificate AS "needsCertificate"`,
+              [slug, name.trim(), icon, sortOrder ?? null, active, needsCertificate],
             );
             const row = onlyRow(result);
             await logChange(client, { adminId: currentUser(request).id, categoryId: row.id, action: 'trade_added', details: { name: name.trim() } });
@@ -280,7 +282,7 @@ export async function catalogueRoutes(app: FastifyInstance, ctx: AppContext) {
         );
         await logActivity(client, { adminId, area: 'catalogue', action: 'trades_reordered', details: { count: ids.length } });
         const result = await client.query(
-          'SELECT id, slug, name, icon, sort_order AS "sortOrder", active FROM categories ORDER BY sort_order, name',
+          'SELECT id, slug, name, icon, sort_order AS "sortOrder", active, needs_certificate AS "needsCertificate" FROM categories ORDER BY sort_order, name',
         );
         return result.rows;
       });
@@ -359,7 +361,7 @@ export async function catalogueRoutes(app: FastifyInstance, ctx: AppContext) {
             throw notFound();
           }
           const result = await client.query(
-            `UPDATE categories SET ${set.sql} WHERE id = $1 RETURNING id, slug, name, icon, sort_order AS "sortOrder", active`,
+            `UPDATE categories SET ${set.sql} WHERE id = $1 RETURNING id, slug, name, icon, sort_order AS "sortOrder", active, needs_certificate AS "needsCertificate"`,
             [request.params.id, ...set.values],
           );
           const { active, ...rest } = request.body;

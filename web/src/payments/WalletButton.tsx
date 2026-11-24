@@ -16,12 +16,19 @@ interface Props {
   onUnavailable: () => void;
   /**
    * 'hold' reserves the amount for a booking, taken 24 hours after the job (D73); 'subscription' pays a monthly
-   * plan's first month at once and keeps the card for the next months (D90).
+   * plan's first month at once and keeps the card for the next months (D90); 'subscription_setup' only keeps the
+   * card for a plan whose first month is charged on its first visit day (D91).
    */
-  purpose?: 'hold' | 'subscription';
+  purpose?: 'hold' | 'subscription' | 'subscription_setup';
 }
 
-function Button({ wallet, onApproved, onDone, onUnavailable }: Omit<Props, 'publishableKey' | 'amountCents' | 'purpose'>) {
+function Button({
+  wallet,
+  onApproved,
+  onDone,
+  onUnavailable,
+  setup,
+}: Omit<Props, 'publishableKey' | 'amountCents' | 'purpose'> & { setup: boolean }) {
   const { t } = useTranslation();
   const stripe = useStripe();
   const elements = useElements();
@@ -38,13 +45,10 @@ function Button({ wallet, onApproved, onDone, onUnavailable }: Omit<Props, 'publ
     try {
       const clientSecret = await onApproved();
       if (clientSecret) {
-        // A booking's payment only reserves the money (manual capture); a plan's first month is paid at once.
-        const { error } = await stripe.confirmPayment({
-          elements,
-          clientSecret,
-          redirect: 'if_required',
-          confirmParams: { return_url: window.location.href },
-        });
+        // A booking's payment only reserves the money (manual capture); a plan's first month is paid at once, or
+        // the card is only set up when the plan is first charged on its first visit day (D91).
+        const params = { elements, clientSecret, redirect: 'if_required' as const, confirmParams: { return_url: window.location.href } };
+        const { error } = setup ? await stripe.confirmSetup(params) : await stripe.confirmPayment(params);
         if (error) {
           setMessage(error.message ?? t('errors.payment_failed'));
           return;
@@ -88,7 +92,8 @@ function Button({ wallet, onApproved, onDone, onUnavailable }: Omit<Props, 'publ
 /**
  * The Apple Pay or Google Pay button for Review & pay (D73) and the Plan builder (D90). For a booking the amount
  * is reserved on the card the customer picks in their wallet, and only taken 24 hours after the job; for a plan
- * the first month is paid and the card is kept for the monthly charges.
+ * the first month is paid, or only the card set up when billing starts on the first visit day (D91), and the card
+ * is kept for the monthly charges.
  */
 export function WalletButton({ publishableKey, amountCents, purpose = 'hold', ...rest }: Props) {
   return (
@@ -97,10 +102,12 @@ export function WalletButton({ publishableKey, amountCents, purpose = 'hold', ..
       options={
         purpose === 'subscription'
           ? { mode: 'subscription', amount: amountCents, currency: 'eur' }
-          : { mode: 'payment', amount: amountCents, currency: 'eur', captureMethod: 'manual', setupFutureUsage: 'on_session' }
+          : purpose === 'subscription_setup'
+            ? { mode: 'setup', currency: 'eur', setupFutureUsage: 'off_session' }
+            : { mode: 'payment', amount: amountCents, currency: 'eur', captureMethod: 'manual', setupFutureUsage: 'on_session' }
       }
     >
-      <Button {...rest} />
+      <Button {...rest} setup={purpose === 'subscription_setup'} />
     </Elements>
   );
 }
