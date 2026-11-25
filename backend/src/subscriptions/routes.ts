@@ -729,7 +729,7 @@ export async function subscriptionRoutes(app: FastifyInstance, ctx: AppContext) 
          (SELECT count(*)::int FROM subscriptions s WHERE s.plan_id = p.id AND s.pro_id = $1 AND s.status = 'active') AS "mySubscribers"
        FROM ${PLAN_FROM}
        WHERE p.status = 'published' AND c.active
-         AND EXISTS (SELECT 1 FROM pro_trades t WHERE t.pro_id = $1 AND t.category_id = p.category_id)
+         AND EXISTS (SELECT 1 FROM pro_trades t WHERE t.pro_id = $1 AND t.category_id = p.category_id AND t.approved)
        ORDER BY c.sort_order, p.name`,
       [proId],
     );

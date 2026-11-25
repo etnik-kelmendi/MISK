@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { useAppConfig } from '../../../api/ApiContext';
 import { Icon, type IconKey } from '../../../components/Icon';
+import { DataExportRow } from '../../../components/DataExport';
 import { Sheet } from '../../../components/Sheet';
 import { AppHeader } from '../../../shells/Shells';
 
@@ -73,15 +74,8 @@ function CookieSheet({ onClose }: { onClose: () => void }) {
                 {t('legal.necessaryText')}
               </span>
             </span>
-            <button
-              type="button"
-              role="switch"
-              aria-checked="true"
-              aria-labelledby="cookies-necessary"
-              aria-describedby="cookies-necessary-text"
-              className="toggle on"
-              disabled
-            />
+            {/* Not a switch: necessary storage cannot be turned off, so it is a plain label. */}
+            <span className="b small brand-text always-on">{t('legal.alwaysOn')}</span>
           </div>
         </div>
         <p className="tiny muted">{t('legal.noTracking')}</p>
@@ -143,13 +137,6 @@ export function TermsPrivacyPage() {
               )
             }
           </LegalRow>
-          <LegalRow icon="repeat" label={t('legal.subscription')}>
-            {(inner) => (
-              <Link to="/terms#terms-plans" className="lrow">
-                {inner}
-              </Link>
-            )}
-          </LegalRow>
           <LegalRow icon="sliders" label={t('legal.cookies')}>
             {(inner) => (
               <button type="button" className="lrow" aria-haspopup="dialog" onClick={() => setCookies(true)}>
@@ -157,6 +144,8 @@ export function TermsPrivacyPage() {
               </button>
             )}
           </LegalRow>
+          {/* "Download my data" (D100), the same as in the pro app. */}
+          <DataExportRow personalPath="/profile/personal" />
         </ul>
         <p className="tiny muted">{t('terms.updated')}</p>
         {cookies && <CookieSheet onClose={() => setCookies(false)} />}

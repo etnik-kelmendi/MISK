@@ -67,9 +67,11 @@ describe('listing saved cards', () => {
 
   it('lists the cards with brand, last 4 digits and expiry, the default and the cards paying for plans', async () => {
     await returningCustomer();
-    expect((await list()).json()).toEqual({ cards: [VISA, MASTERCARD], defaultCardId: null, planCardIds: [], publishableKey: null });
+    // No default saved at the provider: the first card is the one used next, so it is shown as the default.
+    expect((await list()).json()).toEqual({ cards: [VISA, MASTERCARD], defaultCardId: VISA.id, planCardIds: [], publishableKey: null });
+    // A card that pays for a plan is the default before the first card.
     await plan('active', MASTERCARD.id);
-    expect((await list()).json()).toMatchObject({ defaultCardId: null, planCardIds: [MASTERCARD.id] });
+    expect((await list()).json()).toMatchObject({ defaultCardId: MASTERCARD.id, planCardIds: [MASTERCARD.id] });
   });
 
   it('says payments are not working when the provider cannot be reached', async () => {

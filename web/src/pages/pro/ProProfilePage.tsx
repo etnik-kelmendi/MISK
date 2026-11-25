@@ -1,180 +1,174 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link, useSearchParams } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { useApi } from '../../api/ApiContext';
-import type { ProPayouts, ProProfile } from '../../api/types';
-import { longDate } from '../../lib/format';
+import type { ProAvailability, ProProfile } from '../../api/types';
 import { useResource } from '../../api/useResource';
-import { ErrorText } from '../../components/ErrorText';
-import { Icon } from '../../components/Icon';
-import { Avatar, FileButton, IMAGE_TYPES } from '../../components/Photos';
-import { useUser } from '../../auth/AuthContext';
+import { useAuth, useUser } from '../../auth/AuthContext';
+import { Icon, type IconKey } from '../../components/Icon';
+import { Avatar } from '../../components/Photos';
 import { ResourceState } from '../../components/ResourceState';
-import { useAction } from '../../lib/useAction';
-import { ApplicationForm } from './ApplicationForm';
-import { AvailabilitySection } from './AvailabilitySection';
+import { PRO_PROFILE_PATHS, type ProfileOverview } from './profile/types';
 
-/** The pro's profile photo (D83): customers see it on their booking, in the chat and when they rate the job. */
-function ProPhoto({ profile, onChange }: { profile: ProProfile; onChange: (p: ProProfile) => void }) {
+/** "Daniel K.": the first name and the initial of the last name, as customers see the pro. */
+export function shortName(user: { firstName: string | null; lastName: string | null }): string {
+  const initial = user.lastName?.trim().slice(0, 1);
+  return [user.firstName?.trim(), initial ? `${initial.toUpperCase()}.` : null].filter(Boolean).join(' ');
+}
+
+/** One row of a Profile list: icon, label, an optional value and the arrow; it opens the section's page. */
+export function ProfileRow({ to, icon, label, value }: { to: string; icon: IconKey; label: string; value?: ReactNode }) {
+  return (
+    <li>
+      <Link to={to} className="lrow">
+        <span className="li" aria-hidden="true">
+          <Icon name={icon} />
+        </span>
+        <span className="grow">{label}</span>
+        <span className="lv">
+          {value}
+          <Icon name="chevR" />
+        </span>
+      </Link>
+    </li>
+  );
+}
+
+/** "08:00–18:00", or "Holiday set" while a holiday is planned; days off (D99) are counted when there are any. */
+function AvailabilityValue({ availability }: { availability: ProAvailability | undefined }) {
+  const { t } = useTranslation();
+  if (!availability) return null;
+  if (availability.holidays.length > 0) {
+    return <span className="badge">{t('proProfile.holidaySet')}</span>;
+  }
+  const daysOff = availability.daysOff?.length ?? 0;
+  return (
+    <span>
+      {t('proProfile.hours', { from: availability.workStart, to: availability.workEnd })}
+      {daysOff > 0 && ` · ${t('proProfile.daysOff', { count: daysOff })}`}
+    </span>
+  );
+}
+
+/** "1 expired" in red, "1 expiring" in orange, or "Checking" while a new copy waits for MISK. */
+function DocumentsValue({ documents }: { documents: ProfileOverview['documents'] }) {
+  const { t } = useTranslation();
+  if (documents.expired > 0) return <span className="badge r">{t('proProfile.docsExpired', { count: documents.expired })}</span>;
+  if (documents.expiring > 0) return <span className="badge">{t('proProfile.docsExpiring', { count: documents.expiring })}</span>;
+  if (documents.checking > 0) return <span className="badge b">{t('proProfile.docsChecking')}</span>;
+  return null;
+}
+
+/** The photo, name, trades, stars, finished jobs and, for an approved pro, "Verified pro". */
+function ProfileHeader({ profile, overview }: { profile: ProProfile; overview: ProfileOverview | null }) {
   const { t } = useTranslation();
   const user = useUser();
-  const api = useApi();
-  const upload = useAction();
-  const remove = useAction();
-  const name = user.firstName ?? '';
+  const name = shortName(user) || t('profile.noName');
+  const facts = [
+    (profile.tradeNames ?? []).join(', '),
+    profile.ratingAverage !== null ? `★ ${profile.ratingAverage.toFixed(1)}` : null,
+    overview ? t('proProfile.jobs', { count: overview.jobsDone }) : null,
+  ].filter(Boolean);
   return (
-    <section className="card stack" aria-labelledby="photo-heading">
-      <h2 id="photo-heading" className="h-sm">
-        {t('proPhoto.title')}
-      </h2>
-      <div className="row gap8">
+    <header className="prohead pro-profile-head">
+      <div className="row gap12">
         <Avatar name={name} photoId={profile.photoId} size="lg" />
-        <p className="small muted grow">{profile.photoId ? t('proPhoto.hint') : `${t('proPhoto.none')} ${t('proPhoto.hint')}`}</p>
+        <div className="grow min0">
+          <h1 className="pro-profile-name">{name}</h1>
+          {facts.length > 0 && <p className="small muted pro-profile-facts">{facts.join(' · ')}</p>}
+          {profile.status === 'approved' && (
+            <span className="verified-badge">
+              <Icon name="shield" /> {t('proProfile.verified')}
+            </span>
+          )}
+        </div>
       </div>
-      <div className="row gap8 wrap">
-        <FileButton
-          label={profile.photoId ? t('proPhoto.change') : t('proPhoto.add')}
-          accept={IMAGE_TYPES}
-          icon="camera"
-          onFile={async (file) => {
-            const result = await upload.run(() => api.upload<{ profile: ProProfile }>('/pro/photo', file));
-            if (result) onChange(result.profile);
-          }}
-        />
-        {profile.photoId && (
-          <button
-            type="button"
-            className="mini-btn danger"
-            disabled={remove.busy}
-            onClick={() =>
-              void remove.run(() => api.delete<{ profile: ProProfile }>('/pro/photo')).then((result) => result && onChange(result.profile))
-            }
-          >
-            {t('proPhoto.remove')}
-          </button>
-        )}
-      </div>
-      <ErrorText error={upload.error ?? remove.error} />
-    </section>
+    </header>
   );
 }
 
-/** The pro's share and next payout day, from the team's Settings, and the bank account it goes to. */
-function PayoutSchedule() {
-  const { t } = useTranslation();
-  const api = useApi();
-  const load = useCallback(() => api.get<{ payouts: ProPayouts }>('/pro/payouts'), [api]);
-  const { state } = useResource(load);
-  if (state.status !== 'ready') return null;
-  const { payouts } = state.data;
-  return (
-    <div className="stack tight small">
-      <p>{t('payouts.share', { pct: payouts.sharePct })}</p>
-      <p className="b">
-        {t('payouts.next', { date: longDate(payouts.nextPayoutOn, 'UTC'), interval: t(`payouts.interval.${payouts.interval}`) })}
-      </p>
-      {payouts.bankLast4 && <p className="muted">{t('payouts.bank', { last4: payouts.bankLast4 })}</p>}
-    </div>
-  );
-}
-
-function Payouts({ profile, onChange }: { profile: ProProfile; onChange: (p: ProProfile) => void }) {
-  const { t } = useTranslation();
-  const api = useApi();
-  const link = useAction();
-  const [params, setParams] = useSearchParams();
-  const returning = params.get('payouts');
-
-  // Coming back from Stripe: ask the API whether payouts work now.
-  useEffect(() => {
-    if (!returning) {
-      return;
-    }
-    let current = true;
-    api.post<{ profile: ProProfile }>('/pro/payouts/refresh').then(
-      (result) => current && onChange(result.profile),
-      (error: unknown) => console.error('Payout status check failed', error),
-    );
-    setParams({}, { replace: true });
-    return () => {
-      current = false;
-    };
-  }, [api, returning, onChange, setParams]);
-
-  if (profile.status !== 'approved') {
-    return null;
-  }
-  return (
-    <section className="card stack" aria-labelledby="payouts-heading">
-      <h2 id="payouts-heading" className="b">
-        {t('payouts.title')}
-      </h2>
-      {profile.payoutsEnabled ? (
-        <>
-          <p className="row small">
-            <Icon name="check" /> {t('payouts.ready')}
-          </p>
-          <PayoutSchedule />
-        </>
-      ) : (
-        <>
-          <p className="small muted">{profile.hasPayoutAccount ? t('payouts.unfinished') : t('payouts.explain')}</p>
-          <ErrorText error={link.error} />
-          <button
-            type="button"
-            className="btn btn-primary"
-            disabled={link.busy}
-            onClick={() =>
-              void link.run(() => api.post<{ url: string }>('/pro/payouts/link')).then((result) => {
-                if (result) {
-                  window.location.assign(result.url);
-                }
-              })
-            }
-          >
-            <Icon name="card" /> {profile.hasPayoutAccount ? t('payouts.continue') : t('payouts.start')}
-          </button>
-        </>
-      )}
-    </section>
-  );
-}
-
+/**
+ * The pro's Profile (D100): photo, name, trades, stars, finished jobs and "Verified pro" at the top, then the
+ * Work, Performance and App groups, each row opening its page, and Log out. "Switch to customer app" opens Home
+ * in the customer app with the same account (D64).
+ */
 export function ProProfilePage() {
   const { t } = useTranslation();
   const api = useApi();
-  const load = useCallback(() => api.get<{ profile: ProProfile }>('/pro/profile'), [api]);
-  const { state, reload, update } = useResource(load);
-  const onChange = useCallback((next: ProProfile) => update(() => ({ profile: next })), [update]);
+  const { logout } = useAuth();
+  const navigate = useNavigate();
+  const loadProfile = useCallback(() => api.get<{ profile: ProProfile }>('/pro/profile'), [api]);
+  const loadOverview = useCallback(() => api.get<{ overview: ProfileOverview }>('/pro/profile/overview'), [api]);
+  const profileState = useResource(loadProfile);
+  const overviewState = useResource(loadOverview);
+  const overview = overviewState.state.status === 'ready' ? overviewState.state.data.overview : null;
 
   return (
-    <>
-      <header className="prohead">
-        <h1>{t('nav.profile')}</h1>
-      </header>
-      <div className="body">
-        <ResourceState state={state} reload={reload}>
-          {({ profile }) => (
-            <div className="stack">
-              <ProPhoto profile={profile} onChange={onChange} />
-              <Payouts profile={profile} onChange={onChange} />
-              {profile.availability && ['approved', 'pending_approval'].includes(profile.status) && (
-                <AvailabilitySection availability={profile.availability} onChange={(availability) => onChange({ ...profile, availability })} />
-              )}
-              <p className="small muted">{t(`apply.statusLine.${profile.status}`)}</p>
-              <ApplicationForm profile={profile} onChange={onChange} />
+    <ResourceState state={profileState.state} reload={profileState.reload}>
+      {({ profile }) => (
+        <>
+          <ProfileHeader profile={profile} overview={overview} />
+          <div className="body">
+            <h2 className="h-sm first">{t('proProfile.work')}</h2>
+            <ul className="lgroup plist" aria-label={t('proProfile.work')}>
+              <ProfileRow to={PRO_PROFILE_PATHS.personal} icon="user" label={t('proProfile.personal')} />
+              <ProfileRow to={PRO_PROFILE_PATHS.work} icon="wrench" label={t('proProfile.workInfo')} />
+              <ProfileRow
+                to={PRO_PROFILE_PATHS.availability}
+                icon="clock"
+                label={t('proProfile.availability')}
+                value={<AvailabilityValue availability={profile.availability} />}
+              />
+              <ProfileRow
+                to={PRO_PROFILE_PATHS.documents}
+                icon="file"
+                label={t('proProfile.documents')}
+                value={overview && <DocumentsValue documents={overview.documents} />}
+              />
+              <ProfileRow
+                to={PRO_PROFILE_PATHS.bank}
+                icon="card"
+                label={t('proProfile.bank')}
+                value={overview?.bankLast4 ? <span>{t('proProfile.last4', { last4: overview.bankLast4 })}</span> : null}
+              />
+            </ul>
+
+            <h2 className="h-sm">{t('proProfile.performanceGroup')}</h2>
+            <ul className="lgroup plist" aria-label={t('proProfile.performanceGroup')}>
+              <ProfileRow
+                to={PRO_PROFILE_PATHS.ratings}
+                icon="sparkle"
+                label={t('proProfile.ratings')}
+                value={profile.ratingAverage !== null ? <span>{t('proProfile.ratingValue', { rating: profile.ratingAverage.toFixed(1) })}</span> : null}
+              />
+              <ProfileRow
+                to={PRO_PROFILE_PATHS.performance}
+                icon="chart"
+                label={t('proProfile.performance')}
+                value={overview?.topPercent ? <span className="badge g">{t('proProfile.top', { pct: overview.topPercent })}</span> : null}
+              />
+            </ul>
+
+            <h2 className="h-sm">{t('proProfile.app')}</h2>
+            <ul className="lgroup plist" aria-label={t('proProfile.app')}>
+              <ProfileRow to={PRO_PROFILE_PATHS.notifications} icon="bell" label={t('proProfile.notifications')} />
+              <ProfileRow to={PRO_PROFILE_PATHS.help} icon="help" label={t('proProfile.help')} />
+              <ProfileRow to={PRO_PROFILE_PATHS.terms} icon="shield" label={t('proProfile.terms')} />
+              {/* The customer app with the same account (D64): its last tab leads back here. */}
+              <ProfileRow to="/" icon="repeat" label={t('proProfile.switchApp')} />
+            </ul>
+
+            <div className="lgroup">
+              <button type="button" className="lrow" onClick={() => void logout().then(() => navigate('/signin'))}>
+                <span className="li" aria-hidden="true">
+                  <Icon name="logout" />
+                </span>
+                <span className="grow">{t('proProfile.logOut')}</span>
+              </button>
             </div>
-          )}
-        </ResourceState>
-        {/* A pro can book help for their own home with the same account (D64). */}
-        <p className="small muted">{t('proBook.hint')}</p>
-        <Link to="/" className="btn btn-ghost wide">
-          <Icon name="home" /> {t('proBook.button')}
-        </Link>
-        <Link to="/pro/account" className="btn btn-ghost wide">
-          <Icon name="user" /> {t('account.title')}
-        </Link>
-      </div>
-    </>
+          </div>
+        </>
+      )}
+    </ResourceState>
   );
 }

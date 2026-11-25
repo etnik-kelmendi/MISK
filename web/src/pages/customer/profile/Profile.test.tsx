@@ -381,28 +381,37 @@ describe('Help & support', () => {
     expect(screen.getByRole('link', { name: 'Call' })).toHaveAttribute('href', 'tel:+493012345678');
   });
 
-  it('leaves out chat and call when no support contact is set up', async () => {
+  it('keeps Chat with us and Call when no support contact is set up, and says how to reach the team', async () => {
     fakeApi(sara);
     renderAt('/profile/help');
-    expect(await screen.findByText('Reply to any message from MISK and the team gets back to you.')).toBeInTheDocument();
+    const chat = await screen.findByRole('button', { name: 'Chat with us' });
+    const call = screen.getByRole('button', { name: 'Call' });
     expect(screen.queryByRole('link', { name: 'Chat with us' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: 'Call' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Reply to any message from MISK and the team gets back to you.')).not.toBeInTheDocument();
+    await user().click(chat);
+    expect(chat).toHaveAttribute('aria-expanded', 'true');
+    expect(await screen.findByText('Reply to any message from MISK and the team gets back to you.')).toBeInTheDocument();
+    await user().click(call);
+    expect(call).toHaveAttribute('aria-expanded', 'true');
+    expect(chat).toHaveAttribute('aria-expanded', 'false');
   });
 });
 
 describe('Terms & privacy', () => {
-  it('links the terms, the privacy policy, the subscription terms and the cookie settings', async () => {
+  it('links the terms, the privacy policy and the cookie settings, without a separate subscription terms row', async () => {
     fakeApi(sara);
     renderAt('/profile/terms');
     const list = await screen.findByRole('list', { name: 'Terms & privacy' });
     expect(within(list).getByRole('link', { name: 'Terms of Service' })).toHaveAttribute('href', '/terms');
-    expect(within(list).getByRole('link', { name: 'Subscription terms' })).toHaveAttribute('href', '/terms#terms-plans');
+    expect(within(list).queryByText('Subscription terms')).not.toBeInTheDocument();
     // The owner has not published a privacy policy address in this build.
     expect(within(list).getByText('Privacy Policy').closest('li')).toHaveTextContent('Coming soon');
 
     await user().click(within(list).getByRole('button', { name: 'Cookie settings' }));
     const sheet = screen.getByRole('dialog', { name: 'Cookie settings' });
-    expect(within(sheet).getByRole('switch', { name: 'Necessary' })).toBeDisabled();
+    // Necessary storage is a plain "Always on" label, not a switch.
+    expect(within(sheet).queryByRole('switch')).not.toBeInTheDocument();
+    expect(within(sheet).getByText('✓ Always on')).toBeInTheDocument();
     expect(within(sheet).getByText(/no advertising or tracking cookies/)).toBeInTheDocument();
     await user().click(within(sheet).getByRole('button', { name: 'OK' }));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
@@ -414,5 +423,8 @@ describe('Terms & privacy', () => {
     renderAt('/profile/terms');
     await user().click(await screen.findByRole('link', { name: 'Terms of Service' }));
     expect(await screen.findByRole('heading', { level: 1, name: /Terms/ })).toBeInTheDocument();
+    // The usual header bar with a Back button, and the text in the padded page body.
+    expect(screen.getByRole('button', { name: /Back/ }).closest('header')).toHaveClass('appbar');
+    expect(screen.getByRole('heading', { level: 2, name: '1. What MISK is' }).closest('.body')).not.toBeNull();
   });
 });

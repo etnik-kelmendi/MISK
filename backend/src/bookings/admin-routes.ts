@@ -83,7 +83,7 @@ export async function adminBookingRoutes(app: FastifyInstance, ctx: AppContext) 
            round(distance_km(home.lat, home.lng, dest.lat, dest.lng)::numeric, 1)::float AS "distanceKm",
            (SELECT round(avg(stars)::numeric, 2)::float FROM ratings r WHERE r.pro_id = p.user_id) AS "ratingAverage"
          FROM bookings b
-         JOIN pro_trades t ON t.category_id = b.category_id
+         JOIN pro_trades t ON t.category_id = b.category_id AND t.approved
          JOIN pro_profiles p ON p.user_id = t.pro_id
          JOIN users u ON u.id = p.user_id
          JOIN postcodes home ON home.code = p.home_postcode
@@ -208,7 +208,7 @@ export async function adminBookingRoutes(app: FastifyInstance, ctx: AppContext) 
 
         const pro = await client.query<{ firstName: string | null }>(
           `SELECT u.first_name AS "firstName" FROM pro_profiles p JOIN users u ON u.id = p.user_id
-           JOIN pro_trades t ON t.pro_id = p.user_id AND t.category_id = $2
+           JOIN pro_trades t ON t.pro_id = p.user_id AND t.category_id = $2 AND t.approved
            WHERE p.user_id = $1 AND p.status = 'approved' AND p.payouts_enabled AND p.jobs_paused_at IS NULL AND u.disabled_at IS NULL`,
           [targetPro, booking.category_id],
         );

@@ -27,6 +27,15 @@
     "reload": "Reload"
   },
   "errors": {
+    "already_replied": "You have already replied to this review. A reply cannot be changed.",
+    "certificate_missing": "This trade needs an accepted, valid trade certificate first.",
+    "no_payout_account": "Set up payouts first.",
+    "review_not_found": "This review was not found.",
+    "trade_not_found": "This trade was not found.",
+    "trade_not_pending": "This trade is not waiting for a check any more.",
+    "year_invalid": "There is no statement for this year.",
+    "email_missing": "Add an email address under Personal information first.",
+    "export_limited": "You already asked for your data today. You can ask again 24 hours later.",
     "generic": "That did not work. Please try again.",
     "card_pays_for_plan": "This card pays for your plan. Make another card the default first, then you can remove this one.",
     "already_pro": "Your account is already a pro account. Open the pro app to see your application.",
@@ -122,6 +131,7 @@
     "visit_not_movable": "This visit can no longer be moved. A visit can be moved up to 24 hours before it starts.",
     "move_not_same_week": "A visit can only move to a later day of the same week, at the same time.",
     "pro_not_free": "The pro is not free at that time. Please choose another day.",
+    "stand_in_not_needed": "This visit no longer needs a stand-in.",
     "move_pending": "You already asked to move this visit. Wait for the answer, or withdraw the request.",
     "move_not_pending": "This request is no longer open: it was answered, withdrawn or ran out of time.",
     "already_cancelled": "This plan is already cancelled.",
@@ -219,6 +229,14 @@
     "holiday_invalid": "Choose a holiday from today, with the last day on or after the first.",
     "holiday_too_long": "A holiday can be at most 92 days. Add another one for a longer break.",
     "too_many_holidays": "You can plan at most 20 holidays.",
+    "too_many_days_off": "You can plan at most 60 days off.",
+    "day_off_exists": "That day is already a day off.",
+    "day_off_invalid": "Choose a day from today, up to a year ahead.",
+    "visit_not_on_day_off": "This visit is not on one of your days off any more.",
+    "not_movable": "This visit can no longer be moved or handed over.",
+    "day_not_free": "You are not free on that day any more. Choose another day.",
+    "month_invalid": "Choose this month or an earlier one.",
+    "page_invalid": "That page of earnings does not exist.",
     "job_stopped": "This job is stopped because you reported it unsafe. MISK support has to resolve it first.",
     "no_door_issue": "First report that the customer is not home or that you can't get in.",
     "wait_longer": "Please wait the full 15 minutes before you leave.",
@@ -240,6 +258,7 @@
     "account": "Account",
     "jobs": "Jobs",
     "week": "Week",
+    "earnings": "Earnings",
     "profile": "Profile",
     "plans": "Plans",
     "messages": "Messages",
@@ -454,6 +473,10 @@
     "backToBooking": "Back to the booking"
   },
   "booking": {
+    "experience_one": "{{count}} year in the trade",
+    "experience_other": "{{count}} years in the trade",
+    "aboutPro": "About {{name}}",
+    "proReply": "Reply from {{name}}",
     "title": "Your booking",
     "timeline": "Progress",
     "yourPro": "Your pro",
@@ -943,14 +966,29 @@
   },
   "week": {
     "title": "My week",
-    "last30": "Earned, last 30 days",
-    "pending": "Waiting to be paid",
+    "thisWeek": "This week",
+    "recurring": "Recurring visits",
+    "holiday": "Holiday: {{range}}.",
+    "holidayText": "No new offers then.",
+    "holidayVisits": "Plan visits on those days need you: open Availability to move them or give them to another pro.",
     "byDay": "Earnings by day",
+    "tapDay": "Tap a day",
     "today": "Today",
+    "barLabel": "{{day}}, {{amount}}",
     "jobsOn_one": "{{count}} job",
     "jobsOn_other": "{{count}} jobs",
+    "jobsList": "Jobs on {{day}}",
     "dayOff": "Day off",
-    "payoutNote": "Stripe pays your earnings to your bank account every Friday."
+    "plan": "Plan",
+    "oneOff": "One-off",
+    "availability": "Availability",
+    "noWorkingDays": "No working days",
+    "daysOff_one": "{{count}} day off",
+    "daysOff_other": "{{count}} days off",
+    "edit": "Edit",
+    "nextPayout": "Next payout: {{date}}",
+    "payoutLine": "{{ready}} ready · {{pending}} pending",
+    "payoutTo": "to •••• {{last4}}"
   },
   "payouts": {
     "title": "Payouts",
@@ -1139,7 +1177,8 @@
         "searching": "Still searching, starts in {{time}}",
         "late": "Pro running late",
         "extraPending": "Waiting for customer approval",
-        "charging": "Being charged"
+        "charging": "Being charged",
+        "standInNeeded": "Pro is off: needs a stand-in"
       },
       "kanban": {
         "todo": "To Do",
@@ -1255,6 +1294,16 @@
         "theTeam": "the team",
         "unlocked": "The team's confirmed assignment ended, so the team can choose a pro again."
       },
+      "standIn": {
+        "title": "Assign a stand-in",
+        "hint": "{{name}} is off that day and no other pro took this visit. Choose a free pro nearby.",
+        "none": "No free pro with this trade is near enough at that time.",
+        "failed": "The free pros could not be loaded. Try again in a moment.",
+        "confirmTitle": "Make {{name}} the stand-in for this visit?",
+        "factVisit": "Plan visit",
+        "warning": "The customer, the stand-in and {{name}} are told. The plan keeps {{name}} as its regular pro, and the stand-in is paid for this visit.",
+        "standingInFor": "standing in for {{name}}"
+      },
       "move": {
         "title": "Change the time",
         "date": "New date",
@@ -1335,6 +1384,8 @@
       "preferredPro": "Customer asked for {{name}}"
     },
     "pros": {
+      "tradeToCheck_one": "{{count}} trade to check",
+      "tradeToCheck_other": "{{count}} trades to check",
       "title": "Providers",
       "kpi": {
         "active": "Active pros",
@@ -1395,6 +1446,23 @@
       "menuBadge_one": "{{count}} application waiting",
       "menuBadge_other": "{{count}} applications waiting",
       "panel": {
+        "pendingTrades": "Trades to check",
+        "pendingTradesHint": "The pro added these trades. They get no jobs in them until you approve.",
+        "pendingTradeLine": "{{trade}} · added {{date}}",
+        "needsCertificate": "Needs an accepted trade certificate",
+        "approveTrade": "Approve",
+        "approveTradeLabel": "Approve {{trade}}",
+        "declineTrade": "Decline",
+        "declineTradeLabel": "Decline {{trade}}",
+        "declineNote": "Reason for the pro (optional)",
+        "declineSend": "Decline trade",
+        "tradeApproved": "{{trade}} approved: the pro now gets jobs in it.",
+        "tradeDeclined": "{{trade}} declined and removed.",
+        "reviewText": "\"{{text}}\"",
+        "reviewReply": "Reply from the pro: {{reply}}",
+        "about": "About (customers see this)",
+        "experience_one": "{{count}} year in the trade",
+        "experience_other": "{{count}} years in the trade",
         "close": "Close",
         "loading": "Loading the pro…",
         "details": "Details",
@@ -1533,6 +1601,8 @@
         "logBy": "{{name}} · {{date}}",
         "system": "MISK (automatic)",
         "logAction": {
+          "trade_approved": "Approved the trade {{trade}}",
+          "trade_declined": "Declined the trade {{trade}} {{note}}",
           "approved": "Approved the application",
           "info_requested": "Asked for more information: {{message}}",
           "rejected": "Rejected the application: {{note}}",
@@ -1909,14 +1979,38 @@
         "notSet": "Not set",
         "alertsNotEmailed": "Issue alerts from pros can't be emailed: add an email to a team member or set SUPPORT_EMAIL.",
         "items": {
-          "support_email": { "label": "Support email (SUPPORT_EMAIL)", "effect": "The \"Email us\" contact buttons are hidden, and issue alerts have no fallback address." },
-          "support_phone": { "label": "Support phone (SUPPORT_PHONE)", "effect": "The \"Call us\" contact buttons are hidden." },
-          "email_sender": { "label": "Email sender (SMTP settings)", "effect": "No email is sent: notifications reach people in the app only." },
-          "sms_sender": { "label": "SMS sender (Twilio settings)", "effect": "No text is sent: notifications reach people in the app only." },
-          "push": { "label": "Push notifications (VAPID keys)", "effect": "Push messages are not sent." },
-          "stripe_webhook": { "label": "Stripe webhook secret (STRIPE_WEBHOOK_SECRET)", "effect": "Payments and plan sign-ups are never confirmed." },
-          "privacy_url": { "label": "Privacy Policy address (VITE_PRIVACY_URL)", "effect": "The Privacy Policy shows \"Coming soon\"." },
-          "map_tiles": { "label": "Map tiles (VITE_MAP_TILE_URL)", "effect": "The live map uses the free OpenStreetMap tiles, which are for testing only." }
+          "support_email": {
+            "label": "Support email (SUPPORT_EMAIL)",
+            "effect": "The \"Email us\" contact buttons are hidden, and issue alerts have no fallback address."
+          },
+          "support_phone": {
+            "label": "Support phone (SUPPORT_PHONE)",
+            "effect": "The \"Call us\" contact buttons are hidden."
+          },
+          "email_sender": {
+            "label": "Email sender (SMTP settings)",
+            "effect": "No email is sent: notifications reach people in the app only."
+          },
+          "sms_sender": {
+            "label": "SMS sender (Twilio settings)",
+            "effect": "No text is sent: notifications reach people in the app only."
+          },
+          "push": {
+            "label": "Push notifications (VAPID keys)",
+            "effect": "Push messages are not sent."
+          },
+          "stripe_webhook": {
+            "label": "Stripe webhook secret (STRIPE_WEBHOOK_SECRET)",
+            "effect": "Payments and plan sign-ups are never confirmed."
+          },
+          "privacy_url": {
+            "label": "Privacy Policy address (VITE_PRIVACY_URL)",
+            "effect": "The Privacy Policy shows \"Coming soon\"."
+          },
+          "map_tiles": {
+            "label": "Map tiles (VITE_MAP_TILE_URL)",
+            "effect": "The live map uses the free OpenStreetMap tiles, which are for testing only."
+          }
         }
       },
       "team": {
@@ -2003,6 +2097,7 @@
           "plan_deleted": "Deleted the plan \"{{name}}\"",
           "plan_published": "Published the plan \"{{name}}\"",
           "plan_unpublished": "Unpublished the plan \"{{name}}\"",
+          "visit_stand_in_assigned": "Assigned a stand-in for a plan visit: {{name}}",
           "trades_reordered": "Changed the order of the trades in the app"
         },
         "requests": "Account requests",
@@ -2807,6 +2902,14 @@
     "updated": "Last updated 11 November 2026",
     "intro": "These terms apply when you use MISK to book home and garden services or to offer them as a pro. Please read them before you create an account.",
     "sections": {
+      "conduct": {
+        "title": "9. Code of conduct for pros",
+        "body": "Arrive on time and tell the customer in the app if you run late. Treat customers, their homes and their belongings with respect, and do only the work that was booked or that the customer approved in the app. Keep every payment in the app: never ask a customer to pay you directly. Use customers' addresses and details only for the job. Never work under the influence of alcohol or drugs. If something is unsafe, stop and report an issue in the app. Breaking these rules can lead to a quality check, a pause of new jobs or the end of your account."
+      },
+      "proCancelling": {
+        "title": "10. Cancellation rules for pros",
+        "body": "You can give back a job you accepted from the job screen. More than 24 hours before the start there is no penalty, but the job counts as not accepted in your acceptance rate. Less than 24 hours before the start it is a late cancellation: 3 late cancellations within 30 days pause new job offers for a week. If the customer is not home, report it in the app and wait 15 minutes; you can then leave and are paid the call-out fee. If a customer cancels late, you are paid your share."
+      },
       "about": {
         "title": "1. What MISK is",
         "body": "MISK is a marketplace that connects customers with independent professionals (\"pros\") for home and garden services. The pros are not employed by MISK; each pro is responsible for the work they do."
@@ -2837,19 +2940,22 @@
       },
       "pros": {
         "title": "8. For pros",
-        "body": "Pros send their ID, trade certificate, insurance and a certificate of good conduct, and get jobs only once MISK has checked them and while they stay valid. MISK keeps a commission on each job and pays out the rest to your bank account."
+        "body": "Pros send their ID card or passport, liability insurance and, for trades that need one, a trade certificate, and agree to a background check. They get jobs only once MISK has checked them and while their documents stay valid; a trade added later is checked before it brings jobs. MISK keeps a commission on each job and tip and pays the rest to the pro's bank account on the payout schedule MISK sets, once the customer's 24 hours to report a problem have passed."
       },
       "liability": {
-        "title": "9. Responsibility",
+        "title": "11. Responsibility",
         "body": "MISK is responsible for running the platform and handling payments with care. The pro who does the job is responsible for the quality and safety of the work. Nothing in these terms limits your rights as a consumer under the law."
       },
       "changes": {
-        "title": "10. Changes to these terms",
+        "title": "12. Changes to these terms",
         "body": "We may update these terms. If a change matters for you, we tell you in the app or by email before it applies."
       }
     }
   },
   "fieldNames": {
+    "yearsExperience": "Years of experience",
+    "about": "About you",
+    "text": "Reply",
     "acceptTerms": "Terms and conditions",
     "addonName": "Optional extra",
     "addonPriceCents": "Price of the extra",
@@ -3509,10 +3615,21 @@
     "bookingProblem": "Problem with a booking? Open Bookings"
   },
   "legal": {
+    "proTerms": "Pro terms",
+    "conduct": "Code of conduct",
+    "cancellationRules": "Cancellation rules",
+    "download": "Download my data",
+    "downloadHint": "We email a copy of your data to your email address as one file.",
+    "downloadSend": "Email me my data",
+    "downloadPending": "We'll email your data to {{email}} within 48 hours.",
+    "downloadSent": "Sent to {{email}} on {{date}}.",
+    "downloadAgain": "You can ask again from {{date}}.",
+    "downloadNoEmail": "Add an email address first, so we can send you your data.",
+    "downloadAddEmail": "Add an email address",
+    "downloadTitle": "Download my data",
     "terms": "Terms of Service",
     "privacy": "Privacy Policy",
     "notPublished": "Coming soon",
-    "subscription": "Subscription terms",
     "cookies": "Cookie settings",
     "cookiesTitle": "Cookie settings",
     "cookiesText": "MISK only keeps what the app needs to work: a cookie that keeps you logged in, and settings of this device such as notifications.",
@@ -3520,7 +3637,8 @@
     "necessaryText": "Logging in and the app's settings. Always on.",
     "noTracking": "MISK uses no advertising or tracking cookies, so there is nothing else to switch on or off.",
     "cookiesOk": "OK",
-    "cookiesSaved": "You confirmed this on this device."
+    "cookiesSaved": "You confirmed this on this device.",
+    "alwaysOn": "✓ Always on"
   },
   "picked": {
     "title": "Booking with {{name}}.",
@@ -3532,22 +3650,304 @@
   },
   "availability": {
     "title": "Availability",
+    "workingDays": "Working days",
+    "workingDaysHint": "Tap a day to switch it on or off. Offers only come in on your working days.",
+    "keepOneDay": "Keep at least one working day.",
     "hours": "Working hours",
     "start": "Start",
     "finish": "Finish",
     "save": "Save hours",
     "saved": "Saved",
     "hoursHint": "You go offline automatically outside these hours, so no offers come in.",
-    "daysOff": "Days off are the days that are not your working days. Change your working days below.",
-    "holidays": "Holidays",
-    "noHolidays": "No holidays planned.",
+    "keepsJobs": "Changes only affect new offers. Jobs and plan visits you already have stay.",
+    "daysOffTitle": "Days off",
+    "noDaysOff": "No days off planned.",
+    "addDayOff": "Add a day off",
+    "dayOffDate": "Day off",
+    "add": "Add",
+    "cancel": "Cancel",
+    "dayOffMissing": "Choose a day.",
+    "dayOffAdded": "Day off added, no offers that day.",
+    "removeDayOff": "Remove the day off {{date}}",
+    "holidays": "Holiday",
+    "holidaySwitch": "I'm going on holiday",
+    "holidayOff": "Block a whole period",
     "holidayRange": "{{from}} – {{to}}",
+    "holidayInfo": "No offers during your holiday. Plan visits in it are listed below, to move or give to another pro.",
     "remove": "Remove",
     "removeHoliday": "Remove the holiday {{from}} – {{to}}",
     "from": "First day",
     "to": "Last day",
-    "addHoliday": "Add holiday",
-    "holidayHint": "No offers come in during a holiday, and no jobs are offered for those days. Accepted jobs and plan visits stay.",
-    "holidayMissing": "Choose the first and the last day."
+    "saveHoliday": "Save holiday",
+    "holidaySaved": "Holiday saved.",
+    "holidayEnded": "Holiday removed. Offers come in again.",
+    "holidayMissing": "Choose the first and the last day.",
+    "visitsTitle": "Plan visits on your days off",
+    "visitsIntro": "You are off on these days. Move each visit to another day this week, or give it to another pro.",
+    "visitLine": "{{plan}} · {{customer}}",
+    "moveIt": "Move it",
+    "giveAway": "Give to another pro",
+    "moveTo": "Move to which day?",
+    "noMoveDays": "You are not free on another day this week at the same time. Give it to another pro instead.",
+    "moveHere": "Move here",
+    "moved": "Moved to {{when}}. {{customer}} is told.",
+    "givenTo": "{{name}} does this visit. {{customer}} is told.",
+    "teamAsked": "No other pro is free then. The MISK team is finding someone and will tell you.",
+    "teamAskedBadge": "MISK is finding a stand-in",
+    "jobsTitle": "You still have these jobs on your days off",
+    "jobsHint": "Accepted jobs stay yours. If you can't do one, open it and cancel it.",
+    "theCustomer": "The customer"
+  },
+  "earnings": {
+    "title": "Earnings",
+    "statement": "Statement",
+    "statementLabel": "Download this month's statement (PDF)",
+    "ready": "Ready",
+    "readyHint": "paid {{date}}",
+    "pending": "Pending",
+    "pendingHint": "24 h review",
+    "paid": "Paid",
+    "paidHint": "this month",
+    "filters": "Show earnings",
+    "filter": {
+      "all": "All",
+      "pending": "Pending",
+      "ready": "Ready",
+      "paid": "Paid"
+    },
+    "status": {
+      "pending": "Pending",
+      "ready": "Ready",
+      "paid": "Paid",
+      "on_hold": "On hold",
+      "stand_in": "Stand-in"
+    },
+    "list": "Your earnings",
+    "meta": "{{date}} · {{customer}}",
+    "job": "Job {{amount}}",
+    "waiting": "Waiting time {{amount}}",
+    "extra": "{{label}} {{amount}}",
+    "commission": "MISK {{pct}}% −{{amount}}",
+    "tip": "Tip +{{amount}}",
+    "youGet": "You get {{amount}}",
+    "planVisit": "Plan visit · fixed payout per visit",
+    "standIn": "Done by a stand-in · not paid to you",
+    "noShow": "Call-out fee · customer not home",
+    "lateCancel": "Late cancellation by the customer",
+    "empty": "Nothing here right now.",
+    "more": "Show more",
+    "explainPending": "Pending:",
+    "explainPendingText": "the customer has 24 hours to check the work.",
+    "explainReady": "Ready:",
+    "explainReadyText": "goes out in the next payout.",
+    "explainPaid": "Paid:",
+    "explainPaidText": "sent to your bank",
+    "payouts": "Payouts",
+    "noPayouts": "No payouts yet.",
+    "payoutMeta": "{{date}} · to •••• {{last4}}",
+    "payoutMetaNoBank": "{{date}} · to your bank account",
+    "customer": "Customer"
+  },
+  "proProfile": {
+    "verified": "Verified pro",
+    "jobs_one": "{{count}} job",
+    "jobs_other": "{{count}} jobs",
+    "work": "Work",
+    "personal": "Personal information",
+    "workInfo": "Work information",
+    "availability": "Availability",
+    "documents": "Documents",
+    "bank": "Bank account",
+    "performanceGroup": "Performance",
+    "ratings": "Ratings & reviews",
+    "performance": "Performance",
+    "app": "App",
+    "notifications": "Notifications",
+    "help": "Help & support",
+    "terms": "Terms",
+    "termsTitle": "Terms & conditions",
+    "switchApp": "Switch to customer app",
+    "logOut": "Log out",
+    "holidaySet": "Holiday set",
+    "hours": "{{from}}–{{to}}",
+    "daysOff_one": "{{count}} day off",
+    "daysOff_other": "{{count}} days off",
+    "docsExpiring_one": "{{count}} expiring",
+    "docsExpiring_other": "{{count}} expiring",
+    "docsExpired_one": "{{count}} expired",
+    "docsExpired_other": "{{count}} expired",
+    "docsChecking": "Checking",
+    "last4": "•••• {{last4}}",
+    "ratingValue": "{{rating}} ★",
+    "top": "Top {{pct}}%"
+  },
+  "work": {
+    "trades": "Trades",
+    "tradesHint": "A new trade is checked by MISK before you get jobs in it",
+    "tradesMissing": "Choose at least one trade.",
+    "checking": "being checked",
+    "experience": "Experience",
+    "years": "Years of experience",
+    "yearsInvalid": "Enter a number from 0 to {{max}}.",
+    "about": "About you",
+    "aboutHint": "Customers see this",
+    "aboutTooLong": "Use at most {{max}} characters.",
+    "addressMissing": "Enter your street and house number.",
+    "postcodeMissing": "Choose your postcode.",
+    "homePrivate": "Jobs are matched by distance from here. Customers never see it",
+    "save": "Save changes",
+    "saved": "Saved.",
+    "savedChecking": "Saved. MISK checks your new trade before you get jobs in it."
+  },
+  "docs": {
+    "status": {
+      "valid": "Valid",
+      "expiring": "Expiring soon",
+      "checking": "Being checked",
+      "expired": "Expired",
+      "missing": "Not uploaded"
+    },
+    "line": {
+      "validUntil": "Valid until {{date}}",
+      "noExpiry": "No expiry date",
+      "checking": "New copy uploaded · being checked",
+      "checkingUntil": "New copy valid until {{date}} · being checked",
+      "expired": "Expired on {{date}}",
+      "missing": "Not uploaded yet"
+    },
+    "notAccepted": "MISK did not accept the new copy: {{note}}",
+    "uploadNew": "Upload new",
+    "chooseFile": "Choose file",
+    "rule": "If a required document runs out, you get no new jobs until MISK has accepted the new one",
+    "reminders": "We remind you 30 days and 7 days before a document runs out. Upload the new one early and nothing stops."
+  },
+  "bank": {
+    "account": "Your bank account",
+    "number": "•••• •••• {{last4}}",
+    "active": "Active",
+    "checking": "Being checked",
+    "unavailable": "Your bank account could not be loaded right now. Please try again later.",
+    "payouts": "Payouts",
+    "schedule": "Payout schedule",
+    "scheduleValue": "{{interval}}, set by MISK",
+    "interval": {
+      "weekly": "Weekly on Fridays",
+      "biweekly": "Every other Friday",
+      "monthly": "Monthly on the 1st"
+    },
+    "next": "Next payout",
+    "nextValue": "{{date}} · {{amount}}",
+    "change": "Change bank account",
+    "changeHint": "A new account is checked before the next payout. Until then it shows \"Being checked\" and no payout goes to it.",
+    "tax": "Yearly statement for taxes",
+    "taxYear": "Year",
+    "taxLabel": "Download the yearly statement for taxes {{year}} (PDF)",
+    "taxHint": "Job prices, MISK commission, tips and what you were paid, month by month in {{year}}.",
+    "earnings": "See all your earnings"
+  },
+  "reviews": {
+    "summaryLabel": "Your rating",
+    "count_one": "{{count}} rating",
+    "count_other": "{{count}} ratings",
+    "barsLabel": "Share of ratings per star level",
+    "barLabel_one": "{{count}} star",
+    "barLabel_other": "{{count}} stars",
+    "barValue": "{{pct}}% ({{count}} ratings)",
+    "mention": "Customers mention",
+    "tagCount": "{{tag}} · {{count}}",
+    "latest": "Latest reviews",
+    "none": "No reviews yet. They appear here once customers rate your jobs.",
+    "aCustomer": "A customer",
+    "reply": "Reply",
+    "replyTo": "to {{name}}",
+    "replyLabel": "Your reply to {{name}}",
+    "replyHint": "Customers see your reply under their review. You can reply once and cannot change it afterwards.",
+    "replyMissing": "Write your reply first.",
+    "send": "Send reply",
+    "yourReply": "Your reply · {{date}}",
+    "more": "Show more reviews"
+  },
+  "perf": {
+    "acceptance": {
+      "title": "Acceptance rate",
+      "hint": "Jobs you accept out of all offered"
+    },
+    "onTime": {
+      "title": "On time",
+      "hint": "Arrived within 10 min of the start"
+    },
+    "completion": {
+      "title": "Completed jobs",
+      "hint": "Accepted jobs you finished"
+    },
+    "late": {
+      "title": "Late cancellations",
+      "value": "{{count}} of {{limit}}",
+      "hint": "{{limit}} within 30 days pause new jobs for a week."
+    },
+    "rating": {
+      "title": "Rating",
+      "hint": "Below 4.5 for 30 days leads to a quality check by the MISK team",
+      "goal": "Goal {{goal}}",
+      "barText": "{{value}} of 5, goal {{goal}}"
+    },
+    "pct": "{{value}}%",
+    "goal": "Goal {{goal}}%",
+    "barText": "{{value}}%, goal {{goal}}%",
+    "belowGoal": "Below the goal",
+    "noData": "No jobs yet",
+    "noRating": "No ratings yet",
+    "topTitle": "You're in the top {{pct}}% of {{trade}} pros",
+    "topText": "this month, so you're offered new jobs first.",
+    "notTop": "The pros with the best numbers are offered new jobs first. Accept offers, arrive on time and finish every job to move up.",
+    "window": "Numbers from the last {{days}} days."
+  },
+  "proNotify": {
+    "topics": {
+      "job_offers": {
+        "title": "New job offers",
+        "text": "You have 15 min to answer. Off: offers only show in the app, so you may miss them."
+      },
+      "offer_sound": {
+        "title": "Offer sound",
+        "text": "Plays a sound for new offers. Your phone's settings decide whether it sounds on silent."
+      },
+      "schedule_changes": {
+        "title": "Schedule changes",
+        "text": "Skips, moved visits and paused plans. Cancelled jobs always reach you."
+      },
+      "payouts": {
+        "title": "Payouts",
+        "text": "When money is sent to your bank."
+      },
+      "tips_news": {
+        "title": "Tips & news",
+        "text": "From the MISK team, now and then."
+      }
+    },
+    "listLabel": "What we tell you about",
+    "always": "Messages about payments, safety, your documents and your account are always sent. Everything also shows in Messages.",
+    "device": "This device"
+  },
+  "proHelp": {
+    "mailSubject": "Help with MISK (pro)",
+    "faq": {
+      "paid": {
+        "q": "When do I get paid?",
+        "a": "{{releaseHours}} h after the job, if the customer reports no problem, your share is released. It goes to your bank in the next payout: {{schedule}}."
+      },
+      "notHome": {
+        "q": "What if the customer isn't home?",
+        "a": "Open the job and tap Report an issue. We try to reach the customer. After {{minutes}} minutes you can leave and you get the call-out fee of {{fee}}."
+      },
+      "cancel": {
+        "q": "Can I cancel a job?",
+        "a": "Yes, from the job screen. More than {{hours}} h before the start there is no penalty, but it counts as not accepted in your acceptance rate. Less than {{hours}} h before is a late cancellation: {{limit}} within {{windowDays}} days pause new offers for {{pauseDays}} days."
+      },
+      "moreJobs": {
+        "q": "How do I get more jobs?",
+        "a": "Stay online during your working hours and widen your travel distance. Keep your acceptance rate above {{acceptance}}%, arrive on time (goal {{onTime}}%) and finish your jobs (goal {{completion}}%): the pros with the best numbers are offered new jobs first. See Performance."
+      }
+    }
   }
 }

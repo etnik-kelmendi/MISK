@@ -19,6 +19,12 @@ export interface PushMessage {
   body: string;
   /** The page of the app the notification opens when tapped, e.g. a booking's chat (D83). */
   url?: string;
+  /**
+   * Set on a job offer (D100): the service worker keeps it on screen until answered and, with `sound`, lets it make
+   * the phone's notification sound; without, it arrives silently. The phone's own settings still decide about silent
+   * mode: a web app cannot override them.
+   */
+  offer?: { sound: boolean };
 }
 
 /** The browser no longer accepts messages for this subscription; it should be forgotten. */

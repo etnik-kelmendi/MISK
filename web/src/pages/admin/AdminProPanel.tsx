@@ -448,6 +448,92 @@ interface HandOver {
   plansWithoutPro: number;
 }
 
+/**
+ * Trades the pro added later (D100): the pro gets no jobs in them until the team approves; declining removes the
+ * trade and tells the pro, with an optional reason.
+ */
+function PendingTrades({ pro, onChanged }: { pro: AdminProDetail; onChanged: Changed }) {
+  const { t } = useTranslation();
+  const api = useApi();
+  const { timezone } = useMarket();
+  const action = useAction();
+  const [declining, setDeclining] = useState<string | null>(null);
+  const [note, setNote] = useState('');
+  const trades = pro.pendingTrades ?? [];
+  if (trades.length === 0) return null;
+
+  async function decide(trade: { id: string; name: string }, decision: 'approve' | 'decline') {
+    const body = decision === 'decline' && note.trim() ? { note: note.trim() } : undefined;
+    const done = await action.run(() => api.post(`/admin/pros/${pro.id}/trades/${trade.id}/${decision}`, body));
+    if (done === undefined) return;
+    const fresh = await action.run(() => api.get<{ pro: AdminProDetail }>(`/admin/pros/${pro.id}`));
+    if (fresh) {
+      setDeclining(null);
+      setNote('');
+      onChanged(fresh.pro, t(decision === 'approve' ? 'admin.pros.panel.tradeApproved' : 'admin.pros.panel.tradeDeclined', { trade: trade.name }));
+    }
+  }
+
+  return (
+    <section className="note stack" aria-labelledby="pending-trades-heading">
+      <h3 id="pending-trades-heading">{t('admin.pros.panel.pendingTrades')}</h3>
+      <p className="small muted">{t('admin.pros.panel.pendingTradesHint')}</p>
+      <ul className="history">
+        {trades.map((trade) => (
+          <li key={trade.id} className="stack tight">
+            <span>{t('admin.pros.panel.pendingTradeLine', { trade: trade.name, date: longDate(trade.requestedAt, timezone) })}</span>
+            {trade.needsCertificate && <span className="small muted">{t('admin.pros.panel.needsCertificate')}</span>}
+            {declining === trade.id ? (
+              <form
+                className="stack confirm"
+                noValidate
+                onSubmit={(event: FormEvent) => {
+                  event.preventDefault();
+                  void decide(trade, 'decline');
+                }}
+              >
+                <div className="af">
+                  <label htmlFor={`decline-${trade.id}`}>{t('admin.pros.panel.declineNote')}</label>
+                  <textarea id={`decline-${trade.id}`} rows={2} maxLength={300} value={note} onChange={(e) => setNote(e.target.value)} />
+                </div>
+                <div className="row gap8 wrap">
+                  <button type="button" className="abtn ghost" onClick={() => setDeclining(null)}>
+                    {t('admin.pros.panel.cancel')}
+                  </button>
+                  <button type="submit" className="abtn danger" disabled={action.busy}>
+                    {t('admin.pros.panel.declineSend')}
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <span className="row gap8 wrap">
+                <button
+                  type="button"
+                  className="abtn"
+                  disabled={action.busy}
+                  aria-label={t('admin.pros.panel.approveTradeLabel', { trade: trade.name })}
+                  onClick={() => void decide(trade, 'approve')}
+                >
+                  {t('admin.pros.panel.approveTrade')}
+                </button>
+                <button
+                  type="button"
+                  className="abtn ghost"
+                  aria-label={t('admin.pros.panel.declineTradeLabel', { trade: trade.name })}
+                  onClick={() => setDeclining(trade.id)}
+                >
+                  {t('admin.pros.panel.declineTrade')}
+                </button>
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
+      <ErrorText error={action.error} />
+    </section>
+  );
+}
+
 function LogLine({ entry }: { entry: ProActionEntry }) {
   const { t } = useTranslation();
   const { timezone } = useMarket();
@@ -460,6 +546,7 @@ function LogLine({ entry }: { entry: ProActionEntry }) {
     message: d.message ?? '',
     reason: d.reason ?? '',
     date: d.at ? dateTime(d.at, timezone) : '',
+    trade: d.trade ?? '',
   });
   return (
     <li>
@@ -552,6 +639,8 @@ function ProSections({ pro, onChanged }: { pro: AdminProDetail; onChanged: Chang
           {pro.reviews.map((review, i) => (
             <li key={i}>
               {t('admin.pros.panel.reviewLine', { stars: review.stars, service: review.service, name: review.customerName ?? '' })}
+              {review.review && <div className="small pre-line">{t('admin.pros.panel.reviewText', { text: review.review })}</div>}
+              {review.reply && <div className="small muted pre-line">{t('admin.pros.panel.reviewReply', { reply: review.reply })}</div>}
               <div className="small muted">{longDate(review.createdAt, timezone)}</div>
             </li>
           ))}
@@ -636,6 +725,14 @@ function ProDetails({ pro, notice, onChanged }: { pro: AdminProDetail; notice: s
       {pro.watchListAt && <p className="note">{t('admin.pros.panel.onWatch', { date: longDate(pro.watchListAt, timezone) })}</p>}
       {pro.coachingCallAt && (
         <p className="note">{t('admin.pros.panel.coachingBooked', { date: dateTime(pro.coachingCallAt, timezone) })}</p>
+      )}
+      <PendingTrades pro={pro} onChanged={onChanged} />
+      {(pro.about || pro.yearsExperience != null) && (
+        <section className="stack tight" aria-label={t('admin.pros.panel.about')}>
+          <h3>{t('admin.pros.panel.about')}</h3>
+          {pro.yearsExperience != null && <p className="small muted">{t('admin.pros.panel.experience', { count: pro.yearsExperience })}</p>}
+          {pro.about && <p className="small pre-line">{pro.about}</p>}
+        </section>
       )}
 
       {pro.qualityReasons.length > 0 && (

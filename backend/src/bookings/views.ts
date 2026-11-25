@@ -104,14 +104,28 @@ export async function loadBooking(db: Queryable, bookingId: string, viewer: View
        FROM extra_requests WHERE booking_id = $1 ORDER BY created_at`,
       [bookingId],
     ),
-    db.query('SELECT stars, tags, review, created_at AS "createdAt" FROM ratings WHERE booking_id = $1', [bookingId]),
+    // The pro's one reply to the review shows under it (D100).
+    db.query('SELECT stars, tags, review, created_at AS "createdAt", reply, replied_at AS "repliedAt" FROM ratings WHERE booking_id = $1', [
+      bookingId,
+    ]),
     // The pro as the customer sees them (D83): rating, photo, finished jobs and plan visits, and whether this
     // customer saved them as a favourite.
     b.proId
-      ? db.query<{ average: number | null; count: number; photoId: string | null; jobsDone: number; isFavourite: boolean }>(
+      ? db.query<{
+          average: number | null;
+          count: number;
+          photoId: string | null;
+          jobsDone: number;
+          isFavourite: boolean;
+          about: string | null;
+          yearsExperience: number | null;
+        }>(
           `SELECT (SELECT round(avg(stars)::numeric, 2)::float FROM ratings WHERE pro_id = $1) AS average,
              (SELECT count(*)::int FROM ratings WHERE pro_id = $1) AS count,
              (SELECT photo_upload_id FROM pro_profiles WHERE user_id = $1) AS "photoId",
+             -- "About you" and years of experience from the pro's Work information (D100); never the home address.
+             (SELECT about FROM pro_profiles WHERE user_id = $1) AS about,
+             (SELECT years_experience FROM pro_profiles WHERE user_id = $1) AS "yearsExperience",
              (SELECT count(*)::int FROM bookings WHERE pro_id = $1 AND status = 'completed')
                + (SELECT count(*)::int FROM subscription_visits WHERE pro_id = $1 AND status = 'completed') AS "jobsDone",
              EXISTS (SELECT 1 FROM customer_favourite_pros WHERE pro_id = $1 AND customer_id = $2) AS "isFavourite"`,
@@ -277,6 +291,8 @@ export async function loadBooking(db: Queryable, bookingId: string, viewer: View
         ratingCount: proInfo?.count ?? 0,
         photoId: proInfo?.photoId ?? null,
         jobsDone: proInfo?.jobsDone ?? 0,
+        about: proInfo?.about ?? null,
+        yearsExperience: proInfo?.yearsExperience ?? null,
         ...(viewer === 'customer' ? { isFavourite: proInfo?.isFavourite ?? false } : {}),
         ...(viewer === 'admin' ? { phone: b.proPhone } : {}),
       }

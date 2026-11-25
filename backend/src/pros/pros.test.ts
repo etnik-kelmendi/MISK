@@ -172,7 +172,7 @@ describe('payouts', () => {
 
     await t.pool.query("UPDATE pro_profiles SET status = 'approved'");
     const link = await call(t, 'POST', '/pro/payouts/link', { cookie });
-    expect(link.json().url).toBe('http://localhost:5173/pro/profile?payouts=return');
+    expect(link.json().url).toBe('http://localhost:5173/pro/profile/bank?payouts=return');
     const refreshed = await call(t, 'POST', '/pro/payouts/refresh', { cookie });
     expect(refreshed.json().profile).toMatchObject({ payoutsEnabled: true, hasPayoutAccount: true });
   });

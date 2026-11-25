@@ -2,7 +2,7 @@ import type { FastifyBaseLogger } from 'fastify';
 import type { Pool } from 'pg';
 import type { Queryable } from '../db.js';
 import type { EmailSender } from './email.js';
-import { topicOf } from './preferences.js';
+import { proTopicOf, topicOf } from './preferences.js';
 import { PushGoneError, type PushSender } from './push.js';
 import type { SmsSender } from './sms.js';
 
@@ -156,10 +156,11 @@ export async function enqueueChannels(
     `WITH person AS (
        SELECT u.id, u.phone, u.email FROM users u
        WHERE u.id = $1 AND u.disabled_at IS NULL
-         -- A topic the customer switched off (D92); only customers have the switches.
+         -- A topic the customer switched off (D92), or a pro switch the pro turned off (D100).
          AND NOT EXISTS (
            SELECT 1 FROM user_notification_prefs np
-           WHERE np.user_id = u.id AND np.topic = $10::text AND NOT np.enabled AND u.role = 'customer'
+           WHERE np.user_id = u.id AND NOT np.enabled
+             AND ((u.role = 'customer' AND np.topic = $10::text) OR (u.role = 'pro' AND np.topic = $11::text))
          )
      ), chosen AS (
        SELECT COALESCE($5::boolean, s.push, false) AS push,
@@ -186,6 +187,7 @@ export async function enqueueChannels(
       email?.text ?? null,
       link,
       topicOf(kind),
+      proTopicOf(kind),
     ],
   );
   // Customers and pros also find every message in the app (Messages), whatever the channels did.
@@ -230,6 +232,8 @@ interface OutboxRow {
   p256dh: string | null;
   auth: string | null;
   link: string | null;
+  /** Only for a job offer: the pro's "Offer sound" choice (D100). */
+  offer_sound: boolean | null;
 }
 
 /**
@@ -251,9 +255,12 @@ export async function dispatchOnce(pool: Pool, senders: Senders, log: FastifyBas
          LIMIT $4
          FOR UPDATE SKIP LOCKED
        )
-       RETURNING id, channel, phone, email, subject, body, push_subscription_id, link
+       RETURNING id, channel, phone, email, subject, body, push_subscription_id, link, kind, user_id
      )
-     SELECT c.id, c.channel, c.phone, c.email, c.subject, c.body, ps.endpoint, ps.p256dh, ps.auth, c.link
+     SELECT c.id, c.channel, c.phone, c.email, c.subject, c.body, ps.endpoint, ps.p256dh, ps.auth, c.link,
+       -- A job offer's push carries the pro's "Offer sound" choice (D100).
+       CASE WHEN c.kind = 'job_offer' THEN COALESCE((SELECT np.enabled FROM user_notification_prefs np
+         WHERE np.user_id = c.user_id AND np.topic = 'offer_sound'), true) END AS offer_sound
      FROM claimed c LEFT JOIN push_subscriptions ps ON ps.id = c.push_subscription_id`,
     [MAX_ATTEMPTS, RETRY_AFTER_SECONDS, STUCK_AFTER_SECONDS, BATCH_SIZE],
   );
@@ -290,6 +297,7 @@ export async function dispatchOnce(pool: Pool, senders: Senders, log: FastifyBas
           title: 'MISK',
           body: row.body,
           ...(row.link ? { url: row.link } : {}),
+          ...(typeof row.offer_sound === 'boolean' ? { offer: { sound: row.offer_sound } } : {}),
         });
         await finish(row.id, 'sent');
       } else {

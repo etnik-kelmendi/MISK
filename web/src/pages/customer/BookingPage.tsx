@@ -81,25 +81,38 @@ function ProCard({ booking, unread }: { booking: CustomerBooking; unread: number
   if (!pro) return null;
   const name = pro.firstName ?? t('problem.yourPro');
   return (
-    <div className="row">
-      <Avatar name={name} photoId={pro.photoId} />
-      <div className="grow">
-        <p className="b">
-          {pro.firstName}{' '}
-          <span className="verified">
-            <Icon name="shield" /> {t('booking.verified')}
-          </span>
-        </p>
-        <p className="row gap6 pro-meta">
-          <Stars average={pro.ratingAverage} count={pro.ratingCount} />
-          {pro.jobsDone !== undefined && <span className="small muted">· {t('booking.jobsDone', { count: pro.jobsDone })}</span>}
-        </p>
+    <div className="stack tight">
+      <div className="row">
+        <Avatar name={name} photoId={pro.photoId} />
+        <div className="grow">
+          <p className="b">
+            {pro.firstName}{' '}
+            <span className="verified">
+              <Icon name="shield" /> {t('booking.verified')}
+            </span>
+          </p>
+          <p className="row gap6 pro-meta">
+            <Stars average={pro.ratingAverage} count={pro.ratingCount} />
+            {pro.jobsDone !== undefined && <span className="small muted">· {t('booking.jobsDone', { count: pro.jobsDone })}</span>}
+          </p>
+        </div>
+        {booking.status === 'completed' && <FavouriteButton booking={booking} compact />}
+        <Link to={`/bookings/${booking.id}/chat`} className="iconbtn soft chat-btn" aria-label={t('booking.chatWith', { name })}>
+          <Icon name="chat" />
+          {unread > 0 && <span className="dot-badge" aria-hidden="true" />}
+        </Link>
       </div>
-      {booking.status === 'completed' && <FavouriteButton booking={booking} compact />}
-      <Link to={`/bookings/${booking.id}/chat`} className="iconbtn soft chat-btn" aria-label={t('booking.chatWith', { name })}>
-        <Icon name="chat" />
-        {unread > 0 && <span className="dot-badge" aria-hidden="true" />}
-      </Link>
+      {/* The pro's own words from Work information (D100), as plain text. */}
+      {(pro.about || pro.yearsExperience != null) && (
+        <div className="pro-about">
+          {pro.yearsExperience != null && <p className="tiny muted">{t('booking.experience', { count: pro.yearsExperience })}</p>}
+          {pro.about && (
+            <p className="small pre-line" aria-label={t('booking.aboutPro', { name })}>
+              {pro.about}
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -610,7 +623,17 @@ function BookingView({
 
         <PhotoGrid ids={proPhotos} label={t('booking.proPhotos')} />
 
-        {booking.rating && <p className="card">{t('booking.youRated', { stars: booking.rating.stars })}</p>}
+        {booking.rating && (
+          <div className="card stack tight">
+            <p>{t('booking.youRated', { stars: booking.rating.stars })}</p>
+            {booking.rating.reply && (
+              <div className="review-reply">
+                <p className="tiny b">{t('booking.proReply', { name: booking.pro?.firstName ?? t('problem.yourPro') })}</p>
+                <p className="small pre-line">{booking.rating.reply}</p>
+              </div>
+            )}
+          </div>
+        )}
         {booking.tip?.status === 'captured' && (
           <p className="card" role="status">
             {t('tip.thanks', { amount: euro(booking.tip.amountCents), pro: euro(booking.tip.proCents), name: booking.pro?.firstName ?? '' })}

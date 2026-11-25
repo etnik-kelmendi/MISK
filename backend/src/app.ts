@@ -41,6 +41,12 @@ import type { PaymentGateway } from './payments/gateway.js';
 import { paymentRoutes, WEBHOOK_PATH } from './payments/routes.js';
 import { planRoutes } from './plans/routes.js';
 import { proRoutes } from './pros/routes.js';
+import { dayOffVisitRoutes } from './pros/day-off-visits.js';
+import { earningsRoutes } from './pros/earnings.js';
+import { bankAccountRoutes } from './pros/bank-account.js';
+import { profilePagesRoutes } from './pros/profile-pages.js';
+import { tradeReviewRoutes } from './pros/trade-review.js';
+import { dataExportRoutes } from './users/data-export.js';
 import { workingHoursRoutes } from './pros/working-hours.js';
 import { subscriptionRoutes } from './subscriptions/routes.js';
 import { createDiskStorage, MAX_UPLOAD_BYTES, type FileStorage } from './uploads/storage.js';
@@ -184,6 +190,12 @@ export async function buildApp({ config, pool, gateway, sms, email = null, stora
     subscriptionRoutes,
     proRoutes,
     workingHoursRoutes,
+    dayOffVisitRoutes,
+    earningsRoutes,
+    profilePagesRoutes,
+    bankAccountRoutes,
+    tradeReviewRoutes,
+    dataExportRoutes,
     adminProRoutes,
     settingsRoutes,
     customerBookingRoutes,

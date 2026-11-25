@@ -145,7 +145,7 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
     const found = await pool.query<{ id: string; firstName: string | null }>(
       `SELECT p.user_id AS id, u.first_name AS "firstName" FROM pro_profiles p JOIN users u ON u.id = p.user_id
        WHERE p.user_id = $1 AND p.status = 'approved' AND u.disabled_at IS NULL
-         AND EXISTS (SELECT 1 FROM pro_trades t WHERE t.pro_id = p.user_id AND t.category_id = $2)`,
+         AND EXISTS (SELECT 1 FROM pro_trades t WHERE t.pro_id = p.user_id AND t.category_id = $2 AND t.approved)`,
       [proId, categoryId],
     );
     return found.rows[0] ?? null;

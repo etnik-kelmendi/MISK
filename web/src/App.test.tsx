@@ -1256,11 +1256,11 @@ describe('messages', () => {
     expect(screen.queryByText('New message')).not.toBeInTheDocument();
   });
 
-  it('gives customers Messages too, from Profile, with an explanation when there are none', async () => {
+  it('gives customers Messages too, from the bell on Home, with an explanation when there are none', async () => {
     fakeApi(users.customer);
-    renderAt('/profile');
+    renderAt('/');
     const menu = await screen.findByRole('navigation', { name: 'Main menu' });
-    // Messages left the menu (D89); Profile links to it.
+    // Messages left the menu (D89) and Profile; the bell on Home links to it.
     expect(within(menu).queryByRole('link', { name: 'Messages' })).not.toBeInTheDocument();
     await user().click(await screen.findByRole('link', { name: 'Messages' }));
     expect(await screen.findByText(/No messages yet/)).toBeInTheDocument();
@@ -1744,7 +1744,9 @@ describe('monthly plans in the apps', () => {
     api.on('GET /pro/plans', { body: { plans: [{ ...lawn, mySubscribers: 3, earningsPerMonthCents: 3430, visitsPerMonth: 8.7 }] } });
     api.on('GET /pro/visits/v1', { body: { visit } });
     api.on('POST /pro/visits/v1/complete', { body: { visit: { status: 'completed', tasksDone: ['Mow', 'Edge'] } } });
-    api.on('GET /pro/earnings', { body: { earnings: { sentCents: 0, pendingCents: 0, last30Cents: 0 } } });
+    api.on('GET /pro/earnings/summary', {
+      body: { summary: { readyCents: 0, pendingCents: 0, paidThisMonthCents: 0, nextPayoutOn: '2026-11-27', interval: 'weekly', bankLast4: null } },
+    });
     // The plans list is on My week since D86.
     renderAt('/pro/week');
 
@@ -3097,7 +3099,7 @@ describe('booking pages (D83)', () => {
     api.on('GET /postcodes', { body: { postcodes: [] } });
     api.on('POST /pro/photo', { status: 201, body: { profile: { ...profile, photoId: 'me1' } } });
     api.on('DELETE /pro/photo', { body: { profile } });
-    renderAt('/pro/profile');
+    renderAt('/pro/profile/personal');
     const section = await screen.findByRole('region', { name: 'Your photo' });
     expect(within(section).getByText(/No photo yet/)).toBeInTheDocument();
     await user().upload(within(section).getByLabelText('Add a photo'), new File(['x'], 'me.jpg', { type: 'image/jpeg' }));

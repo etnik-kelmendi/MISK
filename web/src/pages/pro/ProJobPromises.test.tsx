@@ -10,7 +10,11 @@ const user = () => userEvent.setup();
 const availability: ProAvailability = {
   workStart: '08:00',
   workEnd: '18:00',
+  workingDays: [1, 2, 3, 4, 5],
   holidays: [],
+  daysOff: [],
+  visitsOnDaysOff: [],
+  jobsOnDaysOff: [],
   onlineNow: true,
   autoOffline: null,
   overrideUntil: null,
@@ -280,32 +284,18 @@ describe('Job page: what happens after a report (D94)', () => {
   });
 });
 
-describe('Profile: availability (D94)', () => {
-  it('saves the working hours and adds and removes holidays', async () => {
+// The Availability part of the Profile became its own page in D99: see ProWeekEarnings.test.tsx.
+describe('Profile: availability (D94, D99)', () => {
+  it('links to the Availability and Earnings pages', async () => {
     const api = fakeApi(users.pro);
     api.on('GET /pro/profile', { body: { profile } });
-    api.on('PUT /pro/working-hours', { body: { availability: { ...availability, workStart: '07:00', workEnd: '20:00' } } });
-    const holiday = { id: 'h1', startsOn: '2026-12-01', endsOn: '2026-12-05' };
-    api.on('POST /pro/holidays', { status: 201, body: { availability: { ...availability, holidays: [holiday] } } });
-    api.on('DELETE /pro/holidays/h1', { body: { availability } });
+    api.on('GET /pro/profile/overview', { body: { overview: { jobsDone: 0, documents: { expiring: 0, expired: 0, checking: 0 }, bankLast4: null, topPercent: null } } });
     renderAt('/pro/profile');
-    const section = await screen.findByRole('region', { name: 'Availability' });
-    await user().selectOptions(within(section).getByLabelText('Start'), '07:00');
-    await user().selectOptions(within(section).getByLabelText('Finish'), '20:00');
-    await user().click(within(section).getByRole('button', { name: 'Save hours' }));
-    await waitFor(() => expect(api.bodies['PUT /pro/working-hours']).toEqual({ workStart: '07:00', workEnd: '20:00' }));
-    expect(await within(section).findByText('Saved')).toBeInTheDocument();
-
-    await user().click(within(section).getByRole('button', { name: 'Add holiday' }));
-    expect(within(section).getByText('Choose the first and the last day.')).toBeInTheDocument();
-    await user().type(within(section).getByLabelText('First day'), '2026-12-01');
-    await user().type(within(section).getByLabelText('Last day'), '2026-12-05');
-    await user().click(within(section).getByRole('button', { name: 'Add holiday' }));
-    await waitFor(() => expect(api.bodies['POST /pro/holidays']).toEqual({ startsOn: '2026-12-01', endsOn: '2026-12-05' }));
-    const remove = await within(section).findByRole('button', { name: 'Remove the holiday 1 Dec 2026 – 5 Dec 2026' });
-    await user().click(remove);
-    await waitFor(() => expect(api.calls).toContain('DELETE /pro/holidays/h1'));
-    expect(await within(section).findByText('No holidays planned.')).toBeInTheDocument();
+    // Availability is a row in the Profile's Work group (D100); Earnings is a tab in the pro menu (D99).
+    const work = await screen.findByRole('list', { name: 'Work' });
+    expect(within(work).getByRole('link', { name: /^Availability/ })).toHaveAttribute('href', '/pro/availability');
+    const menu = screen.getByRole('navigation', { name: 'Pro menu' });
+    expect(within(menu).getByRole('link', { name: 'Earnings' })).toHaveAttribute('href', '/pro/earnings');
   });
 });
 

@@ -129,6 +129,15 @@ export const messages = {
     `MISK: ${pro} did not confirm the new time in time. Your ${plan} visit stays at ${from}.`,
   visitMoveWithdrawn: (customer: string, plan: string, from: string) =>
     `MISK: ${customer} withdrew the request to move the ${plan} visit. It stays at ${from}.`,
+  // A plan visit on the pro's day off or holiday (D99): moved by the pro, or done by a stand-in.
+  visitMovedByPro: (pro: string, plan: string, from: string, to: string) =>
+    `MISK: ${pro} is off on ${from}. Your ${plan} visit moves to ${to}, at the same time. Need another day? Move it in the app.`,
+  visitStandIn: (pro: string, standIn: string, plan: string, when: string) =>
+    `MISK: ${pro} is off on ${when}. ${standIn}, a verified MISK pro, does your ${plan} visit then. ${pro} is back for the next one.`,
+  standInFound: (standIn: string, plan: string, when: string) =>
+    `MISK: ${standIn} stands in for you at the ${plan} visit on ${when}. You are not expected then.`,
+  standInVisit: (plan: string, when: string, address: string) =>
+    `MISK: you have a new ${plan} plan visit on ${when} at ${address}, standing in for another pro. See My week.`,
   // Skipping one plan visit (D90): the pro is not expected then, and is told when the customer wants it back.
   visitSkipped: (customer: string, plan: string, when: string) =>
     `MISK: ${customer} skipped the ${plan} visit on ${when}. You are not expected then.`,

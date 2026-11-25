@@ -82,8 +82,11 @@ export async function cardRoutes(app: FastifyInstance, ctx: AppContext) {
     return provider(log, 'card_list_failed', async () => {
       const [cards, savedDefault] = await Promise.all([gateway.listCards(ref), gateway.defaultCardId(ref)]);
       // A default that is a wallet card, or one that is gone, is not one of the listed cards.
-      const defaultCardId = savedDefault && cards.some((card) => card.id === savedDefault) ? savedDefault : null;
+      const savedListed = savedDefault && cards.some((card) => card.id === savedDefault) ? savedDefault : null;
       const paying = await planCards(gateway, plans, savedDefault);
+      // A card saved while paying is often never made the provider's default. Then the card that pays for a
+      // plan, or else the first card, is the one MISK uses next, so it is shown as the default.
+      const defaultCardId = savedListed ?? cards.find((card) => paying.has(card.id))?.id ?? cards[0]?.id ?? null;
       return {
         cards,
         defaultCardId,

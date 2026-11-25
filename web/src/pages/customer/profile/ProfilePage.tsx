@@ -7,7 +7,6 @@ import { useResource } from '../../../api/useResource';
 import { useAuth, useUser } from '../../../auth/AuthContext';
 import { Icon, type IconKey } from '../../../components/Icon';
 import { Avatar } from '../../../components/Photos';
-import { useInbox } from '../../../inbox/InboxContext';
 import { AppHeader } from '../../../shells/Shells';
 import { useAddresses } from '../Addresses';
 import { DeleteAccountSheet } from './DeleteAccountSheet';
@@ -48,21 +47,6 @@ function ProfileRow({ to, icon, label, value, state }: { to: string; icon: IconK
   );
 }
 
-/** The way to Messages from Profile (D89), with the number of unread ones (D87). */
-function MessagesRow() {
-  const { t } = useTranslation();
-  const { inbox } = useInbox();
-  const unread = inbox?.unread ?? 0;
-  return (
-    <Link to="/messages" className="card row link-card">
-      <Icon name="chat" />
-      <span className="grow b">{t('nav.messages')}</span>
-      {unread > 0 && <span className="badge r">{t('account.unread', { count: unread })}</span>}
-      <Icon name="chevR" />
-    </Link>
-  );
-}
-
 /**
  * The customer's Profile (D92): photo, name and phone number with Edit, the Account and MISK lists, Log out and
  * Delete account (D97).
@@ -99,7 +83,6 @@ export function ProfilePage() {
             {t('profile.edit')}
           </Link>
         </section>
-        <MessagesRow />
 
         <h2 className="h-sm">{t('profile.account')}</h2>
         <ul className="lgroup plist" aria-label={t('profile.account')}>

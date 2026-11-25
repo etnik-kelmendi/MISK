@@ -88,7 +88,7 @@ export function checkOf(kind: DocumentKind, document: DocumentRow | null, today:
  * they chose needs none (D93). With no trade chosen yet it counts as needed.
  */
 export const certificateRequiredSql = (proId: string) => `(
-  EXISTS (SELECT 1 FROM pro_trades rt JOIN categories rc ON rc.id = rt.category_id WHERE rt.pro_id = ${proId} AND rc.needs_certificate)
+  EXISTS (SELECT 1 FROM pro_trades rt JOIN categories rc ON rc.id = rt.category_id WHERE rt.pro_id = ${proId} AND rt.approved AND rc.needs_certificate)
   OR NOT EXISTS (SELECT 1 FROM pro_trades rt WHERE rt.pro_id = ${proId}))`;
 
 /** Whether the pro needs a trade certificate for the trades they chose. */

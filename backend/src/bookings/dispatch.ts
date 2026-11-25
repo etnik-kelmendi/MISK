@@ -4,6 +4,7 @@ import { isExclusionViolation } from '../http.js';
 import { proShareCents } from '../catalogue/pricing.js';
 import { formatDay, formatSlot, messages } from '../notifications/messages.js';
 import { enqueue } from '../notifications/outbox.js';
+import { performanceScoreSql } from '../pros/performance.js';
 import { onlineNowSql } from '../pros/working-hours.js';
 import { eligibleProFilter, SLOT_STEP_MINUTES } from './availability.js';
 import { setStatus, type BookingDeps } from './events.js';
@@ -58,8 +59,9 @@ export function flexibleStarts(starts: string, ends: string, dur: string): strin
 }
 
 /**
- * Offers a searching booking to the best free pro who has not seen it yet: highest rating first, then
- * the fewest jobs this week, then the shortest distance. Only online pros get offers (D86): when the only
+ * Offers a searching booking to the best free pro who has not seen it yet: the highest performance score first
+ * (acceptance, on time, completed jobs, rating and late cancellations of the last 30 days, D100), then the highest
+ * rating, then the fewest jobs this week, then the shortest distance. Only online pros get offers (D86): when the only
  * free pros left are offline, the booking keeps searching and the next dispatch pass tries again. A pro the
  * customer picked on Home is offered the job before anyone else when they are online and free (D89); once
  * their offer is declined or runs out, the job goes on to the others as usual. With
@@ -110,6 +112,8 @@ export async function offerNext(deps: BookingDeps, bookingId: string): Promise<'
              ${onlineNowSql('$5')} DESC,
              -- The pro the customer picked on Home gets the first offer when free and online (D89).
              (p.user_id IS NOT DISTINCT FROM $9::uuid) DESC,
+             -- Then the pros who perform best over the last 30 days (D100), so "offered new jobs first" holds.
+             ${performanceScoreSql('p.user_id')} DESC,
              COALESCE((SELECT avg(stars) FROM ratings r WHERE r.pro_id = p.user_id), $7) DESC,
              (SELECT count(*) FROM bookings d WHERE d.pro_id = p.user_id AND d.status = 'completed'
                 AND d.completed_at > now() - interval '7 days') ASC,

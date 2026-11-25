@@ -299,14 +299,14 @@ describe('Home (D89)', () => {
     expect(screen.getByRole('link', { name: 'Back' })).toHaveAttribute('href', '/');
   });
 
-  it('manages saved addresses from Profile, with a way to Messages', async () => {
+  it('manages saved addresses from Profile; Messages is reached from the bell on Home, not from Profile', async () => {
     const api = setUp();
     api.on('DELETE /addresses/a-work', { status: 204 });
     api.on('POST /addresses/a-work/select', { body: { address: address({ id: 'a-work', selected: true }) } });
     renderAt('/');
     await user().click(within(await screen.findByRole('navigation', { name: 'Main menu' })).getByRole('link', { name: 'Profile' }));
     expect(await screen.findByRole('heading', { level: 1, name: 'Profile' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Messages' })).toHaveAttribute('href', '/messages');
+    expect(screen.queryByRole('link', { name: 'Messages' })).not.toBeInTheDocument();
     await user().click(screen.getByRole('link', { name: /Saved addresses/ }));
     const book = await screen.findByRole('list', { name: 'Saved addresses' });
     expect(within(book).getByText('Default')).toBeInTheDocument();

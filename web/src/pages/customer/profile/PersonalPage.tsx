@@ -1,4 +1,4 @@
-import { useCallback, useState, type FormEvent } from 'react';
+import { useCallback, useState, type FormEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useApi } from '../../../api/ApiContext';
 import type { User } from '../../../api/types';
@@ -37,8 +37,9 @@ export function useAccountSettings() {
 /**
  * Personal information (D92): first and last name, the phone number (changed with a texted code, D87), the
  * email address (changed with a link to the new address, D97) and the language, saved with "Save changes".
+ * The pro app shows the same page under its Profile (D100), with the pro's photo on top.
  */
-export function PersonalPage() {
+export function PersonalPage({ back = '/profile', top }: { back?: string; top?: ReactNode } = {}) {
   const { t } = useTranslation();
   const api = useApi();
   const user = useUser();
@@ -79,8 +80,9 @@ export function PersonalPage() {
 
   return (
     <>
-      <AppHeader title={t('profile.personal')} back="/profile" />
+      <AppHeader title={t('profile.personal')} back={back} />
       <div className="body">
+        {top}
         <form id="personal-form" className="card stack" onSubmit={submit} noValidate aria-label={t('personal.nameTitle')}>
           <div className="field">
             <label htmlFor="personal-first-name">{t('personal.firstName')}</label>

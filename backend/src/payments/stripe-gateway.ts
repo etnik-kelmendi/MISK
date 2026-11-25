@@ -448,6 +448,24 @@ export function createStripeGateway(config: StripeConfig): PaymentGateway {
       };
     },
 
+    async bankAccount(accountId) {
+      const account = await stripe.accounts.retrieve(accountId);
+      const banks = (account.external_accounts?.data ?? []).filter((external) => external.object === 'bank_account');
+      const bank = banks.find((external) => external.default_for_currency) ?? banks[0];
+      if (!bank || bank.object !== 'bank_account') {
+        return null;
+      }
+      // Stripe stops payouts while it checks a new account; a failed or errored account gets no payouts either.
+      const failed = bank.status === 'verification_failed' || bank.status === 'errored';
+      return { last4: bank.last4, holderName: bank.account_holder_name ?? null, active: Boolean(account.payouts_enabled) && !failed };
+    },
+
+    async bankChangeLink(accountId) {
+      // Express accounts change their bank account in Stripe's Express dashboard; Stripe checks it there.
+      const link = await stripe.accounts.createLoginLink(accountId);
+      return link.url;
+    },
+
     parseWebhook(rawBody, signature) {
       const event = stripe.webhooks.constructEvent(rawBody, signature, config.webhookSecret);
       let parsed: GatewayEvent = { kind: 'ignored' };

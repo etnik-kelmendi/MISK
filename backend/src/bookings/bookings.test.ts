@@ -302,8 +302,10 @@ describe('doing the job', () => {
       'completed',
     ]);
     expect(t.fake.transfers).toEqual([expect.objectContaining({ amountCents: 3731, accountId: expect.stringMatching(/^acct_/) })]);
-    const earnings = (await call(t, 'GET', '/pro/earnings', { cookie: pro.cookie })).json().earnings;
-    expect(earnings).toMatchObject({ sentCents: 3731, pendingCents: 0 });
+    // Released to the pro's Stripe account: Ready for the next payout day (D99).
+    const earnings = (await call(t, 'GET', '/pro/earnings', { cookie: pro.cookie })).json();
+    expect(earnings.summary).toMatchObject({ readyCents: 3731, pendingCents: 0 });
+    expect(earnings.items).toEqual([expect.objectContaining({ id: bookingId, status: 'ready', youGetCents: 3731 })]);
   });
 
   it('charges approved extra work only, and pays the pro their share of it', async () => {

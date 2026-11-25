@@ -131,6 +131,7 @@ function ProTable({ tab, pros, onOpen }: { tab: ProTab; pros: AdminProListItem[]
           <span className="stack tight">
             {pro.expiredDocument && <span className="low">{t('admin.pros.expired')}</span>}
             {pro.waitingDocuments > 0 && <span>{t('admin.pros.waiting', { count: pro.waitingDocuments })}</span>}
+            {(pro.pendingTrades ?? 0) > 0 && <span className="badge b">{t('admin.pros.tradeToCheck', { count: pro.pendingTrades })}</span>}
           </span>
         );
       case 'reason':

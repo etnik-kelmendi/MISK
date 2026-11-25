@@ -45,13 +45,77 @@ export function topicOf(kind: NotificationKind): Topic | null {
   return KIND_TOPIC[kind] ?? null;
 }
 
+/** The switches on the pro's Notifications page (D100), in the order shown there. */
+export const PRO_TOPICS = ['job_offers', 'offer_sound', 'schedule_changes', 'payouts', 'tips_news'] as const;
+export type ProTopic = (typeof PRO_TOPICS)[number];
+export type ProTopicSettings = Record<ProTopic, boolean>;
+
+/** Everything is on until the pro switches it off, except tips and news from the team, which need their yes. */
+export const PRO_TOPIC_DEFAULTS: ProTopicSettings = {
+  job_offers: true,
+  offer_sound: true,
+  schedule_changes: true,
+  payouts: true,
+  tips_news: false,
+};
+
+/**
+ * The pro messages each switch covers (D100). Switched off, the message still reaches Messages in the app, but not
+ * push, text or email. Cancelled jobs, payments, safety, documents and the account always go out. "Offer sound" is
+ * no message of its own: it decides how a job offer's push behaves (see dispatchOnce). "Tips and news" has no kind
+ * yet: MISK sends no news, and the choice is kept for when it does.
+ */
+export const PRO_KIND_TOPIC: Partial<Record<NotificationKind, ProTopic>> = {
+  job_offer: 'job_offers',
+  visit_move_requested: 'schedule_changes',
+  visit_move_withdrawn: 'schedule_changes',
+  visit_skipped: 'schedule_changes',
+  visit_unskipped: 'schedule_changes',
+  plan_paused: 'schedule_changes',
+  plan_pause_called_off: 'schedule_changes',
+  payout_sent: 'payouts',
+};
+
+/** The pro switch a message belongs to, or null when it is always sent. */
+export function proTopicOf(kind: NotificationKind): ProTopic | null {
+  return PRO_KIND_TOPIC[kind] ?? null;
+}
+
+export async function loadProTopics(db: Queryable, userId: string): Promise<ProTopicSettings> {
+  const result = await db.query<{ topic: ProTopic; enabled: boolean }>(
+    'SELECT topic, enabled FROM user_notification_prefs WHERE user_id = $1 AND topic = ANY($2::text[])',
+    [userId, [...PRO_TOPICS]],
+  );
+  const settings = { ...PRO_TOPIC_DEFAULTS };
+  for (const row of result.rows) settings[row.topic] = row.enabled;
+  return settings;
+}
+
 export async function loadTopics(db: Queryable, userId: string): Promise<TopicSettings> {
-  const result = await db.query<{ topic: Topic; enabled: boolean }>('SELECT topic, enabled FROM user_notification_prefs WHERE user_id = $1', [
-    userId,
-  ]);
+  const result = await db.query<{ topic: Topic; enabled: boolean }>(
+    'SELECT topic, enabled FROM user_notification_prefs WHERE user_id = $1 AND topic = ANY($2::text[])',
+    [userId, [...TOPICS]],
+  );
   const settings = { ...TOPIC_DEFAULTS };
   for (const row of result.rows) settings[row.topic] = row.enabled;
   return settings;
+}
+
+const proTopicsBody = {
+  type: 'object',
+  minProperties: 1,
+  additionalProperties: false,
+  properties: Object.fromEntries(PRO_TOPICS.map((topic) => [topic, { type: 'boolean' }])),
+} as const;
+
+async function saveTopics(db: Queryable, userId: string, changes: { topic: string; enabled: boolean }[]) {
+  for (const { topic, enabled } of changes) {
+    await db.query(
+      `INSERT INTO user_notification_prefs (user_id, topic, enabled) VALUES ($1, $2, $3)
+       ON CONFLICT (user_id, topic) DO UPDATE SET enabled = EXCLUDED.enabled, updated_at = now()`,
+      [userId, topic, enabled],
+    );
+  }
 }
 
 const topicsBody = {
@@ -89,16 +153,34 @@ export async function notificationPreferenceRoutes(app: FastifyInstance, ctx: Ap
         return enabled === undefined ? [] : [{ topic, enabled }];
       });
       const topics = await withTransaction(pool, async (client) => {
-        for (const { topic, enabled } of changes) {
-          await client.query(
-            `INSERT INTO user_notification_prefs (user_id, topic, enabled) VALUES ($1, $2, $3)
-             ON CONFLICT (user_id, topic) DO UPDATE SET enabled = EXCLUDED.enabled, updated_at = now()`,
-            [userId, topic, enabled],
-          );
-        }
+        await saveTopics(client, userId, changes);
         return loadTopics(client, userId);
       });
       request.log.info({ event: 'notification_topics_changed', changes });
+      return { topics };
+    },
+  );
+
+  // The pro's Notifications page (D100). A pro booking for themselves (D64) keeps getting their customer messages:
+  // these switches only cover pro messages.
+  app.get('/pro/notifications', { preHandler: guards.pro }, async (request) => ({
+    topics: await loadProTopics(pool, currentUser(request).id),
+  }));
+
+  app.patch<{ Body: Partial<ProTopicSettings> }>(
+    '/pro/notifications',
+    { preHandler: guards.pro, schema: { body: proTopicsBody } },
+    async (request) => {
+      const userId = currentUser(request).id;
+      const changes = PRO_TOPICS.flatMap((topic) => {
+        const enabled = request.body[topic];
+        return enabled === undefined ? [] : [{ topic, enabled }];
+      });
+      const topics = await withTransaction(pool, async (client) => {
+        await saveTopics(client, userId, changes);
+        return loadProTopics(client, userId);
+      });
+      request.log.info({ event: 'pro_notification_topics_changed', changes });
       return { topics };
     },
   );

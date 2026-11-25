@@ -717,7 +717,104 @@ function BookingDetails({ booking, onChanged }: { booking: AdminBooking; onChang
   );
 }
 
-function VisitDetails({ visit }: { visit: AdminVisit }) {
+/**
+ * "Assign a stand-in" (D99): for a plan visit whose pro is off that day and found nobody, the free pros of the
+ * trade nearby, each with an Assign button that opens the same confirmation as D88 (Cancel / Confirm Assignment).
+ */
+function AssignStandIn({ visit, onAssigned }: { visit: AdminVisit; onAssigned: () => void }) {
+  const { t } = useTranslation();
+  const api = useApi();
+  const { timezone } = useMarket();
+  const action = useAction();
+  const [pending, setPending] = useState<Candidate | null>(null);
+  const [opener, setOpener] = useState<HTMLElement | null>(null);
+  const load = useCallback(() => api.get<{ candidates: Candidate[] }>(`/admin/visits/${visit.id}/stand-in-candidates`), [api, visit.id]);
+  const candidates = useResource(load);
+  const headingId = useId();
+
+  async function confirm() {
+    if (!pending) return;
+    const proId = pending.id;
+    const done = await action.run(async () => {
+      await api.post(`/admin/visits/${visit.id}/stand-in`, { proId });
+      return true;
+    });
+    if (done) {
+      setPending(null);
+      onAssigned();
+    }
+  }
+
+  return (
+    <section className="stack" aria-labelledby={headingId}>
+      <h3 id={headingId} className="unassigned">
+        {t('admin.booking.standIn.title')}
+      </h3>
+      <p className="small muted">{t('admin.booking.standIn.hint', { name: visit.pro.firstName ?? '' })}</p>
+      {candidates.state.status === 'loading' && <p className="small muted">{t('admin.booking.assign.loading')}</p>}
+      {candidates.state.status === 'error' && <p className="small error-text">{t('admin.booking.standIn.failed')}</p>}
+      {candidates.state.status === 'ready' &&
+        (candidates.state.data.candidates.length === 0 ? (
+          <p className="small muted">{t('admin.booking.standIn.none')}</p>
+        ) : (
+          <ul className="pick-list">
+            {candidates.state.data.candidates.map((c) => (
+              <li key={c.id} className="row between gap8">
+                <div>
+                  <div className="b">{c.firstName}</div>
+                  <div className="small muted">
+                    {t('admin.booking.assign.line', { km: c.distanceKm, rating: c.ratingAverage === null ? '–' : c.ratingAverage.toFixed(1) })}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="abtn"
+                  aria-haspopup="dialog"
+                  aria-label={t('admin.booking.assign.buttonLabel', { name: c.firstName ?? '' })}
+                  onClick={(event) => {
+                    action.clearError();
+                    setOpener(event.currentTarget);
+                    setPending(c);
+                  }}
+                >
+                  {t('admin.booking.assign.button')}
+                </button>
+              </li>
+            ))}
+          </ul>
+        ))}
+      {pending && (
+        <ConfirmDialog
+          title={t('admin.booking.standIn.confirmTitle', { name: pending.firstName ?? '' })}
+          cancelLabel={t('admin.booking.assign.cancel')}
+          confirmLabel={t('admin.booking.assign.confirm')}
+          busy={action.busy}
+          returnFocusTo={opener}
+          onCancel={() => {
+            setPending(null);
+            action.clearError();
+          }}
+          onConfirm={() => void confirm()}
+        >
+          <dl className="kv">
+            <dt>{t('admin.booking.assign.factPro')}</dt>
+            <dd>{pending.firstName}</dd>
+            <dt>{t('admin.booking.assign.factNearby')}</dt>
+            <dd>{t('admin.booking.assign.line', { km: pending.distanceKm, rating: pending.ratingAverage === null ? '–' : pending.ratingAverage.toFixed(1) })}</dd>
+            <dt>{t('admin.booking.standIn.factVisit')}</dt>
+            <dd>{visit.planName}</dd>
+            <dt>{t('admin.booking.when')}</dt>
+            <dd>{dateTime(visit.startsAt, timezone)}</dd>
+          </dl>
+          <p className="small muted">{t('admin.booking.standIn.warning', { name: visit.pro.firstName ?? '' })}</p>
+          <ErrorText error={action.error} />
+        </ConfirmDialog>
+      )}
+    </section>
+  );
+}
+
+function VisitDetails({ visit, onAssigned }: { visit: AdminVisit; onAssigned: () => void }) {
   const { t } = useTranslation();
   const { timezone } = useMarket();
   const live = visit.status === 'planned' && new Date(visit.startsAt) <= new Date();
@@ -765,6 +862,7 @@ function VisitDetails({ visit }: { visit: AdminVisit }) {
         <dt>{t('admin.booking.pro')}</dt>
         <dd>
           <Link to={`/admin/providers/${visit.pro.id}`}>{visit.pro.firstName}</Link>
+          {visit.standInFor && <span className="small muted"> · {t('admin.booking.standIn.standingInFor', { name: visit.standInFor.firstName ?? '' })}</span>}
           {visit.pro.phone && (
             <>
               {' · '}
@@ -797,6 +895,7 @@ function VisitDetails({ visit }: { visit: AdminVisit }) {
           </>
         )}
       </dl>
+      {visit.standInNeeded && <AssignStandIn visit={visit} onAssigned={onAssigned} />}
       {visit.customerProfile && <CustomerProfileCard profile={visit.customerProfile} />}
       <section className="stack" aria-label={t('admin.booking.money')}>
         <h3>{t('admin.booking.money')}</h3>
@@ -844,7 +943,17 @@ export function AdminBookingDrawer({ item, onClose, onChanged }: { item: OpenIte
     <Drawer title={title} closeLabel={t('admin.booking.close')} onClose={onClose}>
       <ResourceState state={state} reload={reload}>
         {({ booking, visit }) =>
-          booking ? <BookingDetails booking={booking} onChanged={changed} /> : visit ? <VisitDetails visit={visit} /> : null
+          booking ? (
+            <BookingDetails booking={booking} onChanged={changed} />
+          ) : visit ? (
+            <VisitDetails
+              visit={visit}
+              onAssigned={() => {
+                reload();
+                onChanged();
+              }}
+            />
+          ) : null
         }
       </ResourceState>
     </Drawer>

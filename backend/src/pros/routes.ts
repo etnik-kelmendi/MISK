@@ -68,7 +68,10 @@ async function loadProfile(ctx: AppContext, userId: string, db: Queryable = ctx.
        -- The Jobs page (D86): the online switch, the trade names, and a pause after late cancellations.
        p.online,
        COALESCE((SELECT array_agg(c.name ORDER BY c.sort_order, c.name) FROM pro_trades t JOIN categories c ON c.id = t.category_id
-                 WHERE t.pro_id = p.user_id), '{}') AS "tradeNames",
+                 WHERE t.pro_id = p.user_id AND t.approved), '{}') AS "tradeNames",
+       -- Work information (D100): trades added later wait for the team's check before they bring jobs.
+       COALESCE((SELECT array_agg(category_id) FROM pro_trades WHERE pro_id = p.user_id AND NOT approved), '{}') AS "pendingTrades",
+       p.years_experience AS "yearsExperience", p.about,
        (SELECT max(c.created_at) + make_interval(days => ${LATE_CANCEL_PAUSE_DAYS}) FROM pro_cancellations c
         WHERE c.pro_id = p.user_id AND c.late AND c.created_at > now() - make_interval(days => ${LATE_CANCEL_PAUSE_DAYS})
           AND ${LATE_CANCEL_PAUSED}) AS "offersPausedUntil",
@@ -173,6 +176,66 @@ function checkComplete(profile: Profile, today: string) {
   }
 }
 
+/** Work information limits (D100). */
+export const MAX_YEARS_EXPERIENCE = 60;
+export const ABOUT_MAX_LENGTH = 400;
+/** States in which an approved pro adds trades that the team then checks one by one (D100). */
+const WORKING_STATES = new Set(['approved', 'pending_approval']);
+
+/**
+ * "About you" as stored: plain text with the spaces of each line tidied and at most one empty line in a row;
+ * blank means none. It is only ever shown as text, never as HTML.
+ */
+export function cleanAbout(about: string | null): string | null {
+  if (about === null) {
+    return null;
+  }
+  const text = about
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map((line) => line.replace(/[^\S\n]+/g, ' ').trim())
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  return text || null;
+}
+
+/**
+ * Changes the pro's trades. While the application is being written every trade is checked with it. An approved
+ * pro (also one moved to Pending approval) keeps the trades they still choose, loses the ones they take off (jobs
+ * they already accepted in them stay theirs), and a trade they add waits for the team's check before any job in
+ * it is offered (D100). Otherwise the trades are locked while the team reviews them.
+ */
+async function changeTrades(client: Queryable, userId: string, status: string, trades: string[]) {
+  const editable = EDITABLE_TRADES.has(status);
+  if (!editable && !WORKING_STATES.has(status)) {
+    throw conflict('trades_locked');
+  }
+  const known = await client.query<{ id: string }>('SELECT id FROM categories WHERE id = ANY($1) AND active', [trades]);
+  if (known.rowCount !== trades.length) {
+    // An approved pro may keep a trade the team has since taken off the market; they cannot add one.
+    const current = await client.query<{ category_id: string }>('SELECT category_id FROM pro_trades WHERE pro_id = $1', [userId]);
+    const allowed = new Set([...known.rows.map((r) => r.id), ...(editable ? [] : current.rows.map((r) => r.category_id))]);
+    if (trades.some((id) => !allowed.has(id))) {
+      throw badRequest('unknown_trade');
+    }
+  }
+  if (editable) {
+    await client.query('DELETE FROM pro_trades WHERE pro_id = $1', [userId]);
+    await client.query('INSERT INTO pro_trades (pro_id, category_id) SELECT $1, unnest($2::uuid[])', [userId, trades]);
+    return;
+  }
+  if (!trades.length) {
+    throw badRequest('trades_missing');
+  }
+  await client.query('DELETE FROM pro_trades WHERE pro_id = $1 AND NOT (category_id = ANY($2::uuid[]))', [userId, trades]);
+  await client.query(
+    `INSERT INTO pro_trades (pro_id, category_id, approved) SELECT $1, unnest($2::uuid[]), false
+     ON CONFLICT (pro_id, category_id) DO NOTHING`,
+    [userId, trades],
+  );
+}
+
 export async function proRoutes(app: FastifyInstance, ctx: AppContext) {
   const { pool, guards } = ctx;
 
@@ -200,6 +263,8 @@ export async function proRoutes(app: FastifyInstance, ctx: AppContext) {
       workingDays?: number[];
       trades?: string[];
       backgroundConsent?: boolean;
+      yearsExperience?: number | null;
+      about?: string | null;
     };
   }>(
     '/pro/profile',
@@ -217,13 +282,16 @@ export async function proRoutes(app: FastifyInstance, ctx: AppContext) {
             workingDays: { type: 'array', uniqueItems: true, maxItems: 7, items: { type: 'integer', minimum: 1, maximum: 7 } },
             trades: { type: 'array', uniqueItems: true, maxItems: 20, items: { type: 'string', format: 'uuid' } },
             backgroundConsent: { type: 'boolean' },
+            // Work information (D100): plain text customers see on their booking; blank or null removes it.
+            yearsExperience: { anyOf: [{ type: 'integer', minimum: 0, maximum: MAX_YEARS_EXPERIENCE }, { type: 'null' }] },
+            about: { anyOf: [{ type: 'string', maxLength: ABOUT_MAX_LENGTH }, { type: 'null' }] },
           },
         },
       },
     },
     async (request) => {
       const userId = currentUser(request).id;
-      const { homePostcode, homeAddress, radiusKm, workingDays, trades, backgroundConsent } = request.body;
+      const { homePostcode, homeAddress, radiusKm, workingDays, trades, backgroundConsent, yearsExperience, about } = request.body;
       await withTransaction(pool, async (client) => {
         const { status } = await lockProfile(client, userId);
         if (homePostcode !== undefined) {
@@ -251,19 +319,13 @@ export async function proRoutes(app: FastifyInstance, ctx: AppContext) {
           ]);
         }
         if (trades !== undefined) {
-          // Approved trades were checked by the team; changing them needs a new review.
-          if (!EDITABLE_TRADES.has(status)) {
-            throw conflict('trades_locked');
-          }
-          const known = await client.query('SELECT id FROM categories WHERE id = ANY($1) AND active', [trades]);
-          if (known.rowCount !== trades.length) {
-            throw badRequest('unknown_trade');
-          }
-          await client.query('DELETE FROM pro_trades WHERE pro_id = $1', [userId]);
-          await client.query(
-            'INSERT INTO pro_trades (pro_id, category_id) SELECT $1, unnest($2::uuid[])',
-            [userId, trades],
-          );
+          await changeTrades(client, userId, status, trades);
+        }
+        if (yearsExperience !== undefined) {
+          await client.query('UPDATE pro_profiles SET years_experience = $2 WHERE user_id = $1', [userId, yearsExperience]);
+        }
+        if (about !== undefined) {
+          await client.query('UPDATE pro_profiles SET about = $2 WHERE user_id = $1', [userId, cleanAbout(about)]);
         }
         if (backgroundConsent !== undefined) {
           // Consent can be taken back until the application is sent; the check is under way after that.
@@ -465,7 +527,8 @@ export async function proRoutes(app: FastifyInstance, ctx: AppContext) {
         accountId,
       ]);
     }
-    const base = `${ctx.config.webOrigin}/pro/profile`;
+    // Back to the Bank account page of the pro Profile (D100).
+    const base = `${ctx.config.webOrigin}/pro/profile/bank`;
     const url = await ctx.gateway.onboardingLink({
       accountId,
       returnUrl: `${base}?payouts=return`,

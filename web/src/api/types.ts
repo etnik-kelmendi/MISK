@@ -181,7 +181,8 @@ export interface BookingBase {
   /** Problem photos are only sent to the customer who took them and to the MISK team. */
   photos: { id: string; kind: 'customer' | 'completion' | 'problem' }[];
   extras: Extra[];
-  rating: { stars: number; tags: string[]; review?: string | null } | null;
+  /** The customer's rating; `reply` is the pro's one answer to it (D100). */
+  rating: { stars: number; tags: string[]; review?: string | null; reply?: string | null; repliedAt?: string | null } | null;
   /** The job's checklist (D86): the booked services' tasks, then approved extra work. */
   tasks?: JobTask[];
   /** Set when the customer was not home and the pro left with the call-out fee (D94). */
@@ -222,6 +223,9 @@ export interface ProSummary {
   jobsDone?: number;
   /** Whether the customer saved this pro as a favourite (D83). */
   isFavourite?: boolean;
+  /** From the pro's Work information (D100): plain text, and years in the trade. */
+  about?: string | null;
+  yearsExperience?: number | null;
 }
 
 /** When the pro is expected (D83): from their live position while on the way, else the booked start. */
@@ -307,11 +311,81 @@ export interface ProAvailability {
   /** "HH:MM"; the end may be "24:00". */
   workStart: string;
   workEnd: string;
+  /** ISO weekdays, 1 (Monday) to 7 (D99). */
+  workingDays: number[];
   holidays: { id: string; startsOn: string; endsOn: string }[];
+  /** Single days off from today on, "YYYY-MM-DD" (D99). */
+  daysOff: { id: string; day: string }[];
+  /** Plan visits on a day off or holiday, each to be moved or given to a stand-in (D99). */
+  visitsOnDaysOff: VisitOnDayOff[];
+  /** Accepted one-off jobs on a day off or holiday: they stay the pro's (D99). */
+  jobsOnDaysOff: { id: string; startsAt: string; serviceName: string }[];
   onlineNow: boolean;
   /** Why the pro is offline although the switch is on; `until` is the last holiday day. */
   autoOffline: { reason: AutoOfflineReason; until: string | null } | null;
   overrideUntil: string | null;
+}
+
+export interface VisitOnDayOff {
+  id: string;
+  startsAt: string;
+  planName: string;
+  customerName: string | null;
+  address: string;
+  /** No stand-in was free: the MISK team is sorting it out. */
+  teamAsked: boolean;
+}
+
+/** POST /pro/visits/:id/hand-over (D99). */
+export type HandOverResult = ({ outcome: 'reassigned'; standInName: string | null } | { outcome: 'team_asked' }) & {
+  availability: ProAvailability;
+};
+
+/** "stand_in": the regular pro's plan visit that a stand-in did and was paid for (D99), with no amount. */
+export type EarningStatus = 'pending' | 'ready' | 'paid' | 'on_hold' | 'stand_in';
+export type EarningFilter = 'all' | 'pending' | 'ready' | 'paid';
+
+/** One job or plan visit on the Earnings page (D99). Amounts come from what was stored when the money moved. */
+export interface EarningItem {
+  kind: 'job' | 'visit' | 'stand_in';
+  id: string;
+  date: string;
+  title: string;
+  customerName: string | null;
+  status: EarningStatus;
+  youGetCents: number;
+  /** Null for a plan visit: a fixed payout per visit. */
+  breakdown: {
+    type: 'job' | 'late_cancel' | 'no_show';
+    lines: { kind: 'job' | 'extra' | 'waiting'; label: string; cents: number }[];
+    commissionPct: number | null;
+    commissionCents: number;
+    tipCents: number;
+  } | null;
+}
+
+export interface EarningsSummary {
+  readyCents: number;
+  pendingCents: number;
+  paidThisMonthCents: number;
+  nextPayoutOn: string;
+  interval: PayoutInterval;
+  bankLast4: string | null;
+}
+
+export interface BankPayout {
+  id: string;
+  paidOn: string;
+  amountCents: number;
+  bankLast4: string | null;
+}
+
+/** GET /pro/earnings. */
+export interface EarningsPage {
+  items: EarningItem[];
+  hasMore: boolean;
+  summary: EarningsSummary;
+  payouts: BankPayout[];
 }
 
 /** "You cancelled this job" on the Jobs page (D94). */
@@ -455,6 +529,10 @@ export interface AdminVisit {
   pro: { id: string; firstName: string | null; phone: string | null };
   /** The customer's pause that called this visit off (D78). */
   pause?: { startsOn: string; endsOn: string; creditCents: number; visitsCalledOff: number } | null;
+  /** The pro is off that day and found no stand-in: the team picks one (D99). */
+  standInNeeded?: boolean;
+  /** The regular pro this visit's stand-in stands in for (D99). */
+  standInFor?: { id: string; firstName: string | null } | null;
   perVisitCents: number;
   proMonthlyCents: number;
   miskMonthlyCents: number;
@@ -630,6 +708,10 @@ export interface ProProfile {
   certificateRequired?: boolean;
   /** Working hours, holidays and whether offers come in right now (D94). */
   availability?: ProAvailability;
+  /** Work information (D100): trades waiting for the MISK check, years in the trade and "About you". */
+  pendingTrades?: string[];
+  yearsExperience?: number | null;
+  about?: string | null;
 }
 
 export type ApplicationStepKey = 'sent' | 'documents' | 'background' | 'decision';
@@ -674,6 +756,8 @@ export interface AdminProListItem extends ProNumbers {
   expiringDocument: boolean;
   expiredDocument: boolean;
   waitingDocuments: number;
+  /** Trades the pro added that wait for the team's check (D100). */
+  pendingTrades?: number;
 }
 
 export interface AdminProSummary {
@@ -707,7 +791,9 @@ export type ProActionKind =
   | 'reinstated'
   | 'moved_to_pending'
   | 'back_to_active'
-  | 'info_provided';
+  | 'info_provided'
+  | 'trade_approved'
+  | 'trade_declined';
 
 export interface ProActionEntry {
   id: string;
@@ -723,6 +809,7 @@ export interface ProActionEntry {
     bookings?: number;
     plans?: number;
     plansWithoutPro?: number;
+    trade?: string;
   };
   createdAt: string;
   adminName: string | null;
@@ -746,6 +833,10 @@ export interface AdminProDetail extends ProNumbers {
   radiusKm: number;
   workingDays: number[];
   trades: string[];
+  /** Trades the pro added later, waiting for the team's check (D100). */
+  pendingTrades?: { id: string; name: string; needsCertificate: boolean; requestedAt: string }[];
+  yearsExperience?: number | null;
+  about?: string | null;
   submittedAt: string | null;
   reviewNote: string | null;
   suspendedAt: string | null;
@@ -759,7 +850,17 @@ export interface AdminProDetail extends ProNumbers {
   checks: ProCheck[];
   allChecksOk: boolean;
   regulars: { id: string; firstName: string | null; planName: string; since: string | null }[];
-  reviews: { stars: number; tags: string[]; createdAt: string; customerName: string | null; service: string }[];
+  reviews: {
+    stars: number;
+    tags: string[];
+    review?: string | null;
+    /** The pro's one reply (D100). */
+    reply?: string | null;
+    repliedAt?: string | null;
+    createdAt: string;
+    customerName: string | null;
+    service: string;
+  }[];
   payouts: { amountCents: number; status: string; createdAt: string; source: 'job' | 'plan' }[];
   bank: { bankLast4: string | null; nextPayout: { amountCents: number; arrivesOn: string } | null } | null;
   actions: ProActionEntry[];
@@ -866,7 +967,7 @@ export interface AdminBookingListItem {
 
 export interface AdminListAlert {
   level: 'problem' | 'warning';
-  key: 'issue' | 'problem' | 'problemWithReason' | 'paymentFailed' | 'payoutFailed' | 'noPro' | 'searching' | 'late' | 'extraPending' | 'charging';
+  key: 'issue' | 'problem' | 'problemWithReason' | 'paymentFailed' | 'payoutFailed' | 'noPro' | 'searching' | 'late' | 'extraPending' | 'charging' | 'standInNeeded';
   params?: Record<string, string | number>;
 }
 

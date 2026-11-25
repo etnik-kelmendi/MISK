@@ -28,7 +28,7 @@ export function ConfirmEmailPage() {
   const started = useRef(false);
   const signedIn = state.status === 'signedIn';
   // Where the email is shown: Personal information, or the pro's Account page.
-  const back = state.status !== 'signedIn' ? '/signin' : state.user.role === 'pro' ? '/pro/account' : '/profile/personal';
+  const back = state.status !== 'signedIn' ? '/signin' : state.user.role === 'pro' ? '/pro/profile/personal' : '/profile/personal';
 
   useEffect(() => {
     // The link works once, so it is sent once, even when React runs effects twice in development.

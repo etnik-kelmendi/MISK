@@ -436,16 +436,4 @@ export async function proJobRoutes(app: FastifyInstance, ctx: AppContext) {
       return { job: await ownJob(proId, request.params.id) };
     },
   );
-
-  app.get('/pro/earnings', { preHandler: guards.pro }, async (request) => {
-    const result = await pool.query<{ sentCents: number; pendingCents: number; last30Cents: number }>(
-      `SELECT
-         COALESCE(sum(amount_cents) FILTER (WHERE status = 'sent'), 0)::int AS "sentCents",
-         COALESCE(sum(amount_cents) FILTER (WHERE status IN ('pending', 'failed')), 0)::int AS "pendingCents",
-         COALESCE(sum(amount_cents) FILTER (WHERE created_at > now() - interval '30 days'), 0)::int AS "last30Cents"
-       FROM payouts WHERE pro_id = $1`,
-      [currentUser(request).id],
-    );
-    return { earnings: result.rows[0] };
-  });
 }

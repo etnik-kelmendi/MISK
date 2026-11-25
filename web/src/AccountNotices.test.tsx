@@ -194,8 +194,8 @@ describe('messages from the MISK team', () => {
     expect(team).toHaveTextContent('Please call us about your booking.');
     expect(older).not.toHaveTextContent('From the MISK team');
     await waitFor(() => expect(api.calls).toContain('POST /inbox/read'));
-    // Read now: Profile's Messages row no longer counts it.
-    await user().click(within(screen.getByRole('navigation', { name: 'Main menu' })).getByRole('link', { name: 'Profile' }));
+    // Read now: the bell on Home no longer counts it.
+    await user().click(within(screen.getByRole('navigation', { name: 'Main menu' })).getByRole('link', { name: 'Home' }));
     await waitFor(() => expect(screen.getByRole('link', { name: 'Messages' })).toHaveAttribute('href', '/messages'));
   });
 });

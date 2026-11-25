@@ -149,6 +149,13 @@ export interface PaymentGateway {
   /** The pro's bank account (last 4 digits only) and their next payout, as their Stripe account shows it. */
   payoutDetails(accountId: string): Promise<PayoutDetails>;
   /**
+   * The bank account payouts go to, for the pro's Bank account page (D100): last 4 digits, the holder's name and
+   * whether the provider has checked it and pays out to it. Null when no bank account is added yet.
+   */
+  bankAccount(accountId: string): Promise<BankAccountInfo | null>;
+  /** A one-time link where the pro changes their bank account with the provider, which then checks it (D100). */
+  bankChangeLink(accountId: string): Promise<string>;
+  /**
    * How often Stripe pays the pro's balance to their bank: weekly (Fridays) or monthly (the 1st).
    * 'manual' means MISK starts each payout itself, for every two weeks.
    */
@@ -191,6 +198,13 @@ export interface PaymentMethodInfo {
   brand: string;
   last4: string | null;
   wallet: string | null;
+}
+
+export interface BankAccountInfo {
+  last4: string;
+  holderName: string | null;
+  /** False while the provider checks a new account or payouts to it are stopped: no payout goes out until then. */
+  active: boolean;
 }
 
 export interface PayoutDetails {

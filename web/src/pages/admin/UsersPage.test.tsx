@@ -266,10 +266,27 @@ describe('telling people how they were reached (D87)', () => {
 describe('a pro who also books (D64)', () => {
   it('opens the customer app from the pro profile, with a tab back to the pro app', async () => {
     const api = fakeApi(users.pro);
-    api.on('GET /pro/profile', { body: { profile: { status: 'approved', payoutsEnabled: true, homePostcode: '10115', radiusKm: 12, workingDays: [1], trades: [], documents: [] } } });
+    api.on('GET /pro/profile', {
+      body: {
+        profile: {
+          status: 'approved',
+          payoutsEnabled: true,
+          homePostcode: '10115',
+          radiusKm: 12,
+          workingDays: [1],
+          trades: [],
+          tradeNames: [],
+          pendingTrades: [],
+          ratingAverage: null,
+          ratingCount: 0,
+          documents: { id: null, certificate: null, insurance: null, background: null },
+        },
+      },
+    });
+    api.on('GET /pro/profile/overview', { body: { overview: { jobsDone: 0, documents: { expiring: 0, expired: 0, checking: 0 }, bankLast4: null, topPercent: null } } });
     api.on('GET /pro/payouts', { body: { payouts: { sharePct: 82, interval: 'weekly', nextPayoutOn: '2026-11-20', bankLast4: '3000' } } });
     renderAt('/pro/profile');
-    const book = await screen.findByRole('link', { name: 'Book a service for yourself' });
+    const book = await screen.findByRole('link', { name: /Switch to customer app/ });
     expect(book).toHaveAttribute('href', '/');
     await user().click(book);
     const menu = await screen.findByRole('navigation', { name: 'Main menu' });

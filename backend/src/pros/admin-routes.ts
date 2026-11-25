@@ -84,6 +84,8 @@ interface ListRow extends StatsRow {
   expiringDocuments: number;
   expiredDocuments: number;
   waitingDocuments: number;
+  /** Trades the pro added that wait for the team's check (D100). */
+  pendingTrades: number;
 }
 
 export async function adminProRoutes(app: FastifyInstance, ctx: AppContext) {
@@ -154,6 +156,9 @@ export async function adminProRoutes(app: FastifyInstance, ctx: AppContext) {
         backgroundConsentAt: Date | null;
         requestedDocuments: DocumentKind[];
         rejectedAt: Date | null;
+        pendingTrades: { id: string; name: string; needsCertificate: boolean; requestedAt: string }[];
+        yearsExperience: number | null;
+        about: string | null;
       }
     >(
       `SELECT p.user_id AS id, u.first_name AS "firstName", u.last_name AS "lastName", u.phone, u.email, p.status,
@@ -166,7 +171,14 @@ export async function adminProRoutes(app: FastifyInstance, ctx: AppContext) {
          p.home_address AS "homeAddress", p.background_consent_at AS "backgroundConsentAt",
          p.requested_documents AS "requestedDocuments", p.rejected_at AS "rejectedAt",
          COALESCE((SELECT array_agg(c.name ORDER BY c.name) FROM pro_trades t JOIN categories c ON c.id = t.category_id
-                   WHERE t.pro_id = p.user_id), '{}') AS trades,
+                   WHERE t.pro_id = p.user_id AND t.approved), '{}') AS trades,
+         -- Trades the pro added later, waiting for the team's check (D100).
+         COALESCE((SELECT json_agg(json_build_object('id', c.id, 'name', c.name, 'needsCertificate', c.needs_certificate,
+                     'requestedAt', t.requested_at) ORDER BY t.requested_at)
+                   FROM pro_trades t JOIN categories c ON c.id = t.category_id WHERE t.pro_id = p.user_id AND NOT t.approved), '[]')
+           AS "pendingTrades",
+         -- Work information customers see (D100).
+         p.years_experience AS "yearsExperience", p.about,
          (SELECT COALESCE(sum(x.amount_cents), 0)::int FROM (
             SELECT amount_cents, created_at FROM payouts WHERE pro_id = p.user_id AND status <> 'reversed'
             UNION ALL
@@ -191,7 +203,8 @@ export async function adminProRoutes(app: FastifyInstance, ctx: AppContext) {
         [proId],
       ),
       pool.query(
-        `SELECT r.stars, r.tags, r.created_at AS "createdAt", cu.first_name AS "customerName", b.service_name AS "service"
+        `SELECT r.stars, r.tags, r.review, r.reply, r.replied_at AS "repliedAt", r.created_at AS "createdAt",
+           cu.first_name AS "customerName", b.service_name AS "service"
          FROM ratings r JOIN bookings b ON b.id = r.booking_id JOIN users cu ON cu.id = b.customer_id
          WHERE r.pro_id = $1 ORDER BY r.created_at DESC LIMIT 10`,
         [proId],
@@ -239,6 +252,9 @@ export async function adminProRoutes(app: FastifyInstance, ctx: AppContext) {
       radiusKm: rest.radiusKm,
       workingDays: rest.workingDays,
       trades: rest.trades,
+      pendingTrades: rest.pendingTrades,
+      yearsExperience: rest.yearsExperience,
+      about: rest.about,
       submittedAt: rest.submittedAt,
       reviewNote: rest.reviewNote,
       suspendedAt: rest.suspendedAt,
@@ -340,7 +356,8 @@ export async function adminProRoutes(app: FastifyInstance, ctx: AppContext) {
       const result = await pool.query<ListRow>(
         `SELECT p.user_id AS id, u.first_name AS "firstName", u.last_name AS "lastName", p.status,
            COALESCE((SELECT array_agg(c.name ORDER BY c.name) FROM pro_trades t JOIN categories c ON c.id = t.category_id
-                     WHERE t.pro_id = p.user_id), '{}') AS trades,
+                     WHERE t.pro_id = p.user_id AND t.approved), '{}') AS trades,
+           (SELECT count(*)::int FROM pro_trades t WHERE t.pro_id = p.user_id AND NOT t.approved) AS "pendingTrades",
            p.submitted_at AS "submittedAt", p.suspended_at AS "suspendedAt", p.suspended_reason AS "suspendedReason",
            p.review_note AS "reviewNote", p.jobs_paused_at IS NOT NULL AS "jobsPaused", p.watch_list_at IS NOT NULL AS "watchList",
            -- Only the checks the pro needs count: a certificate is not needed when no chosen trade needs one (D93).
@@ -386,6 +403,7 @@ export async function adminProRoutes(app: FastifyInstance, ctx: AppContext) {
             expiringDocument: row.expiringDocuments > 0,
             expiredDocument: row.expiredDocuments > 0,
             waitingDocuments: row.waitingDocuments,
+            pendingTrades: row.pendingTrades,
             ...numbers,
           };
         }),

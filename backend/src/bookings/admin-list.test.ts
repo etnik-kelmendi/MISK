@@ -17,11 +17,16 @@ function input(overrides: Partial<Parameters<typeof listAlerts>[0]> = {}): Param
     lateWarned: false,
     extraPending: false,
     payoutFailed: false,
+    standInNeeded: false,
     ...overrides,
   };
 }
 
 describe('listAlerts (board card lines, D96)', () => {
+  it('says when a pro asked for a stand-in for a plan visit and none was free (D99)', () => {
+    expect(listAlerts(input({ kind: 'visit', status: 'planned', standInNeeded: true }), NOW)).toEqual([{ level: 'problem', key: 'standInNeeded' }]);
+  });
+
   it('has nothing to say about a calm booking', () => {
     expect(listAlerts(input(), NOW)).toEqual([]);
   });

@@ -2,20 +2,19 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { Icon } from '../../../components/Icon';
+import { SupportContact } from '../../../components/SupportContact';
 import { AppHeader } from '../../../shells/Shells';
 import { useAccountSettings } from './PersonalPage';
+
+export { supportMailto } from '../../../components/SupportContact';
 
 /** The common questions, in order; each has a question and an answer in the translations. */
 export const FAQ = ['charged', 'cancel', 'unhappy', 'pause'] as const;
 
-/** A support email with the subject filled in, so the team sees at once what it is about. */
-export function supportMailto(email: string, subject: string): string {
-  return `mailto:${email}?subject=${encodeURIComponent(subject)}`;
-}
-
 /**
  * Help & support (D92): common questions that open their answer, and the ways to reach the team that are set up
- * (SUPPORT_EMAIL for "Chat with us", which opens an email, and SUPPORT_PHONE for "Call").
+ * (SUPPORT_EMAIL for "Chat with us", which opens an email, and SUPPORT_PHONE for "Call"). The contact buttons are
+ * shared with the pro app (D100).
  */
 export function HelpPage() {
   const { t } = useTranslation();
@@ -51,23 +50,8 @@ export function HelpPage() {
             );
           })}
         </ul>
-        {settings.state.status === 'loading' ? null : support?.email || support?.phone ? (
-          <div className="row gap8 help-contact">
-            {support.email && (
-              <a className="cta grow" href={supportMailto(support.email, t('help.mailSubject'))}>
-                <Icon name="chat" /> {t('help.chat')}
-              </a>
-            )}
-            {support.phone && (
-              <a className="cta ghost grow" href={`tel:${support.phone}`}>
-                <Icon name="phone" /> {t('help.call')}
-              </a>
-            )}
-          </div>
-        ) : (
-          <p className="small muted">{t('help.noContact')}</p>
-        )}
-        {support?.email && <p className="tiny muted">{t('help.chatNote')}</p>}
+        {/* Both buttons are always shown; one whose contact is not set up explains how to reach the team instead. */}
+        {settings.state.status === 'loading' ? null : <SupportContact support={support} mailSubject={t('help.mailSubject')} />}
         <Link to="/bookings" className="cta ghost help-bookings">
           {t('help.bookingProblem')}
         </Link>

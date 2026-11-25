@@ -1,5 +1,5 @@
 import type { Queryable } from '../db.js';
-import { onHolidaySql, onlineNowSql } from '../pros/working-hours.js';
+import { offThatDaySql, onlineNowSql } from '../pros/working-hours.js';
 
 /** Local start hours of bookable slots (from the demo). */
 export const SLOT_HOURS = [8, 10, 12, 14, 16, 18];
@@ -40,7 +40,7 @@ export interface Slot {
 /**
  * SQL that keeps only pros who can take a job in category `cat` at postcode `pc` between `s` and `e`:
  * approved, able to receive payouts, doing that trade, within travel distance, working that weekday and not
- * on holiday that day (D94), and with no job or pending offer at an overlapping time. The caller supplies the alias `p`
+ * on holiday or a day off that day (D94, D99), and with no job or pending offer at an overlapping time. The caller supplies the alias `p`
  * for `pro_profiles` and the four expressions.
  */
 export function eligibleProFilter(
@@ -58,14 +58,14 @@ export function eligibleProFilter(
   return `p.status = 'approved' AND p.payouts_enabled AND p.jobs_paused_at IS NULL
     AND p.user_id IS DISTINCT FROM ${customer}
     AND EXISTS (SELECT 1 FROM users u WHERE u.id = p.user_id AND u.disabled_at IS NULL)
-    AND EXISTS (SELECT 1 FROM pro_trades t WHERE t.pro_id = p.user_id AND t.category_id = ${cat})
+    AND EXISTS (SELECT 1 FROM pro_trades t WHERE t.pro_id = p.user_id AND t.category_id = ${cat} AND t.approved)
     AND EXISTS (
       SELECT 1 FROM postcodes home, postcodes dest
       WHERE home.code = p.home_postcode AND dest.code = ${pc}
         AND distance_km(home.lat, home.lng, dest.lat, dest.lng) <= p.radius_km
     )
     AND extract(isodow FROM ((${s}) AT TIME ZONE ${tz}))::smallint = ANY (p.working_days)
-    AND NOT ${onHolidaySql(s, tz)}
+    AND NOT ${offThatDaySql(s, tz)}
     AND NOT EXISTS (
       SELECT 1 FROM bookings busy
       WHERE busy.pro_id = p.user_id AND busy.status IN ('accepted', 'on_the_way', 'working')

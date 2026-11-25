@@ -83,6 +83,7 @@ function ProTabs() {
       tabs={[
         { to: '/pro', icon: 'list', label: t('nav.jobs'), end: true },
         { to: '/pro/week', icon: 'calendar', label: t('nav.week') },
+        { to: '/pro/earnings', icon: 'euro', label: t('nav.earnings') },
         { to: '/pro/messages', icon: 'chat', label: t('nav.messages'), badge: inbox?.unread },
         { to: '/pro/profile', icon: 'user', label: t('nav.profile') },
       ]}

@@ -31,7 +31,9 @@ export type ProAction =
   | 'reinstated'
   | 'moved_to_pending'
   | 'back_to_active'
-  | 'info_provided';
+  | 'info_provided'
+  | 'trade_approved'
+  | 'trade_declined';
 
 /** Writes one line in the pro's activity log. `adminId` is null when MISK acted by itself. */
 export async function logProAction(

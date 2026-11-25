@@ -4,6 +4,7 @@ import type { BookingDeps } from '../bookings/events.js';
 import { withTransaction, type Queryable } from '../db.js';
 import { messages } from '../notifications/messages.js';
 import { enqueue } from '../notifications/outbox.js';
+import { deductStandInVisits } from './stand-ins.js';
 import type { Frequency } from '../plans/routes.js';
 
 /** How far ahead visits are planned. */
@@ -199,7 +200,7 @@ export async function chooseRegularPro(
      JOIN postcodes dest ON dest.code = $2
      WHERE p.status = 'approved' AND p.payouts_enabled AND p.jobs_paused_at IS NULL
        AND p.user_id <> $6
-       AND EXISTS (SELECT 1 FROM pro_trades t WHERE t.pro_id = p.user_id AND t.category_id = $1)
+       AND EXISTS (SELECT 1 FROM pro_trades t WHERE t.pro_id = p.user_id AND t.category_id = $1 AND t.approved)
        AND distance_km(home.lat, home.lng, dest.lat, dest.lng) <= p.radius_km
        AND p.working_days @> $3::smallint[]
        AND NOT EXISTS (
@@ -322,11 +323,17 @@ export async function recordPaidMonth(
     );
     // A month fully covered by credit, e.g. for paused visits (D78), is paid with nothing, so nothing is paid out.
     if (row.pro_id && input.amountCents > 0) {
-      await client.query(
+      const share = proShareCents(input.amountCents, row.pro_share_pct);
+      const created = await client.query<{ id: string }>(
         `INSERT INTO subscription_payouts (subscription_id, pro_id, invoice_id, amount_cents)
-         VALUES ($1, $2, $3, $4) ON CONFLICT (invoice_id) DO NOTHING`,
-        [row.id, row.pro_id, input.invoiceId, proShareCents(input.amountCents, row.pro_share_pct)],
+         VALUES ($1, $2, $3, $4) ON CONFLICT (invoice_id) DO NOTHING RETURNING id`,
+        [row.id, row.pro_id, input.invoiceId, share],
       );
+      // Visits a stand-in did for the regular pro are paid to the stand-in, so they come off this payout (D99).
+      const payoutId = created.rows[0]?.id;
+      if (payoutId) {
+        await deductStandInVisits(client, { id: payoutId, subscriptionId: row.id, proId: row.pro_id, amountCents: share });
+      }
     }
     return row;
   });

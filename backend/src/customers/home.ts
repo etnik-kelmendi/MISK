@@ -37,12 +37,12 @@ export interface HomePro {
  */
 const BOOKABLE_PRO = `p.status = 'approved' AND p.payouts_enabled AND p.jobs_paused_at IS NULL
   AND EXISTS (SELECT 1 FROM users pu WHERE pu.id = p.user_id AND pu.disabled_at IS NULL)
-  AND EXISTS (SELECT 1 FROM pro_trades t JOIN categories c ON c.id = t.category_id WHERE t.pro_id = p.user_id AND c.active)`;
+  AND EXISTS (SELECT 1 FROM pro_trades t JOIN categories c ON c.id = t.category_id WHERE t.pro_id = p.user_id AND t.approved AND c.active)`;
 
 /** The card columns of `p` for the customer `$1`. */
 const PRO_CARD_COLUMNS = `p.user_id AS id, u.first_name AS "firstName", p.photo_upload_id AS "photoId",
   (SELECT COALESCE(json_agg(json_build_object('id', c.id, 'slug', c.slug, 'name', c.name, 'icon', c.icon) ORDER BY c.sort_order, c.name), '[]')
-   FROM pro_trades t JOIN categories c ON c.id = t.category_id WHERE t.pro_id = p.user_id AND c.active) AS trades,
+   FROM pro_trades t JOIN categories c ON c.id = t.category_id WHERE t.pro_id = p.user_id AND t.approved AND c.active) AS trades,
   r.average AS "ratingAverage", r.count AS "ratingCount", jobs.done AS "jobsDone",
   EXISTS (SELECT 1 FROM customer_favourite_pros f WHERE f.customer_id = $1 AND f.pro_id = p.user_id) AS "isFavourite"`;
 

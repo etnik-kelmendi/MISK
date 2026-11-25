@@ -1,5 +1,13 @@
 import { randomUUID } from 'node:crypto';
-import type { BalanceInput, GatewayEvent, HoldInput, PaymentGateway, PaymentMethodInfo, SavedCard } from '../src/payments/gateway.js';
+import type {
+  BalanceInput,
+  BankAccountInfo,
+  GatewayEvent,
+  HoldInput,
+  PaymentGateway,
+  PaymentMethodInfo,
+  SavedCard,
+} from '../src/payments/gateway.js';
 
 /** A change to a customer's balance: a credit off the next bill, or a credit taken back (D78). */
 export interface FakeBalanceChange {
@@ -57,6 +65,11 @@ export function createFakeGateway(options: { instantHolds?: boolean } = {}) {
   }
   const schedules = new Map<string, 'weekly' | 'monthly' | 'manual'>();
   const manualPayouts: string[] = [];
+  /** The bank account of every connected account (D100): the same checked account unless a test sets another. */
+  const defaultBank = (): BankAccountInfo | null => ({ last4: '3000', holderName: 'Daniel Keller', active: true });
+  let bank = defaultBank();
+  /** Connected accounts a bank change link was made for. */
+  const bankChangeLinks: string[] = [];
   const subscriptions = new Map<
     string,
     {
@@ -317,6 +330,16 @@ export function createFakeGateway(options: { instantHolds?: boolean } = {}) {
       }
       return { bankLast4: '3000', nextPayout: { amountCents: 12_450, arrivesOn: new Date('2026-11-13T00:00:00Z') } };
     },
+    bankAccount: async () => {
+      if (failures.has('payoutDetails')) {
+        throw new Error('fake bank account failure');
+      }
+      return bank;
+    },
+    bankChangeLink: async (accountId) => {
+      bankChangeLinks.push(accountId);
+      return `https://connect.example.com/express/${accountId}`;
+    },
     parseWebhook(rawBody, signature) {
       if (signature !== 'fake-signature') {
         throw new Error('bad signature');
@@ -335,6 +358,11 @@ export function createFakeGateway(options: { instantHolds?: boolean } = {}) {
     balance,
     schedules,
     manualPayouts,
+    bankChangeLinks,
+    /** Sets the bank account every connected account reports, e.g. a new one still being checked (D100). */
+    setBank(next: BankAccountInfo | null) {
+      bank = next;
+    },
     /** Makes payments that already exist in seeded data known to the fake. */
     addIntents(seeded: { id: string; amountCents: number; status: FakeIntent['status'] }[]) {
       for (const intent of seeded) {
@@ -350,6 +378,8 @@ export function createFakeGateway(options: { instantHolds?: boolean } = {}) {
       failures.clear();
       schedules.clear();
       manualPayouts.length = 0;
+      bank = defaultBank();
+      bankChangeLinks.length = 0;
       instantHolds = options.instantHolds ?? true;
       cards = defaultCards();
       defaultCard = null;

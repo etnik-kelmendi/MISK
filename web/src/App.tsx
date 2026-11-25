@@ -9,7 +9,6 @@ import { RequireRole } from './auth/RequireRole';
 import { SuspendedGate } from './auth/SuspendedScreen';
 import type { AppConfig, Site } from './config';
 import { AccountDeletedPage } from './pages/AccountDeletedPage';
-import { AccountPage } from './pages/AccountPage';
 import { ConfirmEmailPage } from './pages/ConfirmEmailPage';
 import { AdminBookingRedirect } from './pages/admin/AdminBookingPage';
 import { AdminBookingsPage } from './pages/admin/AdminBookingsPage';
@@ -55,7 +54,16 @@ import { ApplicationStatusPage } from './pages/pro/ApplicationStatusPage';
 import { ProHomePage } from './pages/pro/ProHomePage';
 import { ProJobPage } from './pages/pro/ProJobPage';
 import { ProProfilePage } from './pages/pro/ProProfilePage';
+import { BankAccountPage } from './pages/pro/profile/BankAccountPage';
+import { DocumentsPage } from './pages/pro/profile/DocumentsPage';
+import { PerformancePage } from './pages/pro/profile/PerformancePage';
+import { ProHelpPage, ProNotificationsPage, ProTermsPage } from './pages/pro/profile/ProAppPages';
+import { ProPersonalPage } from './pages/pro/profile/ProPersonalPage';
+import { RatingsPage } from './pages/pro/profile/RatingsPage';
+import { WorkInfoPage } from './pages/pro/profile/WorkInfoPage';
 import { ProVisitPage } from './pages/pro/ProVisitPage';
+import { AvailabilityPage } from './pages/pro/AvailabilityPage';
+import { EarningsPage } from './pages/pro/EarningsPage';
 import { ProWeekPage } from './pages/pro/ProWeekPage';
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
 import { ResetPasswordPage as AppResetPasswordPage } from './pages/ResetPasswordPage';
@@ -134,12 +142,25 @@ function CustomerAndProRoutes() {
         <Route path="jobs/:id/chat" element={<ProChatPage />} />
         <Route path="visits/:id" element={<ProVisitPage />} />
         <Route path="week" element={<ProWeekPage />} />
+        {/* The Availability and Earnings pages of the pro app (D99). */}
+        <Route path="availability" element={<AvailabilityPage />} />
+        <Route path="earnings" element={<EarningsPage />} />
+        {/* The pro's Profile and its pages (D100); the older /pro/account address opens Personal information. */}
         <Route path="profile" element={<ProProfilePage />} />
+        <Route path="profile/personal" element={<ProPersonalPage />} />
+        <Route path="profile/work" element={<WorkInfoPage />} />
+        <Route path="profile/documents" element={<DocumentsPage />} />
+        <Route path="profile/bank" element={<BankAccountPage />} />
+        <Route path="profile/ratings" element={<RatingsPage />} />
+        <Route path="profile/performance" element={<PerformancePage />} />
+        <Route path="profile/notifications" element={<ProNotificationsPage />} />
+        <Route path="profile/help" element={<ProHelpPage />} />
+        <Route path="profile/terms" element={<ProTermsPage />} />
         {/* The pro's application and where it stands (D93). */}
         <Route path="apply" element={<ApplicationPage />} />
         <Route path="application" element={<ApplicationStatusPage />} />
         <Route path="messages" element={<MessagesPage />} />
-        <Route path="account" element={<AccountPage />} />
+        <Route path="account" element={<Navigate to="/pro/profile/personal" replace />} />
       </Route>
       <Route path="*" element={<NotFoundPage />} />
     </Routes>

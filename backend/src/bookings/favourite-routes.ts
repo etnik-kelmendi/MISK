@@ -71,7 +71,7 @@ export async function favouriteRoutes(app: FastifyInstance, ctx: AppContext) {
          CASE WHEN p.status = 'approved' AND p.payouts_enabled AND p.jobs_paused_at IS NULL THEN
            (SELECT COALESCE(json_agg(json_build_object('id', c.id, 'slug', c.slug, 'name', c.name, 'icon', c.icon)
               ORDER BY c.sort_order, c.name), '[]')
-            FROM pro_trades t JOIN categories c ON c.id = t.category_id WHERE t.pro_id = f.pro_id AND c.active)
+            FROM pro_trades t JOIN categories c ON c.id = t.category_id WHERE t.pro_id = f.pro_id AND t.approved AND c.active)
          ELSE '[]' END AS trades,
          f.created_at AS "savedAt"
        FROM customer_favourite_pros f JOIN users u ON u.id = f.pro_id LEFT JOIN pro_profiles p ON p.user_id = f.pro_id

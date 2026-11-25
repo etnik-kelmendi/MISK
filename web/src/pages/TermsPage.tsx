@@ -13,6 +13,9 @@ export const TERMS_SECTIONS = [
   'tips',
   'plans',
   'pros',
+  // For pros (D100): the code of conduct and the cancellation rules, linked from the pro Profile's Terms.
+  'conduct',
+  'proCancelling',
   'liability',
   'changes',
 ] as const;
@@ -46,13 +49,18 @@ export function TermsPage() {
   // Back to where the terms were opened from; a link opened on its own goes to sign-in.
   const back = () => (window.history.length > 1 ? navigate(-1) : navigate('/signin'));
   return (
+    // The app's usual header bar and padded body, so the terms read like every other page.
     <div className="app-frame">
-      <main className="app-body stack terms-page">
-        <button type="button" className="link b terms-back" onClick={() => void back()}>
-          <Icon name="chevL" /> {t('terms.back')}
-        </button>
-        <h1>{t('terms.title')}</h1>
-        <TermsContent />
+      <main className="app-body terms-page">
+        <header className="appbar">
+          <button type="button" className="iconbtn" aria-label={t('terms.back')} onClick={() => void back()}>
+            <Icon name="chevL" />
+          </button>
+          <h1>{t('terms.title')}</h1>
+        </header>
+        <div className="body">
+          <TermsContent />
+        </div>
       </main>
     </div>
   );

@@ -17,12 +17,8 @@ import { loadSchedule, type ScheduleItem } from '../../lib/proSchedule';
 import { useAction } from '../../lib/useAction';
 import { usePolling } from '../../lib/usePolling';
 import { formatDuration } from '../customer/BookingPage';
+import { isOnlineNow, OnlineSwitch, saveOnline } from './OnlineSwitch';
 import { VisitMoveRequests } from './VisitMoveRequests';
-
-/** Whether new offers come in right now (D94): the switch, unless working hours, a day off or a holiday say no. */
-export function isOnlineNow(profile: ProProfile): boolean {
-  return profile.availability ? profile.availability.onlineNow : profile.online !== false;
-}
 
 function useCountdown(until: string): number {
   const [now, setNow] = useState(() => Date.now());
@@ -234,7 +230,7 @@ function offlineReason(availability: ProAvailability | undefined, t: TFunction):
 }
 
 /** The approved pro's Jobs page (D86): new offers while online, then the rest of today. */
-function ApprovedHome({ profile, onOnline }: { profile: ProProfile; onOnline: (online: boolean) => Promise<void> }) {
+function ApprovedHome({ profile, onOnline }: { profile: ProProfile; onOnline: (online: boolean) => Promise<ProProfile> }) {
   const { t } = useTranslation();
   const api = useApi();
   const { timezone } = useMarket();
@@ -346,30 +342,6 @@ function ApprovedHome({ profile, onOnline }: { profile: ProProfile; onOnline: (o
   );
 }
 
-/** The online switch in the header (D86): a real switch, saved on the server. */
-function OnlineSwitch({ online, onChange }: { online: boolean; onChange: (online: boolean) => Promise<void> }) {
-  const { t } = useTranslation();
-  const { run, busy, error } = useAction();
-  return (
-    <span className="right">
-      <button
-        type="button"
-        role="switch"
-        aria-checked={online}
-        aria-label={t('pro.onlineSwitch')}
-        className={`online ${online ? '' : 'off'}`}
-        disabled={busy}
-        onClick={() => void run(() => onChange(!online))}
-      >
-        {online && <span className="lamp" aria-hidden="true" />}
-        {online ? t('pro.online') : t('pro.offline')}
-        <span className={`toggle sm ${online ? 'on' : ''}`} aria-hidden="true" />
-      </button>
-      <ErrorText error={error} />
-    </span>
-  );
-}
-
 /**
  * A pro who is not working yet: a new one fills in the Application page, everyone else sees where their
  * application stands (D93).
@@ -394,14 +366,12 @@ export function ProHomePage() {
   const user = useUser();
   const load = useCallback(() => api.get<{ profile: ProProfile }>('/pro/profile'), [api]);
   const { state, reload, update } = useResource(load);
-  const [announce, setAnnounce] = useState('');
 
-  async function setOnline(online: boolean) {
-    const result = await api.put<{ online: boolean; availability?: ProAvailability }>('/pro/online', { online });
-    update((current) => ({
-      profile: { ...current.profile, online: result.online, ...(result.availability ? { availability: result.availability } : {}) },
-    }));
-    setAnnounce((result.availability?.onlineNow ?? result.online) ? t('pro.nowOnline') : t('pro.nowOffline'));
+  async function setOnline(online: boolean): Promise<ProProfile> {
+    if (state.status !== 'ready') throw new Error('The profile is not loaded yet');
+    const next = await saveOnline(api, state.data.profile, online);
+    update(() => ({ profile: next }));
+    return next;
   }
 
   const profile = state.status === 'ready' ? state.data.profile : null;
@@ -411,7 +381,7 @@ export function ProHomePage() {
       <header className="prohead">
         <div className="row between">
           <h1>{working ? t('pro.jobsTitle') : t('apply.title')}</h1>
-          {profile?.status === 'approved' && <OnlineSwitch online={isOnlineNow(profile)} onChange={setOnline} />}
+          {profile?.status === 'approved' && <OnlineSwitch profile={profile} onChange={setOnline} />}
         </div>
         {profile && (
           <p className="small subtle">
@@ -419,9 +389,6 @@ export function ProHomePage() {
             <Stars average={profile.ratingAverage} count={profile.ratingCount} />
           </p>
         )}
-        <span className="visually-hidden" role="status">
-          {announce}
-        </span>
       </header>
       <ResourceState state={state} reload={reload}>
         {({ profile: current }) =>
