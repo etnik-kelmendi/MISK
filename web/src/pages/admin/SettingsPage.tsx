@@ -18,9 +18,14 @@ const EXAMPLE_TIP_CENTS = 500;
 const SLIDER_SAVE_DELAY_MS = 500;
 const INTERVALS: PayoutInterval[] = ['weekly', 'biweekly', 'monthly'];
 
-type Patch = Partial<Pick<PlatformSettings, 'serviceFeeCents' | 'commissionPct' | 'payoutInterval' | 'noShowFeeCents' | 'waitingCapMinutes'>>;
+type Patch = Partial<
+  Pick<PlatformSettings, 'serviceFeeCents' | 'commissionPct' | 'payoutInterval' | 'noShowFeeCents' | 'waitingCapMinutes' | 'bookingHorizonDays'>
+>;
 /** The most waiting at a locked door the team can choose to pay (D94). */
 const MAX_WAITING_MINUTES = 120;
+/** How far ahead customers may book, in days, as the API allows it (D101). */
+const MIN_HORIZON_DAYS = 7;
+const MAX_HORIZON_DAYS = 180;
 
 /** One setting: what it is and what it does on the left, its control on the right. */
 function SettingRow({
@@ -116,54 +121,75 @@ function FeeInput({
   );
 }
 
-/** How many minutes of waiting at a locked door are paid at most (D94). */
-function WaitingCapInput({ minutes, onSave }: { minutes: number; onSave: (minutes: number) => void }) {
-  const { t } = useTranslation();
+/** A whole number setting, saved when the field is left: minutes of paid waiting, days customers can book ahead. */
+function WholeNumberInput({
+  id,
+  label,
+  hint,
+  invalidText,
+  unit,
+  min,
+  max,
+  value,
+  onSave,
+}: {
+  id: string;
+  label: string;
+  hint: string;
+  /** Says which numbers are allowed, under the field. */
+  invalidText: string;
+  unit: string;
+  min: number;
+  max: number;
+  value: number;
+  onSave: (value: number) => void;
+}) {
   const errorId = useId();
-  const [text, setText] = useState(String(minutes));
+  const [text, setText] = useState(String(value));
   const [invalid, setInvalid] = useState(false);
 
   function commit() {
-    const value = Number(text.trim());
-    if (!/^\d{1,3}$/.test(text.trim()) || value > MAX_WAITING_MINUTES) {
+    const typed = text.trim();
+    const number = Number(typed);
+    if (!/^\d{1,3}$/.test(typed) || number < min || number > max) {
       setInvalid(true);
       return;
     }
     setInvalid(false);
-    if (value !== minutes) onSave(value);
+    if (number !== value) onSave(number);
   }
 
   return (
     <SettingRow
-      label={t('admin.settings.fees.waitingCap')}
-      labelFor="waiting-cap"
+      label={label}
+      labelFor={id}
       control={
         <>
           <span className="price-input">
             <input
-              id="waiting-cap"
+              id={id}
               inputMode="numeric"
               value={text}
               aria-invalid={invalid}
-              aria-describedby={invalid ? errorId : 'waiting-cap-hint'}
+              aria-describedby={invalid ? errorId : `${id}-hint`}
               onChange={(e) => setText(e.target.value)}
               onBlur={commit}
               onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {
                 if (e.key === 'Enter') e.currentTarget.blur();
               }}
             />
-            <span aria-hidden="true">{t('admin.settings.fees.minutesShort')}</span>
+            <span aria-hidden="true">{unit}</span>
           </span>
           {invalid && (
             <span id={errorId} className="error-text small" role="alert">
-              {t('admin.settings.fees.waitingCapInvalid', { max: MAX_WAITING_MINUTES })}
+              {invalidText}
             </span>
           )}
         </>
       }
     >
-      <p id="waiting-cap-hint" className="sd">
-        {t('admin.settings.fees.waitingCapHint')}
+      <p id={`${id}-hint`} className="sd">
+        {hint}
       </p>
     </SettingRow>
   );
@@ -300,10 +326,29 @@ function FeesForm({ settings, onSaved }: { settings: PlatformSettings; onSaved: 
         hint={t('admin.settings.fees.noShowFeeHint')}
         onSave={(noShowFeeCents) => void save({ noShowFeeCents })}
       />
-      <WaitingCapInput
+      <WholeNumberInput
         key={`waiting-${settings.waitingCapMinutes}`}
-        minutes={settings.waitingCapMinutes}
+        id="waiting-cap"
+        label={t('admin.settings.fees.waitingCap')}
+        hint={t('admin.settings.fees.waitingCapHint')}
+        invalidText={t('admin.settings.fees.waitingCapInvalid', { max: MAX_WAITING_MINUTES })}
+        unit={t('admin.settings.fees.minutesShort')}
+        min={0}
+        max={MAX_WAITING_MINUTES}
+        value={settings.waitingCapMinutes}
         onSave={(waitingCapMinutes) => void save({ waitingCapMinutes })}
+      />
+      <WholeNumberInput
+        key={`horizon-${settings.bookingHorizonDays}`}
+        id="booking-horizon"
+        label={t('admin.settings.fees.horizon')}
+        hint={t('admin.settings.fees.horizonHint')}
+        invalidText={t('admin.settings.fees.horizonInvalid', { min: MIN_HORIZON_DAYS, max: MAX_HORIZON_DAYS })}
+        unit={t('admin.settings.fees.daysShort')}
+        min={MIN_HORIZON_DAYS}
+        max={MAX_HORIZON_DAYS}
+        value={settings.bookingHorizonDays}
+        onSave={(bookingHorizonDays) => void save({ bookingHorizonDays })}
       />
 
       <SettingRow

@@ -196,7 +196,7 @@
     "start_required": "Choose the time you will start.",
     "start_not_free": "You are not free at that time any more. Choose another time.",
     "already_waiting": "You are already on the waiting list for this.",
-    "day_not_bookable": "That day cannot be booked yet.",
+    "date_out_of_range": "That day can't be booked. Choose a day from today up to the last day in the calendar.",
     "time_not_on_day": "That time is not on the day you chose.",
     "flexible_needs_time": "This flexible job has no time yet. Set the time with Change time first, then choose the pro.",
     "card_not_found": "That card is no longer saved. Choose another way to pay.",
@@ -1859,7 +1859,11 @@
         "waitingCap": "Paid waiting at a locked door, at most",
         "waitingCapHint": "When a pro can't get in, their waiting is added to the job at the job's own rate, up to this many minutes.",
         "waitingCapInvalid": "Enter whole minutes from 0 to {{max}}.",
-        "minutesShort": "min"
+        "minutesShort": "min",
+        "horizon": "How far ahead customers can book",
+        "horizonHint": "Customers can book, and join waiting lists for full times, from today up to this many days ahead. Card payments are reserved again every few days for jobs further ahead.",
+        "horizonInvalid": "Enter whole days from {{min}} to {{max}}.",
+        "daysShort": "days"
       },
       "area": {
         "mapLabel": "Map of service zones",
@@ -2065,6 +2069,7 @@
           "service_fee": "Changed the service fee from {{from}} to {{to}}",
           "commission": "Changed the commission from {{from}}% to {{to}}%",
           "payout_interval": "Changed payouts from {{from}} to {{to}}",
+          "booking_horizon": "Changed how far ahead customers can book from {{from}} to {{to}} days",
           "zone_added": "Added zone {{code}}",
           "zone_edited": "Edited zone {{code}}",
           "zone_live": "Opened zone {{code}}",
@@ -3235,7 +3240,28 @@
     "flexibleBooked": "{{day}}, {{window}} · your pro picks the time by {{by}}",
     "range": "{{from}} to {{to}}",
     "joinDayText": "We tell you as soon as a time frees up and hold it for you for 15 minutes.",
-    "heldUntil": "Held for you until {{time}}"
+    "heldUntil": "Held for you until {{time}}",
+    "myWaitlist": "My waiting list",
+    "myWaitlistText": "Tap a day to see it, or × to leave that waiting list.",
+    "wholeDay": "whole day",
+    "showDay": "Show {{when}}",
+    "leaveWaitlist": "Leave the waiting list for {{when}}",
+    "heldElsewhere": "{{when}} is free and held for you until {{time}}.",
+    "show": "Show"
+  },
+  "datePicker": {
+    "pick": "Pick a date",
+    "title": "Pick a date",
+    "close": "Close the calendar",
+    "previousMonth": "Previous month",
+    "nextMonth": "Next month",
+    "earlierWeek": "Earlier days",
+    "laterWeek": "Later days",
+    "outOfRange": "can't be booked",
+    "noPros": "no pro working",
+    "checking": "Checking which days have a pro working…",
+    "checkFailed": "We couldn't check which days have a pro working, so all days are shown.",
+    "hint": "You can book up to {{day}}. Grey days have no pro working, or can't be booked."
   },
   "review": {
     "title": "Review & pay",

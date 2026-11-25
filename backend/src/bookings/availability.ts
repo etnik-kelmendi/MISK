@@ -1,15 +1,26 @@
-import type { Queryable } from '../db.js';
-import { offThatDaySql, onlineNowSql } from '../pros/working-hours.js';
+import { onlyRow, type Queryable } from '../db.js';
+import { badRequest } from '../errors.js';
+import { blockedDateSql, offThatDaySql, onlineNowSql } from '../pros/working-hours.js';
 
 /** Local start hours of bookable slots (from the demo). */
 export const SLOT_HOURS = [8, 10, 12, 14, 16, 18];
 /** A job must end by this local hour (QUESTIONS Q9). */
 export const WORK_END_HOUR = 20;
 /**
- * Today and the next six days (D74). A card reservation lasts about seven days and the money is taken 24 h
- * after the job, so reservations for later jobs are renewed before they run out (see renewHolds).
+ * The days one availability request covers by default: one week of day buttons on Choose time (D74). The page
+ * asks for the week around the chosen date (D101), at most `MAX_WINDOW_DAYS` days at once, so a wide booking
+ * horizon never makes one request compute every day.
  */
-export const BOOKING_DAYS = 7;
+export const WINDOW_DAYS = 7;
+export const MAX_WINDOW_DAYS = 14;
+/**
+ * How many days ahead customers can book, today counting as the first (D101, replacing D74's fixed seven
+ * days). The team sets it in Settings between these limits. A card reservation lasts about seven days and the
+ * money is taken 24 h after the job, so reservations for later jobs are renewed before they run out (renewHolds).
+ */
+export const DEFAULT_BOOKING_HORIZON_DAYS = 60;
+export const MIN_BOOKING_HORIZON_DAYS = 7;
+export const MAX_BOOKING_HORIZON_DAYS = 180;
 /** A time that frees up is held this long for the customer who waited for it (D74). */
 export const SLOT_HOLD_MINUTES = 15;
 /** Customers cannot book a slot that starts sooner than this, so a pro can be found and travel. */
@@ -26,6 +37,63 @@ export interface SlotQuery {
   excludeBookingId?: string;
   /** The pro the customer picked on Home (D89): each slot then says whether that pro is free and online. */
   preferredProId?: string;
+  /** The first local day (YYYY-MM-DD) to list; today when left out. Days before today are never listed. */
+  from?: string;
+  /** How many days from `from` to list (`WINDOW_DAYS` when left out); never past the booking horizon. */
+  days?: number;
+}
+
+/** The days customers can book right now, in the market's time zone (D101). */
+export interface BookingRange {
+  /** "YYYY-MM-DD" */
+  today: string;
+  /** The last bookable day, "YYYY-MM-DD": today plus the horizon minus one. */
+  lastDay: string;
+  horizonDays: number;
+}
+
+/** Today and the last bookable day, from the booking horizon in Settings. */
+export async function bookingRange(db: Queryable, timezone: string): Promise<BookingRange> {
+  const found = await db.query<BookingRange>(
+    `SELECT to_char(local.d, 'YYYY-MM-DD') AS today,
+       to_char(local.d + (s.booking_horizon_days - 1), 'YYYY-MM-DD') AS "lastDay",
+       s.booking_horizon_days AS "horizonDays"
+     FROM settings s, (SELECT (now() AT TIME ZONE $1)::date AS d) local`,
+    [timezone],
+  );
+  return onlyRow(found);
+}
+
+/** The last day ("YYYY-MM-DD") of a month given as "YYYY-MM". */
+export function monthEnd(month: string): string {
+  const [year = 0, monthNumber = 0] = month.split('-').map(Number);
+  // Day 0 of the next month is the last day of this one.
+  return new Date(Date.UTC(year, monthNumber, 0)).toISOString().slice(0, 10);
+}
+
+/** Refuses a local day before today or after the last bookable day (400 date_out_of_range). */
+export function assertBookableDay(range: BookingRange, day: string): void {
+  // Both are "YYYY-MM-DD", so comparing the text compares the dates.
+  if (day < range.today || day > range.lastDay) {
+    throw badRequest('date_out_of_range');
+  }
+}
+
+/**
+ * SQL that keeps only pros who serve trade `cat` at postcode `pc` at all: approved, able to receive payouts,
+ * taking jobs, not suspended, doing that (approved) trade and within travel distance. The caller supplies the
+ * alias `p` for `pro_profiles`.
+ */
+function servingProFilter(cat: string, pc: string, customer: string): string {
+  return `p.status = 'approved' AND p.payouts_enabled AND p.jobs_paused_at IS NULL
+    AND p.user_id IS DISTINCT FROM ${customer}
+    AND EXISTS (SELECT 1 FROM users u WHERE u.id = p.user_id AND u.disabled_at IS NULL)
+    AND EXISTS (SELECT 1 FROM pro_trades t WHERE t.pro_id = p.user_id AND t.category_id = ${cat} AND t.approved)
+    AND EXISTS (
+      SELECT 1 FROM postcodes home, postcodes dest
+      WHERE home.code = p.home_postcode AND dest.code = ${pc}
+        AND distance_km(home.lat, home.lng, dest.lat, dest.lng) <= p.radius_km
+    )`;
 }
 
 export interface Slot {
@@ -55,15 +123,7 @@ export function eligibleProFilter(
   /** A plan visit that does not count as busy, e.g. one being moved to another day (D77). */
   ownVisit = 'NULL::uuid',
 ): string {
-  return `p.status = 'approved' AND p.payouts_enabled AND p.jobs_paused_at IS NULL
-    AND p.user_id IS DISTINCT FROM ${customer}
-    AND EXISTS (SELECT 1 FROM users u WHERE u.id = p.user_id AND u.disabled_at IS NULL)
-    AND EXISTS (SELECT 1 FROM pro_trades t WHERE t.pro_id = p.user_id AND t.category_id = ${cat} AND t.approved)
-    AND EXISTS (
-      SELECT 1 FROM postcodes home, postcodes dest
-      WHERE home.code = p.home_postcode AND dest.code = ${pc}
-        AND distance_km(home.lat, home.lng, dest.lat, dest.lng) <= p.radius_km
-    )
+  return `${servingProFilter(cat, pc, customer)}
     AND extract(isodow FROM ((${s}) AT TIME ZONE ${tz}))::smallint = ANY (p.working_days)
     AND NOT ${offThatDaySql(s, tz)}
     AND NOT EXISTS (
@@ -86,20 +146,29 @@ export function eligibleProFilter(
 }
 
 /**
- * Bookable slots for the next `BOOKING_DAYS` days. A slot is available when more pros are free than
- * there are bookings in the same trade at that time still waiting for a pro. Counting demand across the
- * whole trade, not per postcode, can hide a slot at a busy time but never promises more pros than exist.
- * With `onlyStart`, returns just that slot (or nothing when it is not a real slot).
+ * Bookable slots for `days` days from `from` (today and the next six by default), only inside the booking
+ * horizon (D101). A slot is available when more pros are free than there are bookings in the same trade at
+ * that time still waiting for a pro. Counting demand across the whole trade, not per postcode, can hide a slot
+ * at a busy time but never promises more pros than exist. With `onlyStart`, returns just that slot (or nothing
+ * when it is not a real slot or lies outside the horizon), computing only its own day.
  */
 export async function findSlots(db: Queryable, query: SlotQuery, onlyStart?: Date): Promise<Slot[]> {
+  if (onlyStart && Number.isNaN(onlyStart.getTime())) return [];
+  const from = onlyStart ? localDayHour(onlyStart, query.timezone).day : (query.from ?? null);
+  const days = onlyStart ? 1 : Math.min(Math.max(Math.trunc(query.days ?? WINDOW_DAYS), 1), MAX_WINDOW_DAYS);
   const result = await db.query<{ startsAt: Date; endsAt: Date; freePros: number; demand: number; preferredFree: boolean | null }>(
     `WITH local_today AS (SELECT (now() AT TIME ZONE $4)::date AS d),
+     bounds AS (
+       SELECT GREATEST(COALESCE($13::date, local_today.d), local_today.d) AS first_day,
+              LEAST(COALESCE($13::date, local_today.d) + ($5::int - 1), local_today.d + (s.booking_horizon_days - 1)) AS last_day
+       FROM local_today, settings s
+     ),
      slots AS (
        SELECT (day + make_interval(hours => h)) AT TIME ZONE $4 AS starts_at,
               (day + make_interval(hours => h, mins => $3)) AT TIME ZONE $4 AS ends_at,
               day + make_interval(hours => h, mins => $3) <= day + make_interval(hours => $6) AS fits
-       FROM local_today,
-            generate_series(local_today.d, local_today.d + ($5::int - 1), interval '1 day') AS day,
+       FROM bounds,
+            generate_series(bounds.first_day, bounds.last_day, interval '1 day') AS day,
             unnest($7::int[]) AS h
      )
      SELECT s.starts_at AS "startsAt", s.ends_at AS "endsAt",
@@ -127,7 +196,7 @@ export async function findSlots(db: Queryable, query: SlotQuery, onlyStart?: Dat
       query.postcode,
       query.durationMinutes,
       query.timezone,
-      BOOKING_DAYS,
+      days,
       WORK_END_HOUR,
       SLOT_HOURS,
       MIN_LEAD_MINUTES,
@@ -135,6 +204,7 @@ export async function findSlots(db: Queryable, query: SlotQuery, onlyStart?: Dat
       query.customerId ?? null,
       query.excludeBookingId ?? null,
       query.preferredProId ?? null,
+      from,
     ],
   );
   return result.rows.map(({ startsAt, endsAt, freePros, demand, preferredFree }) => ({
@@ -144,6 +214,62 @@ export async function findSlots(db: Queryable, query: SlotQuery, onlyStart?: Dat
     available: freePros > demand,
     ...(query.preferredProId ? { preferredFree: preferredFree === true } : {}),
   }));
+}
+
+/** One day of the date picker (D101): whether the trade can be booked at the postcode on that day at all. */
+export interface ServiceDay {
+  /** "YYYY-MM-DD" */
+  day: string;
+  open: boolean;
+}
+
+/**
+ * For each day from `first` to `last` that lies inside the booking horizon: whether some pro serves the trade at
+ * the postcode on that weekday and is not on holiday or a day off, and a slot still starts late enough. Busy pros
+ * count, because a full day can still be waited for. One light query for a whole month of the date picker.
+ */
+export async function serviceDays(
+  db: Queryable,
+  query: Pick<SlotQuery, 'categoryId' | 'postcode' | 'durationMinutes' | 'timezone' | 'customerId'>,
+  first: string,
+  last: string,
+): Promise<ServiceDay[]> {
+  const result = await db.query<ServiceDay>(
+    `WITH local_today AS (SELECT (now() AT TIME ZONE $3)::date AS d),
+     bounds AS (
+       SELECT GREATEST($4::date, local_today.d) AS first_day,
+              LEAST($5::date, local_today.d + (s.booking_horizon_days - 1)) AS last_day
+       FROM local_today, settings s
+     )
+     SELECT to_char(cal_day, 'YYYY-MM-DD') AS day,
+       (EXISTS (
+          SELECT 1 FROM unnest($6::int[]) AS h
+          WHERE cal_day + make_interval(hours => h, mins => $7) <= cal_day + make_interval(hours => $8)
+            AND (cal_day + make_interval(hours => h)) AT TIME ZONE $3 >= now() + make_interval(mins => $9)
+        )
+        AND EXISTS (
+          SELECT 1 FROM pro_profiles p
+          WHERE ${servingProFilter('$1', '$2', '$10::uuid')}
+            AND extract(isodow FROM cal_day)::smallint = ANY (p.working_days)
+            AND NOT ${blockedDateSql('cal_day::date')}
+        )) AS open
+     -- Named cal_day, because the day-off table has a column called day.
+     FROM bounds, generate_series(bounds.first_day, bounds.last_day, interval '1 day') AS cal_day
+     ORDER BY 1`,
+    [
+      query.categoryId,
+      query.postcode,
+      query.timezone,
+      first,
+      last,
+      SLOT_HOURS,
+      query.durationMinutes,
+      WORK_END_HOUR,
+      MIN_LEAD_MINUTES,
+      query.customerId ?? null,
+    ],
+  );
+  return result.rows;
 }
 
 /** Flexible bookings (D70): the customer gives a window on a day, and the pro picks a start in it. */

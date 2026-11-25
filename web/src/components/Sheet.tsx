@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, type ReactNode, type RefObject } from 'react';
 import { Icon } from './Icon';
 
 /**
@@ -11,6 +11,7 @@ export function Sheet({
   onClose,
   footer,
   bodyClassName,
+  initialFocus,
   children,
 }: {
   title: string;
@@ -20,18 +21,21 @@ export function Sheet({
   footer?: ReactNode;
   /** Extra classes for the scrolling body, e.g. "flush" for a chat that brings its own spacing. */
   bodyClassName?: string;
+  /** What gets the focus on opening, e.g. the chosen day of a calendar; the × button when left out. */
+  initialFocus?: RefObject<HTMLElement | null>;
   children: ReactNode;
 }) {
   const titleId = useId();
   const closeButton = useRef<HTMLButtonElement>(null);
   const close = useRef(onClose);
+  const firstFocus = useRef(initialFocus);
   useLayoutEffect(() => {
     close.current = onClose;
   }, [onClose]);
 
   useEffect(() => {
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    closeButton.current?.focus();
+    (firstFocus.current?.current ?? closeButton.current)?.focus();
     function onKey(event: KeyboardEvent) {
       if (event.key === 'Escape') close.current();
     }

@@ -198,7 +198,8 @@ describe('customers move a booking (D75)', () => {
     // Not a bookable start (09:30), and a start in the past.
     const odd = new Date(new Date(first.startsAt).getTime() + 30 * 60_000).toISOString();
     expect((await post(`/bookings/${id}/reschedule`, { startsAt: odd })).json()).toEqual({ error: 'slot_unavailable' });
-    expect((await post(`/bookings/${id}/reschedule`, { startsAt: '2020-01-01T10:00:00.000Z' })).json()).toEqual({ error: 'slot_unavailable' });
+    // A day before today is outside the booking horizon (D101).
+    expect((await post(`/bookings/${id}/reschedule`, { startsAt: '2020-01-01T10:00:00.000Z' })).json()).toEqual({ error: 'date_out_of_range' });
     expect((await post(`/bookings/${id}/reschedule`, { startsAt: 'tomorrow' })).statusCode).toBe(400);
 
     const other = await signIn(t, '+4915100000002', 'customer', 'Tom');

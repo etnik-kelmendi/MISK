@@ -1,12 +1,14 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useApi } from '../../api/ApiContext';
 import { useMarket } from '../../api/MarketContext';
-import type { HomePro, Service, Slot } from '../../api/types';
+import type { AvailabilityWindow, BookingRange, HomePro, Service, ServiceDay, Slot } from '../../api/types';
 import { useResource } from '../../api/useResource';
+import { DateBar, type DayRange } from '../../components/DatePicker';
 import { ErrorText } from '../../components/ErrorText';
 import { Icon } from '../../components/Icon';
 import { ResourceState } from '../../components/ResourceState';
+import { addDays, formatDay, weekStart } from '../../lib/calendar';
 import { dayKey, dayParts, time } from '../../lib/format';
 import { useAction } from '../../lib/useAction';
 
@@ -42,6 +44,36 @@ interface WaitEntry {
   notifiedAt: string | null;
 }
 
+/** One week of times, as GET /availability answers (D101). */
+export interface Availability {
+  slots: Slot[];
+  waitlist?: WaitEntry[];
+  held?: HeldTime[];
+  range?: BookingRange;
+  window?: AvailabilityWindow;
+}
+
+/** Days in a week of day buttons (D74). */
+export const WEEK_DAYS = 7;
+/** The booking horizon the API starts with, until its answer says otherwise (D101). */
+const DEFAULT_HORIZON_DAYS = 60;
+
+/** The days customers can book, from the API's answer or, before it, from today. */
+export function rangeOf(range: BookingRange | undefined, today: string): DayRange {
+  return range ?? { today, lastDay: addDays(today, DEFAULT_HORIZON_DAYS - 1) };
+}
+
+/** The week to ask for with a day in it: none (the API's default, from today) for the first week. */
+export function weekFor(day: string, today: string): string | null {
+  const start = weekStart(day, today);
+  return start === today ? null : start;
+}
+
+/** "&from=...&days=7" for a week other than the first, so only that week is computed (D101). */
+export function weekQuery(from: string | null): string {
+  return from ? `&from=${encodeURIComponent(from)}&days=${WEEK_DAYS}` : '';
+}
+
 /** The hour of a moment in the market's time zone. */
 function localHour(iso: string, timeZone: string): number {
   return Number(time(iso, timeZone).slice(0, 2));
@@ -62,8 +94,9 @@ export function flexibleOpen(day: string, timeZone: string, now = new Date()): b
 }
 
 /**
- * Choose time (D70): the bookable days, then a free time, the waiting list for a full time or a whole
- * day, or "I'm flexible" with a window on the day.
+ * Choose time (D70, D101): a week of days with a date picker for any day up to the booking horizon, then a free
+ * time, the waiting list for a full time or a whole day (with all the customer's entries listed), or "I'm
+ * flexible" with a window on the day.
  */
 export function ChooseTimeStep({
   services,
@@ -87,28 +120,40 @@ export function ChooseTimeStep({
   const { timezone } = useMarket();
   const ids = services.map((service) => service.id).join(',');
   const proId = picked?.id ?? null;
+  const [today] = useState(() => dayKey(new Date().toISOString(), timezone));
+  const initialDay = initial?.kind === 'flexible' ? initial.day : initial ? dayKey(initial.slot.startsAt, timezone) : null;
+  const [day, setDay] = useState<string | null>(initialDay);
+  // The first day of the week shown; null for the first week (today and the next six days).
+  const [weekFrom, setWeekFrom] = useState<string | null>(() => (initialDay ? weekFor(initialDay, today) : null));
+  const base = `serviceIds=${encodeURIComponent(ids)}&postcode=${encodeURIComponent(postcode)}`;
   const load = useCallback(
     () =>
-      api.get<{ slots: Slot[]; waitlist?: WaitEntry[]; held?: HeldTime[] }>(
-        `/availability?serviceIds=${encodeURIComponent(ids)}&postcode=${encodeURIComponent(postcode)}${proId ? `&proId=${encodeURIComponent(proId)}` : ''}`,
-      ),
-    [api, ids, postcode, proId],
+      api
+        .get<Availability>(`/availability?${base}${proId ? `&proId=${encodeURIComponent(proId)}` : ''}${weekQuery(weekFrom)}`)
+        .then((data) => ({ ...data, requested: weekFrom })),
+    [api, base, proId, weekFrom],
+  );
+  const loadMonth = useCallback(
+    (month: string) => api.get<{ days: ServiceDay[] }>(`/availability/calendar?${base}&month=${encodeURIComponent(month)}`).then((data) => data.days),
+    [api, base],
   );
   const proName = picked?.firstName ?? t('home.yourPro');
   const { state, reload, update } = useResource(load);
-  const [day, setDay] = useState<string | null>(
-    initial?.kind === 'flexible' ? initial.day : initial ? dayKey(initial.slot.startsAt, timezone) : null,
-  );
   const [slot, setSlot] = useState<Slot | null>(initial?.kind === 'slot' ? initial.slot : null);
   const [flexible, setFlexible] = useState(initial?.kind === 'flexible');
   const [window, setWindow] = useState<FlexibleWindow>(initial?.kind === 'flexible' ? initial.window : 'morning');
   const wait = useAction();
+  const summaryId = useId();
+
+  async function leave(entry: WaitEntry) {
+    const done = await wait.run(() => api.delete(`/time-waitlist/${encodeURIComponent(entry.id)}`).then(() => true));
+    if (done) update((current) => ({ ...current, waitlist: (current.waitlist ?? []).filter((e) => e.id !== entry.id) }));
+  }
 
   async function toggleWait(entries: WaitEntry[], shownDay: string, startsAt: string | null) {
     const existing = entries.find((e) => e.day === shownDay && e.startsAt === startsAt);
     if (existing) {
-      const done = await wait.run(() => api.delete(`/time-waitlist/${existing.id}`).then(() => true));
-      if (done) update((current) => ({ ...current, waitlist: (current.waitlist ?? []).filter((e) => e.id !== existing.id) }));
+      await leave(existing);
       return;
     }
     const result = await wait.run(() =>
@@ -122,6 +167,10 @@ export function ChooseTimeStep({
     if (result) update((current) => ({ ...current, waitlist: [...(current.waitlist ?? []), result.entry] }));
   }
 
+  /** "Wed 14 Jan, 08:00", or "Wed 14 Jan, whole day" for a day's waiting list entry. */
+  const entryLabel = (entry: WaitEntry) =>
+    `${formatDay(entry.day, { weekday: 'short', day: 'numeric', month: 'short' })}, ${entry.startsAt ? time(entry.startsAt, timezone) : t('time.wholeDay')}`;
+
   const label = (w: When) =>
     w.kind === 'slot'
       ? `${dayParts(w.slot.startsAt, timezone).weekday} ${dayParts(w.slot.startsAt, timezone).day} ${dayParts(w.slot.startsAt, timezone).month}, ${time(w.slot.startsAt, timezone)}`
@@ -131,14 +180,108 @@ export function ChooseTimeStep({
     <>
       <div className="body">
         <ResourceState state={state} reload={reload}>
-          {({ slots: allSlots, waitlist = [], held = [] }) => {
+          {({ slots: allSlots, waitlist = [], held = [], range: loadedRange, requested }) => {
+            const range = rangeOf(loadedRange, today);
+            // A new week is on its way: the old one's times are not shown meanwhile.
+            const pending = requested !== weekFrom;
             // With a picked pro, only the times they are free, as long as they have any (D89).
             const proSlots = picked ? allSlots.filter((s) => s.preferredFree) : [];
             const proOnly = proSlots.length > 0;
             const slots = proOnly ? proSlots : allSlots;
-            const days = [...new Set(slots.map((s) => dayKey(s.startsAt, timezone)))];
-            if (days.length === 0) return <p className="card">{t('book.noSlots')}</p>;
-            const shownDay = day && days.includes(day) ? day : (days.find((d) => slots.some((s) => s.available && dayKey(s.startsAt, timezone) === d)) ?? days[0] ?? '');
+            const days = pending ? [] : [...new Set(slots.map((s) => dayKey(s.startsAt, timezone)))];
+            const shownDay = pending
+              ? (day ?? weekFrom ?? range.today)
+              : day && days.includes(day)
+                ? day
+                : (days.find((d) => slots.some((s) => s.available && dayKey(s.startsAt, timezone) === d)) ?? days[0] ?? day ?? range.today);
+
+            function chooseDay(next: string) {
+              setDay(next);
+              setSlot(null);
+              setWeekFrom(weekFor(next, range.today));
+            }
+            const dateBar = (
+              <DateBar
+                days={days}
+                selected={shownDay}
+                range={range}
+                weekFrom={weekFrom ?? range.today}
+                pending={pending}
+                loadMonth={loadMonth}
+                onSelect={chooseDay}
+                onWeek={(from) => {
+                  setDay(null);
+                  setSlot(null);
+                  setWeekFrom(from === range.today ? null : from);
+                }}
+              />
+            );
+            const pickedNote = picked && (
+              <p className={`info ${proOnly ? '' : 'amber'}`} role="status">
+                <Icon name="heart" />
+                <span>{proOnly ? t('picked.onlyFree', { name: proName }) : t('picked.noTimes', { name: proName })}</span>
+              </p>
+            );
+            // Every day and time the customer waits for, wherever it is, each removable (D101).
+            const heldElsewhere = held.filter((h) => new Date(h.expiresAt).getTime() > Date.now() && dayKey(h.startsAt, timezone) !== shownDay);
+            const summary = (waitlist.length > 0 || heldElsewhere.length > 0) && (
+              <section className="card wl-summary" aria-labelledby={summaryId}>
+                <h3 id={summaryId} className="b small">
+                  {t('time.myWaitlist')}
+                </h3>
+                {heldElsewhere.map((h) => {
+                  const when = `${formatDay(dayKey(h.startsAt, timezone), { weekday: 'short', day: 'numeric', month: 'short' })}, ${time(h.startsAt, timezone)}`;
+                  return (
+                    <p key={h.startsAt} className="info wl-held" role="status">
+                      <Icon name="clock" />
+                      <span className="grow">{t('time.heldElsewhere', { when, time: time(h.expiresAt, timezone) })}</span>
+                      <button type="button" className="mini-btn green" aria-label={t('time.showDay', { when })} onClick={() => chooseDay(dayKey(h.startsAt, timezone))}>
+                        {t('time.show')}
+                      </button>
+                    </p>
+                  );
+                })}
+                {waitlist.length > 0 && (
+                  <>
+                    <p className="tiny muted">{t('time.myWaitlistText')}</p>
+                    <ul className="wl-chips">
+                      {[...waitlist]
+                        .sort((a, b) => a.day.localeCompare(b.day) || (a.startsAt ?? '').localeCompare(b.startsAt ?? ''))
+                        .map((entry) => {
+                          const when = entryLabel(entry);
+                          return (
+                            <li key={entry.id} className={`wl-chip ${entry.day === shownDay ? 'on' : ''}`}>
+                              <button type="button" className="wl-chip-go" aria-label={t('time.showDay', { when })} onClick={() => chooseDay(entry.day)}>
+                                {when}
+                              </button>
+                              <button
+                                type="button"
+                                className="wl-chip-x"
+                                aria-label={t('time.leaveWaitlist', { when })}
+                                disabled={wait.busy}
+                                onClick={() => void leave(entry)}
+                              >
+                                <Icon name="x" />
+                              </button>
+                            </li>
+                          );
+                        })}
+                    </ul>
+                  </>
+                )}
+              </section>
+            );
+            if (pending || days.length === 0) {
+              return (
+                <>
+                  {pickedNote}
+                  {dateBar}
+                  {!pending && <p className="card">{t('book.noSlots')}</p>}
+                  {summary}
+                  <ErrorText error={wait.error} />
+                </>
+              );
+            }
             const daySlots = slots.filter((s) => dayKey(s.startsAt, timezone) === shownDay);
             const firstOfDay = daySlots[0]?.startsAt ?? slots[0]?.startsAt ?? new Date().toISOString();
             const freeCount = daySlots.filter((s) => s.available).length;
@@ -146,20 +289,14 @@ export function ChooseTimeStep({
             const dayWaiting = onWait(null);
             const dayName = `${dayParts(firstOfDay, timezone).weekday} ${dayParts(firstOfDay, timezone).day} ${dayParts(firstOfDay, timezone).month}`;
             const canFlex = flexibleOpen(shownDay, timezone);
-            const range = WINDOWS[window];
+            const hours = WINDOWS[window];
             const windowFree = daySlots.some(
               (s) =>
                 s.available &&
-                localHour(s.startsAt, timezone) >= range.from &&
+                localHour(s.startsAt, timezone) >= hours.from &&
                 dayKey(s.endsAt, timezone) === shownDay &&
-                localMinutes(s.endsAt, timezone) <= range.to * 60,
+                localMinutes(s.endsAt, timezone) <= hours.to * 60,
             );
-            const month = new Intl.DateTimeFormat('en-GB', { timeZone: timezone, month: 'long', year: 'numeric' }).format(new Date(firstOfDay));
-
-            function chooseDay(next: string) {
-              setDay(next);
-              setSlot(null);
-            }
             // A flexible choice is complete once the window has a free pro and the deadline is still ahead.
             const current: When | null = flexible
               ? canFlex && windowFree
@@ -171,25 +308,8 @@ export function ChooseTimeStep({
 
             return (
               <>
-                {picked && (
-                  <p className={`info ${proOnly ? '' : 'amber'}`} role="status">
-                    <Icon name="heart" />
-                    <span>{proOnly ? t('picked.onlyFree', { name: proName }) : t('picked.noTimes', { name: proName })}</span>
-                  </p>
-                )}
-                <h2 className="h-sm">{month}</h2>
-                <div className="days days-fit" role="group" aria-label={t('book.day')}>
-                  {days.map((d) => {
-                    const first = slots.find((s) => dayKey(s.startsAt, timezone) === d);
-                    const parts = first ? dayParts(first.startsAt, timezone) : null;
-                    return (
-                      <button key={d} type="button" className={`day ${d === shownDay ? 'on' : ''}`} aria-pressed={d === shownDay} onClick={() => chooseDay(d)}>
-                        <span className="dn">{parts?.weekday}</span>
-                        <span className="dd">{parts?.day}</span>
-                      </button>
-                    );
-                  })}
-                </div>
+                {pickedNote}
+                {dateBar}
 
                 <div className="seg seg-full" role="group" aria-label={t('time.kind')}>
                   <button
@@ -316,6 +436,7 @@ export function ChooseTimeStep({
                     </p>
                   </>
                 )}
+                {summary}
                 <p className="info amber">
                   <Icon name="bell" />
                   <span>{t('time.reminder')}</span>

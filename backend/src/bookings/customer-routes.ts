@@ -11,10 +11,17 @@ import { enqueue } from '../notifications/outbox.js';
 import { saveFirstAddress } from '../customers/addresses.js';
 import { readSingleFile, storeUpload } from '../uploads/uploads.js';
 import {
+  assertBookableDay,
+  bookingRange,
   eligibleProFilter,
   FLEXIBLE_CONFIRM_HOUR,
   FLEXIBLE_WINDOWS,
   findSlots,
+  localDayHour,
+  MAX_WINDOW_DAYS,
+  monthEnd,
+  serviceDays,
+  WINDOW_DAYS,
   windowSlots,
   type FlexibleWindow,
   type Slot,
@@ -151,7 +158,9 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
     return found.rows[0] ?? null;
   }
 
-  app.get<{ Querystring: { serviceId?: string; serviceIds?: string; postcode: string; bookingId?: string; proId?: string } }>(
+  app.get<{
+    Querystring: { serviceId?: string; serviceIds?: string; postcode: string; bookingId?: string; proId?: string; from?: string; days?: string };
+  }>(
     '/availability',
     {
       preHandler: guards.customer,
@@ -169,6 +178,10 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
             bookingId: { type: 'string', format: 'uuid' },
             // The pro picked on Home: each time then says whether they are free (D89).
             proId: { type: 'string', format: 'uuid' },
+            // The week shown on Choose time (D101): its first local day and how many days, today and 7 by default.
+            from: { type: 'string', format: 'date' },
+            // Query strings are not converted to numbers here, so a whole number from 1 to MAX_WINDOW_DAYS (14).
+            days: { type: 'string', pattern: '^([1-9]|1[0-4])$' },
           },
         },
       },
@@ -176,6 +189,10 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
     async (request) => {
       const services = await activeServices(requestedServices(request.query));
       const postcode = await servedPostcode(request.query.postcode);
+      const range = await bookingRange(pool, ctx.config.timezone);
+      const from = request.query.from ?? range.today;
+      assertBookableDay(range, from);
+      const days = request.query.days === undefined ? WINDOW_DAYS : Math.min(Number(request.query.days), MAX_WINDOW_DAYS);
       const preferred = await preferablePro(request.query.proId, services[0].categoryId, currentUser(request).id);
       if (request.query.bookingId) {
         const own = await pool.query('SELECT 1 FROM bookings WHERE id = $1 AND customer_id = $2', [request.query.bookingId, currentUser(request).id]);
@@ -189,12 +206,60 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
         durationMinutes: packagePrice(services, 'M').durationMinutes,
         timezone: ctx.config.timezone,
         customerId: currentUser(request).id,
+        from,
+        days,
       });
-      // The times (or days) this customer waits for in this trade (D70).
+      // The times (or days) this customer waits for in this trade, on any date (D70, D101).
       const waitlist = await waitlistFor(pool, currentUser(request).id, services[0].categoryId, postcode);
       // Times held for this customer because they waited for them (D74).
       const held = await heldFor(pool, currentUser(request).id, services[0].categoryId, postcode);
-      return { timezone: ctx.config.timezone, slots, waitlist, held, preferredPro: preferred };
+      return { timezone: ctx.config.timezone, slots, waitlist, held, preferredPro: preferred, range, window: { from, days } };
+    },
+  );
+
+  // The date picker of Choose time (D101): which days of one month can be booked in this trade at the postcode.
+  app.get<{ Querystring: { serviceId?: string; serviceIds?: string; postcode: string; month: string } }>(
+    '/availability/calendar',
+    {
+      preHandler: guards.customer,
+      schema: {
+        querystring: {
+          type: 'object',
+          required: ['postcode', 'month'],
+          additionalProperties: false,
+          properties: {
+            serviceId: { type: 'string', format: 'uuid' },
+            serviceIds: { type: 'string', pattern: UUID_LIST, maxLength: 400 },
+            postcode: { type: 'string', minLength: 2, maxLength: POSTCODE_INPUT_MAX_LENGTH },
+            month: { type: 'string', pattern: '^\\d{4}-(0[1-9]|1[0-2])$' },
+          },
+        },
+      },
+    },
+    async (request) => {
+      const services = await activeServices(requestedServices(request.query));
+      const postcode = await servedPostcode(request.query.postcode);
+      const range = await bookingRange(pool, ctx.config.timezone);
+      const { month } = request.query;
+      const first = `${month}-01`;
+      const last = monthEnd(month);
+      // A month wholly before today or after the last bookable day has nothing to show.
+      if (last < range.today || first > range.lastDay) {
+        throw badRequest('date_out_of_range');
+      }
+      const days = await serviceDays(
+        pool,
+        {
+          categoryId: services[0].categoryId,
+          postcode,
+          durationMinutes: packagePrice(services, 'M').durationMinutes,
+          timezone: ctx.config.timezone,
+          customerId: currentUser(request).id,
+        },
+        first,
+        last,
+      );
+      return { range, month, days };
     },
   );
 
@@ -248,6 +313,9 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
       if (!flexible && !body.startsAt) {
         throw badRequest('time_missing');
       }
+      // Only days from today to the end of the booking horizon (D101).
+      const range = await bookingRange(pool, ctx.config.timezone);
+      assertBookableDay(range, flexible ? flexible.day : localDayHour(new Date(body.startsAt ?? ''), ctx.config.timezone).day);
       // A saved card must be one of this customer's cards; checked before anything is booked (D73).
       const choice: PaymentChoice = body.paymentMethod?.type ?? 'new_card';
       const cardId = choice === 'card' ? (body.paymentMethod?.cardId ?? null) : null;
@@ -297,7 +365,8 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
           }
           confirmBy = onlyRow(deadline).confirmBy;
           // The booking covers every start in the window until a pro picks one (D70).
-          const starts = windowSlots(await findSlots(client, query), flexible.day, flexible.window, ctx.config.timezone);
+          // Only the chosen day is computed, wherever it lies in the horizon (D101).
+          const starts = windowSlots(await findSlots(client, { ...query, from: flexible.day, days: 1 }), flexible.day, flexible.window, ctx.config.timezone);
           const first = starts[0];
           const last = starts.at(-1);
           if (!first || !last || !starts.some((s) => s.available)) {
@@ -505,6 +574,8 @@ export async function customerBookingRoutes(app: FastifyInstance, ctx: AppContex
       if (!owned.rows[0]) {
         throw notFound();
       }
+      // A booking moves only to a day inside the booking horizon (D101).
+      assertBookableDay(await bookingRange(pool, ctx.config.timezone), localDayHour(startsAt, ctx.config.timezone).day);
       const outcome = await withTransaction(pool, async (client) => {
         // The same lock as booking, so two customers cannot both take the last free pro.
         await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`book:${onlyRow(owned).category_id}`]);

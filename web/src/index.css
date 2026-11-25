@@ -1134,3 +1134,33 @@ ol.flow { list-style: none; padding: 0; margin: 12px 0 0; }
 .pro-about { padding-left: 56px; }
 .data-export .lrow { flex-wrap: wrap; }
 .data-export-note { padding: 0 14px 12px 58px; }
+
+/* ---------- Date picker and waiting list summary (D101) ---------- */
+.datebar-head { display: flex; align-items: center; gap: 6px; margin-top: 8px; min-width: 0; }
+.datebar-head .h-sm { margin: 0; }
+.iconbtn.small-icon { width: 34px; height: 34px; font-size: 15px; }
+.iconbtn:disabled { opacity: 0.4; cursor: not-allowed; }
+.datebar-head .mini-btn { white-space: nowrap; }
+.chosen-day { margin: 0; font-weight: 800; font-size: 15px; }
+.cal-head { display: flex; align-items: center; gap: 8px; margin: 4px 0 8px; }
+.cal-month { margin: 0; text-align: center; font-size: 16px; }
+.cal { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.cal th { font-size: 11.5px; font-weight: 700; color: var(--muted); padding: 4px 0; text-align: center; }
+.cal td { padding: 2px; text-align: center; }
+.cal-day { width: 100%; max-width: 46px; min-height: 40px; border-radius: 12px; background: var(--card); box-shadow: inset 0 0 0 1.5px var(--line); font-weight: 800; font-size: 14px; }
+.cal-day.today { box-shadow: inset 0 0 0 2px var(--brand-2); }
+.cal-day.on { background: var(--brand); color: #fff; box-shadow: none; }
+.cal-day[aria-disabled='true'] { background: var(--line-2); color: var(--faint); box-shadow: none; cursor: not-allowed; text-decoration: line-through; font-weight: 600; }
+.cal-day:focus-visible { outline: 3px solid var(--info); outline-offset: 1px; }
+.cal-note { margin: 10px 0 0; }
+.wl-summary { display: grid; gap: 8px; }
+.wl-summary h3 { margin: 0; }
+.wl-summary p { margin: 0; }
+.wl-chips { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.wl-chip { display: inline-flex; align-items: center; max-width: 100%; border-radius: 99px; background: var(--accent-soft); color: var(--accent-ink); box-shadow: inset 0 0 0 1.5px #e8c27a; }
+.wl-chip.on { box-shadow: inset 0 0 0 2px #b87a00; }
+.wl-chip-go { min-height: 36px; padding: 0 4px 0 12px; font-size: 13px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wl-chip-x { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; flex: none; }
+.wl-chip-go:focus-visible, .wl-chip-x:focus-visible { outline: 3px solid var(--info); outline-offset: 1px; }
+.wl-held { align-items: center; }
+.wl-held .mini-btn { flex: none; }

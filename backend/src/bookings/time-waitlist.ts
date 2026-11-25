@@ -7,7 +7,7 @@ import { badRequest, conflict, notFound } from '../errors.js';
 import { withTransaction } from '../db.js';
 import { formatSlot, formatTime, messages } from '../notifications/messages.js';
 import { enqueue } from '../notifications/outbox.js';
-import { BOOKING_DAYS, findSlots, localDayHour, SLOT_HOLD_MINUTES } from './availability.js';
+import { assertBookableDay, bookingRange, findSlots, localDayHour, SLOT_HOLD_MINUTES } from './availability.js';
 import type { BookingDeps } from './events.js';
 
 /** How many waiting entries one pass checks, so a pass stays short. */
@@ -89,14 +89,8 @@ export async function timeWaitlistRoutes(app: FastifyInstance, ctx: AppContext) 
       if (!served.rowCount) {
         throw badRequest('postcode_not_served');
       }
-      // Only days the customer could book: today and the following bookable days.
-      const inRange = await pool.query<{ ok: boolean }>(
-        `SELECT $1::date BETWEEN (now() AT TIME ZONE $2)::date AND (now() AT TIME ZONE $2)::date + ($3::int - 1) AS ok`,
-        [day, config.timezone, BOOKING_DAYS],
-      );
-      if (!inRange.rows[0]?.ok) {
-        throw badRequest('day_not_bookable');
-      }
+      // Only days the customer could book: today to the end of the booking horizon (D101).
+      assertBookableDay(await bookingRange(pool, config.timezone), day);
       const startsAt = request.body.startsAt ? new Date(request.body.startsAt) : null;
       if (startsAt && (localDayHour(startsAt, config.timezone).day !== day || startsAt.getTime() <= Date.now())) {
         throw badRequest('time_not_on_day');
@@ -168,6 +162,9 @@ export async function timeWaitlistTick(deps: BookingDeps): Promise<number> {
       durationMinutes: entry.duration,
       timezone: tz,
       customerId: entry.customer_id,
+      // Only the day waited for, however far ahead it is (D101); nothing past the booking horizon.
+      from: entry.day,
+      days: 1,
     });
     // A time already held for this customer is not held a second time.
     const already = await deps.pool.query<{ starts_at: Date }>(

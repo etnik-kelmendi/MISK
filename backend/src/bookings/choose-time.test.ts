@@ -168,7 +168,8 @@ describe('waiting list for full times (D70)', () => {
     expect((await post('/time-waitlist', { serviceIds: [market.mowing], postcode: '10115', day: dayAhead(3), startsAt: slot.startsAt })).json()).toEqual({
       error: 'time_not_on_day',
     });
-    expect((await post('/time-waitlist', { serviceIds: [market.mowing], postcode: '10115', day: dayAhead(30) })).json()).toEqual({ error: 'day_not_bookable' });
+    // Past the 60-day booking horizon (D101).
+    expect((await post('/time-waitlist', { serviceIds: [market.mowing], postcode: '10115', day: dayAhead(70) })).json()).toEqual({ error: 'date_out_of_range' });
     expect((await post('/time-waitlist', { serviceIds: [market.mowing, market.leak], postcode: '10115', day: dayAhead(2) })).json()).toEqual({
       error: 'invalid_services',
     });

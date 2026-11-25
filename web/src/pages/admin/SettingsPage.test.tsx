@@ -15,6 +15,7 @@ const settings: PlatformSettings = {
   chargeDelayHours: 24,
   noShowFeeCents: 1500,
   waitingCapMinutes: 30,
+  bookingHorizonDays: 60,
 };
 
 function adminApi() {
@@ -45,6 +46,27 @@ describe('settings: fees and payments', () => {
     await user().type(cap, '20');
     fireEvent.blur(cap);
     await waitFor(() => expect(api.bodies['PATCH /admin/settings']).toEqual({ waitingCapMinutes: 20 }));
+  });
+
+  it('saves how far ahead customers can book, from 7 to 180 days (D101)', async () => {
+    const api = adminApi();
+    api.on('PATCH /admin/settings', ({ body }) => ({ body: { settings: { ...settings, ...(body as object) } } }));
+    renderAt('/admin/settings');
+    const horizon = await screen.findByLabelText('How far ahead customers can book');
+    expect(horizon).toHaveValue('60');
+    expect(horizon).toHaveAccessibleDescription(/from today up to this many days ahead/);
+    for (const wrong of ['6', '181', 'soon']) {
+      await user().clear(horizon);
+      await user().type(horizon, wrong);
+      fireEvent.blur(horizon);
+      expect(await screen.findByText('Enter whole days from 7 to 180.')).toBeInTheDocument();
+    }
+    expect(api.calls).not.toContain('PATCH /admin/settings');
+    await user().clear(horizon);
+    await user().type(horizon, '90{Enter}');
+    await waitFor(() => expect(api.bodies['PATCH /admin/settings']).toEqual({ bookingHorizonDays: 90 }));
+    expect(await screen.findByDisplayValue('90')).toBeInTheDocument();
+    expect(screen.queryByText('Enter whole days from 7 to 180.')).not.toBeInTheDocument();
   });
 
   it('saves the service fee when the field is left and says all changes are saved', async () => {

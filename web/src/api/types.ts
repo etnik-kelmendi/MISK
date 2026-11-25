@@ -76,6 +76,25 @@ export interface Slot {
   preferredFree?: boolean;
 }
 
+/** The days customers can book (D101): today to today plus the booking horizon minus one, "YYYY-MM-DD". */
+export interface BookingRange {
+  today: string;
+  lastDay: string;
+  horizonDays: number;
+}
+
+/** The week of days an availability answer covers (D101). */
+export interface AvailabilityWindow {
+  from: string;
+  days: number;
+}
+
+/** A day of the date picker: whether a pro works in the trade at the postcode that day (D101). */
+export interface ServiceDay {
+  day: string;
+  open: boolean;
+}
+
 /** A saved address of the customer (D89). */
 export interface SavedAddress {
   id: string;
@@ -1273,6 +1292,8 @@ export interface PlatformSettings {
   /** What a customer who is not home pays the pro, and the most waiting at a door paid (D94). */
   noShowFeeCents: number;
   waitingCapMinutes: number;
+  /** How many days ahead customers can book, today included (D101). */
+  bookingHorizonDays: number;
 }
 
 export interface Zone {

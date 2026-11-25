@@ -3,32 +3,45 @@ import { useTranslation } from 'react-i18next';
 import { Link, useNavigate, useParams } from 'react-router';
 import { useApi } from '../../api/ApiContext';
 import { useMarket } from '../../api/MarketContext';
-import type { CustomerBooking, Slot } from '../../api/types';
+import type { CustomerBooking, ServiceDay, Slot } from '../../api/types';
 import { useResource } from '../../api/useResource';
+import { DateBar } from '../../components/DatePicker';
 import { ErrorText } from '../../components/ErrorText';
 import { Icon } from '../../components/Icon';
 import { ResourceState } from '../../components/ResourceState';
 import { dateTime, dayKey, dayName, dayParts, time } from '../../lib/format';
 import { useAction } from '../../lib/useAction';
 import { AppHeader } from '../../shells/Shells';
+import { rangeOf, weekFor, weekQuery, type Availability } from './ChooseTimeStep';
 
-/** The picker: the bookable days and free times for this booking's services, without the waiting list or flexible times. */
+/**
+ * The picker: a week of days with the date picker for any day up to the booking horizon (D101), and the free
+ * times for this booking's services, without the waiting list or flexible times.
+ */
 function TimePicker({ booking }: { booking: CustomerBooking }) {
   const { t } = useTranslation();
   const api = useApi();
   const navigate = useNavigate();
   const { timezone } = useMarket();
   const ids = booking.services.map((service) => service.id).join(',');
+  const [today] = useState(() => dayKey(new Date().toISOString(), timezone));
+  const [day, setDay] = useState<string | null>(null);
+  // The first day of the week shown; null for the first week (today and the next six days).
+  const [weekFrom, setWeekFrom] = useState<string | null>(null);
+  const base = `serviceIds=${encodeURIComponent(ids)}&postcode=${encodeURIComponent(booking.postcode)}`;
   const load = useCallback(
     // The booking being moved does not count against its new time (D75).
     () =>
-      api.get<{ slots: Slot[] }>(
-        `/availability?serviceIds=${encodeURIComponent(ids)}&postcode=${encodeURIComponent(booking.postcode)}&bookingId=${encodeURIComponent(booking.id)}`,
-      ),
-    [api, ids, booking.postcode, booking.id],
+      api
+        .get<Availability>(`/availability?${base}&bookingId=${encodeURIComponent(booking.id)}${weekQuery(weekFrom)}`)
+        .then((data) => ({ ...data, requested: weekFrom })),
+    [api, base, booking.id, weekFrom],
+  );
+  const loadMonth = useCallback(
+    (month: string) => api.get<{ days: ServiceDay[] }>(`/availability/calendar?${base}&month=${encodeURIComponent(month)}`).then((data) => data.days),
+    [api, base],
   );
   const { state, reload } = useResource(load);
-  const [day, setDay] = useState<string | null>(null);
   const [slot, setSlot] = useState<Slot | null>(null);
   const move = useAction();
   const whenLabel = (iso: string) => {
@@ -46,43 +59,51 @@ function TimePicker({ booking }: { booking: CustomerBooking }) {
 
   return (
     <ResourceState state={state} reload={reload}>
-      {({ slots }) => {
-        const days = [...new Set(slots.map((s) => dayKey(s.startsAt, timezone)))];
-        if (days.length === 0) return <p className="card">{t('book.noSlots')}</p>;
+      {({ slots, range: loadedRange, requested }) => {
+        const range = rangeOf(loadedRange, today);
+        const pending = requested !== weekFrom;
+        const days = pending ? [] : [...new Set(slots.map((s) => dayKey(s.startsAt, timezone)))];
         const isCurrent = (s: Slot) => new Date(s.startsAt).getTime() === new Date(booking.startsAt).getTime();
         const choosable = (s: Slot) => s.available && !isCurrent(s);
-        const shownDay =
-          day && days.includes(day)
+        const shownDay = pending
+          ? (day ?? weekFrom ?? range.today)
+          : day && days.includes(day)
             ? day
-            : (days.find((d) => slots.some((s) => choosable(s) && dayKey(s.startsAt, timezone) === d)) ?? days[0] ?? '');
+            : (days.find((d) => slots.some((s) => choosable(s) && dayKey(s.startsAt, timezone) === d)) ?? days[0] ?? day ?? range.today);
         const daySlots = slots.filter((s) => dayKey(s.startsAt, timezone) === shownDay);
-        const firstOfDay = daySlots[0]?.startsAt ?? new Date().toISOString();
-        const month = new Intl.DateTimeFormat('en-GB', { timeZone: timezone, month: 'long', year: 'numeric' }).format(new Date(firstOfDay));
         const chosen = slot && dayKey(slot.startsAt, timezone) === shownDay ? slot : null;
+        const dateBar = (
+          <DateBar
+            days={days}
+            selected={shownDay}
+            range={range}
+            weekFrom={weekFrom ?? range.today}
+            pending={pending}
+            loadMonth={loadMonth}
+            onSelect={(next) => {
+              setDay(next);
+              setSlot(null);
+              setWeekFrom(weekFor(next, range.today));
+            }}
+            onWeek={(from) => {
+              setDay(null);
+              setSlot(null);
+              setWeekFrom(from === range.today ? null : from);
+            }}
+          />
+        );
+        if (pending) return dateBar;
+        if (days.length === 0) {
+          return (
+            <>
+              {dateBar}
+              <p className="card">{t('book.noSlots')}</p>
+            </>
+          );
+        }
         return (
           <>
-            <h2 className="h-sm">{month}</h2>
-            <div className="days days-fit" role="group" aria-label={t('book.day')}>
-              {days.map((d) => {
-                const first = slots.find((s) => dayKey(s.startsAt, timezone) === d);
-                const parts = first ? dayParts(first.startsAt, timezone) : null;
-                return (
-                  <button
-                    key={d}
-                    type="button"
-                    className={`day ${d === shownDay ? 'on' : ''}`}
-                    aria-pressed={d === shownDay}
-                    onClick={() => {
-                      setDay(d);
-                      setSlot(null);
-                    }}
-                  >
-                    <span className="dn">{parts?.weekday}</span>
-                    <span className="dd">{parts?.day}</span>
-                  </button>
-                );
-              })}
-            </div>
+            {dateBar}
             <h2 className="h-sm">{t('book.times')}</h2>
             <div className="slots">
               {daySlots.map((s) =>

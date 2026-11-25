@@ -396,6 +396,7 @@ const KNOWN_ACTIONS = [
   'service_fee',
   'commission',
   'payout_interval',
+  'booking_horizon',
   'zone_added',
   'zone_edited',
   'zone_live',

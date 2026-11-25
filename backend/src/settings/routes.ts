@@ -3,6 +3,7 @@ import { ADMIN_ROLES, ACCESS, type AdminRole } from '../auth/access.js';
 import { normalizeEmail } from '../auth/admin-accounts.js';
 import { currentUser } from '../auth/guard.js';
 import { recordAttempt } from '../auth/sessions.js';
+import { MAX_BOOKING_HORIZON_DAYS, MIN_BOOKING_HORIZON_DAYS } from '../bookings/availability.js';
 import { FREE_CANCEL_HOURS, CHARGE_DELAY_HOURS } from '../bookings/lifecycle.js';
 import { isValidPostcode, normalizePostcode, POSTCODE_INPUT_MAX_LENGTH } from '../catalogue/routes.js';
 import type { AppContext } from '../context.js';
@@ -69,9 +70,11 @@ export async function settingsRoutes(app: FastifyInstance, ctx: AppContext) {
       payoutInterval: PayoutInterval;
       noShowFeeCents: number;
       waitingCapMinutes: number;
+      bookingHorizonDays: number;
     }>(
       `SELECT service_fee_cents AS "serviceFeeCents", pro_share_pct AS "proSharePct", payout_interval AS "payoutInterval",
-         no_show_fee_cents AS "noShowFeeCents", waiting_cap_minutes AS "waitingCapMinutes"
+         no_show_fee_cents AS "noShowFeeCents", waiting_cap_minutes AS "waitingCapMinutes",
+         booking_horizon_days AS "bookingHorizonDays"
        FROM settings`,
     );
     const s = onlyRow(found);
@@ -87,7 +90,14 @@ export async function settingsRoutes(app: FastifyInstance, ctx: AppContext) {
   app.get('/admin/settings', { preHandler: guards.admin }, async () => ({ settings: await loadSettings() }));
 
   app.patch<{
-    Body: { serviceFeeCents?: number; commissionPct?: number; payoutInterval?: PayoutInterval; noShowFeeCents?: number; waitingCapMinutes?: number };
+    Body: {
+      serviceFeeCents?: number;
+      commissionPct?: number;
+      payoutInterval?: PayoutInterval;
+      noShowFeeCents?: number;
+      waitingCapMinutes?: number;
+      bookingHorizonDays?: number;
+    };
   }>(
     '/admin/settings',
     {
@@ -104,33 +114,46 @@ export async function settingsRoutes(app: FastifyInstance, ctx: AppContext) {
             // The call-out fee a customer who is not home pays the pro, and the most waiting at a door paid (D94).
             noShowFeeCents: { type: 'integer', minimum: 0, maximum: 10_000 },
             waitingCapMinutes: { type: 'integer', minimum: 0, maximum: 120 },
+            // How many days ahead customers can book and join waiting lists, today included (D101).
+            bookingHorizonDays: { type: 'integer', minimum: MIN_BOOKING_HORIZON_DAYS, maximum: MAX_BOOKING_HORIZON_DAYS },
           },
         },
       },
     },
     // Fee and commission are copied onto each booking when it is made, so changes only affect new bookings.
     async (request) => {
-      const { serviceFeeCents, commissionPct, payoutInterval, noShowFeeCents, waitingCapMinutes } = request.body;
+      const { serviceFeeCents, commissionPct, payoutInterval, noShowFeeCents, waitingCapMinutes, bookingHorizonDays } = request.body;
       const adminId = currentUser(request).id;
       await withTransaction(pool, async (client) => {
         const before = onlyRow(
-          await client.query<{ fee: number; share: number; interval: PayoutInterval; noShowFee: number; waitingCap: number }>(
+          await client.query<{ fee: number; share: number; interval: PayoutInterval; noShowFee: number; waitingCap: number; horizon: number }>(
             `SELECT service_fee_cents AS fee, pro_share_pct AS share, payout_interval AS interval,
-               no_show_fee_cents AS "noShowFee", waiting_cap_minutes AS "waitingCap" FROM settings FOR UPDATE`,
+               no_show_fee_cents AS "noShowFee", waiting_cap_minutes AS "waitingCap", booking_horizon_days AS horizon
+             FROM settings FOR UPDATE`,
           ),
         );
         await client.query(
           `UPDATE settings SET service_fee_cents = COALESCE($1, service_fee_cents),
              pro_share_pct = COALESCE($2, pro_share_pct), payout_interval = COALESCE($3, payout_interval),
-             no_show_fee_cents = COALESCE($4, no_show_fee_cents), waiting_cap_minutes = COALESCE($5, waiting_cap_minutes), updated_at = now()`,
+             no_show_fee_cents = COALESCE($4, no_show_fee_cents), waiting_cap_minutes = COALESCE($5, waiting_cap_minutes),
+             booking_horizon_days = COALESCE($6, booking_horizon_days), updated_at = now()`,
           [
             serviceFeeCents ?? null,
             commissionPct === undefined ? null : 100 - commissionPct,
             payoutInterval ?? null,
             noShowFeeCents ?? null,
             waitingCapMinutes ?? null,
+            bookingHorizonDays ?? null,
           ],
         );
+        if (bookingHorizonDays !== undefined && bookingHorizonDays !== before.horizon) {
+          await logActivity(client, {
+            adminId,
+            area: 'fees',
+            action: 'booking_horizon',
+            details: { from: before.horizon, to: bookingHorizonDays },
+          });
+        }
         if (noShowFeeCents !== undefined && noShowFeeCents !== before.noShowFee) {
           await logActivity(client, { adminId, area: 'fees', action: 'no_show_fee', details: { from: before.noShowFee, to: noShowFeeCents } });
         }
@@ -157,7 +180,16 @@ export async function settingsRoutes(app: FastifyInstance, ctx: AppContext) {
           await logActivity(client, { adminId, area: 'fees', action: 'payout_interval', details: { from: before.interval, to: payoutInterval } });
         }
       });
-      request.log.info({ event: 'settings_changed', by: adminId, serviceFeeCents, commissionPct, payoutInterval, noShowFeeCents, waitingCapMinutes });
+      request.log.info({
+        event: 'settings_changed',
+        by: adminId,
+        serviceFeeCents,
+        commissionPct,
+        payoutInterval,
+        noShowFeeCents,
+        waitingCapMinutes,
+        bookingHorizonDays,
+      });
       return { settings: await loadSettings() };
     },
   );
