@@ -14,7 +14,15 @@ const RATES: RateKey[] = ['acceptance', 'onTime', 'completion'];
 function Bar({ label, value, max, low, text }: { label: string; value: number; max: number; low: boolean; text: string }) {
   const width = Math.max(0, Math.min(100, (value / max) * 100));
   return (
-    <span className="meter perf-meter" role="meter" aria-label={label} aria-valuemin={0} aria-valuemax={max} aria-valuenow={value} aria-valuetext={text}>
+    <span
+      className="meter perf-meter"
+      role="meter"
+      aria-label={label}
+      aria-valuemin={0}
+      aria-valuemax={max}
+      aria-valuenow={value}
+      aria-valuetext={text}
+    >
       <span className={`meter-fill ${low ? 'danger' : ''}`} style={{ width: `${width}%` }} />
     </span>
   );
@@ -107,7 +115,11 @@ export function PerformancePage() {
                     low={late.belowGoal}
                     text={t('perf.late.value', { count: late.value, limit: late.limit })}
                   />
-                  <p className={`tiny ${late.belowGoal ? 'error-strong' : 'muted'}`}>{t('perf.late.hint', { limit: late.limit })}</p>
+                  {/* The limit stands where the other cards have their goal (D105); red from one below it, as one more pauses offers (D100). */}
+                  <div className="row between tiny muted wrap gap4">
+                    <span className={late.belowGoal ? 'error-strong' : ''}>{t('perf.late.hint', { limit: late.limit })}</span>
+                    <span className={late.belowGoal ? 'error-strong' : ''}>{t('perf.late.goal', { limit: late.limit })}</span>
+                  </div>
                 </section>
                 <section className={`card perf-card ${rating.belowGoal ? 'below' : ''}`} aria-labelledby="perf-rating">
                   <div className="row between">
@@ -123,7 +135,11 @@ export function PerformancePage() {
                     value={rating.value ?? 0}
                     max={5}
                     low={rating.belowGoal}
-                    text={rating.value === null ? t('perf.noRating') : t('perf.rating.barText', { value: rating.value.toFixed(1), goal: rating.goal })}
+                    text={
+                      rating.value === null
+                        ? t('perf.noRating')
+                        : t('perf.rating.barText', { value: rating.value.toFixed(1), goal: rating.goal })
+                    }
                   />
                   <div className="row between tiny muted wrap gap4">
                     <span>{t('perf.rating.hint')}</span>

@@ -91,7 +91,10 @@ describe('the pro Profile', () => {
   });
 
   it('shows "Holiday set" while a holiday is planned, and no Verified badge before approval', async () => {
-    proApi({ status: 'pending_approval', availability: { ...availability, holidays: [{ id: 'h1', startsOn: '2026-12-20', endsOn: '2026-12-31' }] } });
+    proApi({
+      status: 'pending_approval',
+      availability: { ...availability, holidays: [{ id: 'h1', startsOn: '2026-12-20', endsOn: '2026-12-31' }] },
+    });
     renderAt('/pro/profile');
     expect(await screen.findByRole('link', { name: /Availability/ })).toHaveTextContent('Holiday set');
     expect(screen.queryByText('Verified pro')).not.toBeInTheDocument();
@@ -131,6 +134,9 @@ describe('Personal information', () => {
     expect(screen.getByText(/\+4915100000002/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Save changes' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Back' })).toHaveAttribute('href', '/pro/profile');
+    // What customers see of the pro, not the customer note about what pros see (D105).
+    expect(screen.getByText(/Customers see your first name and your photo, never your phone number or email/)).toBeInTheDocument();
+    expect(screen.queryByText('Pros only see your first name and the job address.')).not.toBeInTheDocument();
   });
 });
 
@@ -173,7 +179,17 @@ describe('Work information', () => {
 });
 
 function doc(overrides: Partial<ProDocumentView>): ProDocumentView {
-  return { kind: 'id', status: 'valid', expiresOn: '2031-05-01', expires: true, fileName: 'passport.jpg', notAccepted: false, reviewNote: null, required: true, ...overrides };
+  return {
+    kind: 'id',
+    status: 'valid',
+    expiresOn: '2031-05-01',
+    expires: true,
+    fileName: 'passport.jpg',
+    notAccepted: false,
+    reviewNote: null,
+    required: true,
+    ...overrides,
+  };
 }
 
 describe('Documents', () => {
@@ -197,16 +213,23 @@ describe('Documents', () => {
     const expiring = within(items[2] as HTMLElement).getByText('Expiring soon');
     expect(expiring).toHaveClass('badge', 'a');
     expect(items[2]).toHaveTextContent('Valid until 10 Dec 2026');
-    expect(screen.getByText('If a required document runs out, you get no new jobs until MISK has accepted the new one')).toBeInTheDocument();
+    expect(
+      screen.getByText('If a required document runs out, you get no new jobs until MISK has accepted the new one'),
+    ).toBeInTheDocument();
     expect(screen.getByText(/30 days and 7 days before/)).toBeInTheDocument();
 
     await user().click(within(items[2] as HTMLElement).getByRole('button', { name: /Upload new/ }));
     const date = within(items[2] as HTMLElement).getByLabelText('Valid until');
     await user().type(date, '2027-12-01');
-    await user().upload(within(items[2] as HTMLElement).getByLabelText(/Choose file/), new File(['x'], 'new.pdf', { type: 'application/pdf' }));
+    await user().upload(
+      within(items[2] as HTMLElement).getByLabelText(/Choose file/),
+      new File(['x'], 'new.pdf', { type: 'application/pdf' }),
+    );
     await waitFor(() => expect(api.calls).toContain('POST /pro/documents/insurance'));
     expect(await within(list).findByText('Being checked')).toBeInTheDocument();
     expect(list).toHaveTextContent('New copy valid until 1 Dec 2027 · being checked');
+    // A copy being checked can still be replaced (D105).
+    expect(within(within(list).getAllByRole('listitem')[2] as HTMLElement).getByRole('button', { name: /Upload new/ })).toBeInTheDocument();
   });
 });
 
@@ -278,8 +301,26 @@ function reviewsPage(): ReviewsPage {
       ],
     },
     reviews: [
-      { bookingId: 'b1', stars: 5, tags: [], review: 'Lawn looks perfect, very tidy.', customerName: 'Lena', createdAt: '2026-11-20T10:00:00.000Z', reply: null, repliedAt: null },
-      { bookingId: 'b2', stars: 4, tags: [], review: 'Good work.', customerName: 'Ana', createdAt: '2026-11-10T10:00:00.000Z', reply: 'Thank you!', repliedAt: '2026-11-11T10:00:00.000Z' },
+      {
+        bookingId: 'b1',
+        stars: 5,
+        tags: [],
+        review: 'Lawn looks perfect, very tidy.',
+        customerName: 'Lena',
+        createdAt: '2026-11-20T10:00:00.000Z',
+        reply: null,
+        repliedAt: null,
+      },
+      {
+        bookingId: 'b2',
+        stars: 4,
+        tags: [],
+        review: 'Good work.',
+        customerName: 'Ana',
+        createdAt: '2026-11-10T10:00:00.000Z',
+        reply: 'Thank you!',
+        repliedAt: '2026-11-11T10:00:00.000Z',
+      },
     ],
     hasMore: false,
     replyMaxLength: 500,
@@ -306,7 +347,11 @@ describe('Ratings & reviews', () => {
       ['1 star', '0'],
     ]);
     const tags = screen.getByRole('list', { name: 'Customers mention' });
-    expect(within(tags).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['On time · 184', 'Tidy work · 171']);
+    expect(
+      within(tags)
+        .getAllByRole('listitem')
+        .map((li) => li.textContent),
+    ).toEqual(['On time · 184', 'Tidy work · 171']);
 
     const reviews = within(screen.getByRole('list', { name: 'Latest reviews' })).getAllByRole('listitem');
     expect(reviews[0]).toHaveTextContent('Lena · 20 Nov 2026');
@@ -356,9 +401,24 @@ describe('Performance', () => {
     expect(within(card('On time')).getByText('84%')).toHaveClass('error-strong');
     expect(card('Completed jobs')).toHaveTextContent('Goal 98%');
     expect(card('Late cancellations')).toHaveTextContent('1 of 3');
+    expect(card('Late cancellations')).toHaveTextContent('Limit 3');
+    expect(card('Late cancellations')).not.toHaveClass('below');
     expect(card('Rating')).toHaveTextContent('Below 4.5 for 30 days leads to a quality check by the MISK team');
     expect(card('Rating')).toHaveClass('below');
     expect(within(card('On time')).getByRole('meter')).toHaveAttribute('aria-valuenow', '84');
+  });
+
+  it('shows late cancellations in red from one below the limit, with the limit next to the bar (D105)', async () => {
+    const api = proApi();
+    api.on('GET /pro/performance', {
+      body: { performance: performanceOf({ lateCancellations: { value: 2, limit: 3, belowGoal: true } }) },
+    });
+    renderAt('/pro/profile/performance');
+    const late = (await screen.findByRole('heading', { name: 'Late cancellations' })).closest('section') as HTMLElement;
+    expect(late).toHaveClass('below');
+    expect(within(late).getByText('2 of 3')).toHaveClass('error-strong');
+    expect(within(late).getByText('Limit 3')).toHaveClass('error-strong');
+    expect(within(late).getByRole('meter')).toHaveAttribute('aria-valuenow', '2');
   });
 
   it('encourages a pro who is not in the top', async () => {
@@ -377,7 +437,9 @@ describe('Notifications', () => {
       body: { topics: { job_offers: true, offer_sound: true, schedule_changes: true, payouts: true, tips_news: false } },
     });
     api.on('PATCH /pro/notifications', ({ body }) => ({
-      body: { topics: { job_offers: true, offer_sound: true, schedule_changes: true, payouts: true, tips_news: false, ...(body as object) } },
+      body: {
+        topics: { job_offers: true, offer_sound: true, schedule_changes: true, payouts: true, tips_news: false, ...(body as object) },
+      },
     }));
     renderAt('/pro/profile/notifications');
     const switches = await screen.findAllByRole('switch');
@@ -439,7 +501,10 @@ describe('Help & support', () => {
     const api = proApi();
     api.on('GET /pro/help', { body: { help: { ...helpFacts, support: { email: 'help@example.com', phone: '+493012345678' } } } });
     renderAt('/pro/profile/help');
-    expect(await screen.findByRole('link', { name: 'Chat with us' })).toHaveAttribute('href', 'mailto:help@example.com?subject=Help%20with%20MISK%20(pro)');
+    expect(await screen.findByRole('link', { name: 'Chat with us' })).toHaveAttribute(
+      'href',
+      'mailto:help@example.com?subject=Help%20with%20MISK%20(pro)',
+    );
     expect(screen.getByRole('link', { name: 'Call' })).toHaveAttribute('href', 'tel:+493012345678');
   });
 });
@@ -453,7 +518,18 @@ describe('Terms & conditions', () => {
     }));
     api.on('POST /account/data-export', () => {
       pending = true;
-      return { status: 202, body: { export: { email: 'd•••@example.com', pending: true, requestedAt: '2026-11-25T10:00:00.000Z', sentAt: null, nextAllowedAt: '2026-11-26T10:00:00.000Z' } } };
+      return {
+        status: 202,
+        body: {
+          export: {
+            email: 'd•••@example.com',
+            pending: true,
+            requestedAt: '2026-11-25T10:00:00.000Z',
+            sentAt: null,
+            nextAllowedAt: '2026-11-26T10:00:00.000Z',
+          },
+        },
+      };
     });
     renderAt('/pro/profile/terms');
     const list = await screen.findByRole('list', { name: 'Terms & conditions' });
@@ -468,7 +544,9 @@ describe('Terms & conditions', () => {
 
   it('asks for an email address first', async () => {
     const api = proApi();
-    api.on('GET /account/data-export', { body: { export: { email: null, pending: false, requestedAt: null, sentAt: null, nextAllowedAt: null } } });
+    api.on('GET /account/data-export', {
+      body: { export: { email: null, pending: false, requestedAt: null, sentAt: null, nextAllowedAt: null } },
+    });
     renderAt('/pro/profile/terms');
     expect(await screen.findByRole('link', { name: 'Add an email address' })).toHaveAttribute('href', '/pro/profile/personal');
     expect(screen.queryByRole('button', { name: 'Email me my data' })).not.toBeInTheDocument();

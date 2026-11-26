@@ -18,10 +18,17 @@ function marketToday(timezone: string): string {
 }
 
 const BADGE: Record<DocumentStatus, string> = { valid: 'g', expiring: 'a', checking: 'b', expired: 'r', missing: 'grey' };
-const ICON: Record<DocumentStatus, IconKey> = { valid: 'check', expiring: 'shield', checking: 'clock', expired: 'alert', missing: 'upload' };
+const ICON: Record<DocumentStatus, IconKey> = {
+  valid: 'check',
+  expiring: 'shield',
+  checking: 'clock',
+  expired: 'alert',
+  missing: 'upload',
+};
 
 /**
- * One document: its name, status (Valid, Expiring soon in orange, Being checked, Expired) and date, and "Upload new".
+ * One document: its name, status (Valid, Expiring soon in orange, Being checked, Expired) and date, and "Upload new"
+ * (a new copy replaces one still being checked).
  * A document that runs out asks for the date printed on the new copy first.
  */
 function DocumentCard({ doc, onUploaded }: { doc: ProDocumentView; onUploaded: () => void }) {
@@ -69,15 +76,15 @@ function DocumentCard({ doc, onUploaded }: { doc: ProDocumentView; onUploaded: (
       </span>
       <span className="doc-side">
         <span className={`badge ${BADGE[doc.status]}`}>{t(`docs.status.${doc.status}`)}</span>
-        {doc.status !== 'checking' &&
-          (doc.expires ? (
-            <button type="button" className="mini-btn" aria-expanded={open} aria-controls={`${dateId}-form`} onClick={() => setOpen(!open)}>
-              <Icon name="upload" /> {t('docs.uploadNew')}
-              <span className="visually-hidden"> {t(`apply.doc.${doc.kind}`)}</span>
-            </button>
-          ) : (
-            <FileButton label={t('docs.uploadNew')} target={t(`apply.doc.${doc.kind}`)} accept={DOCUMENT_TYPES} onFile={send} />
-          ))}
+        {/* On every document, also one being checked: a wrong file can be replaced before the team looks at it (D105). */}
+        {doc.expires ? (
+          <button type="button" className="mini-btn" aria-expanded={open} aria-controls={`${dateId}-form`} onClick={() => setOpen(!open)}>
+            <Icon name="upload" /> {t('docs.uploadNew')}
+            <span className="visually-hidden"> {t(`apply.doc.${doc.kind}`)}</span>
+          </button>
+        ) : (
+          <FileButton label={t('docs.uploadNew')} target={t(`apply.doc.${doc.kind}`)} accept={DOCUMENT_TYPES} onFile={send} />
+        )}
       </span>
       {open && doc.expires && (
         <div id={`${dateId}-form`} className="doc-upload stack tight">

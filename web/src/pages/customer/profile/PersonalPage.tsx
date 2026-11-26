@@ -37,9 +37,10 @@ export function useAccountSettings() {
 /**
  * Personal information (D92): first and last name, the phone number (changed with a texted code, D87), the
  * email address (changed with a link to the new address, D97) and the language, saved with "Save changes".
- * The pro app shows the same page under its Profile (D100), with the pro's photo on top.
+ * The pro app shows the same page under its Profile (D100), with the pro's photo on top and its own privacy note,
+ * since what customers see of a pro is not what pros see of a customer (D105).
  */
-export function PersonalPage({ back = '/profile', top }: { back?: string; top?: ReactNode } = {}) {
+export function PersonalPage({ back = '/profile', top, privacy }: { back?: string; top?: ReactNode; privacy?: string } = {}) {
   const { t } = useTranslation();
   const api = useApi();
   const user = useUser();
@@ -50,10 +51,7 @@ export function PersonalPage({ back = '/profile', top }: { back?: string; top?: 
   const [chosenLanguage, setLanguage] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const save = useAction();
-  const form = useValidation(
-    { firstName: !firstName.trim() && t('validation.firstNameMissing') },
-    { firstName: 'personal-first-name' },
-  );
+  const form = useValidation({ firstName: !firstName.trim() && t('validation.firstNameMissing') }, { firstName: 'personal-first-name' });
 
   const loaded = settings.state.status === 'ready' ? settings.state.data : null;
   // Only languages both the app and the API have; the saved one starts selected.
@@ -138,7 +136,7 @@ export function PersonalPage({ back = '/profile', top }: { back?: string; top?: 
 
         <div className="info">
           <Icon name="shield" />
-          <p>{t('personal.privacy')}</p>
+          <p>{privacy ?? t('personal.privacy')}</p>
         </div>
         <ErrorText error={save.error} />
         {saved && (

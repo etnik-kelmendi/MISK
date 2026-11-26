@@ -277,6 +277,20 @@ describe('catalogue', () => {
     expect(app.find((s: { name: string }) => s.name === 'Gardener by the hour')).toMatchObject({ isNew: true, pricing: 'hourly' });
   });
 
+  it('does not count a trade a pro added until the team has checked it (D100, D105)', async () => {
+    const admin = await signInAdmin(t);
+    const market = await seedMarket(t.pool);
+    const pro = await approvedPro(t, '+4915100000101', { trades: [market.gardening] });
+    const added = await call(t, 'PATCH', '/pro/profile', { cookie: pro.cookie, body: { trades: [market.gardening, market.plumbing] } });
+    expect(added.statusCode).toBe(200);
+    const app = (await t.app.inject({ method: 'GET', url: '/catalogue' })).json().categories;
+    const of = (slug: string, list: { slug: string; approvedPros?: number; verifiedPros?: number }[]) => list.find((c) => c.slug === slug);
+    expect(of('gardening', app)?.approvedPros).toBe(1);
+    expect(of('plumbing', app)?.approvedPros).toBe(0);
+    const panel = (await call(t, 'GET', '/admin/catalogue', { cookie: admin })).json().categories;
+    expect(of('plumbing', panel)).toMatchObject({ pros: 1, verifiedPros: 0 });
+  });
+
   it('prices an hourly booking at the rate times the job length', async () => {
     const market = await seedMarket(t.pool);
     await t.pool.query("UPDATE services SET pricing = 'hourly', price_cents = 3800, duration_minutes = 90 WHERE id = $1", [market.mowing]);

@@ -3304,6 +3304,9 @@
     "save": "Save {{name}}",
     "saved": "Saved"
   },
+  "proPersonal": {
+    "privacy": "Customers see your first name and your photo, never your phone number or email."
+  },
   "proPhoto": {
     "title": "Your photo",
     "hint": "Customers see it on their booking, in the chat and when they rate you. A clear photo of your face works best: JPEG or PNG, up to 8 MB.",
@@ -3911,7 +3914,8 @@
     "late": {
       "title": "Late cancellations",
       "value": "{{count}} of {{limit}}",
-      "hint": "{{limit}} within 30 days pause new jobs for a week."
+      "hint": "{{limit}} within 30 days pause new jobs for a week.",
+      "goal": "Limit {{limit}}"
     },
     "rating": {
       "title": "Rating",

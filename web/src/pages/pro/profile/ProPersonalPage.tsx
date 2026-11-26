@@ -46,7 +46,9 @@ export function ProPhoto() {
             type="button"
             className="mini-btn danger"
             disabled={remove.busy}
-            onClick={() => void remove.run(() => api.delete<{ profile: ProProfile }>('/pro/photo')).then((result) => result && changed(result.profile))}
+            onClick={() =>
+              void remove.run(() => api.delete<{ profile: ProProfile }>('/pro/photo')).then((result) => result && changed(result.profile))
+            }
           >
             {t('proPhoto.remove')}
           </button>
@@ -59,8 +61,10 @@ export function ProPhoto() {
 
 /**
  * Personal information in the pro app (D100): the photo, then the same name, phone number (a new one is confirmed
- * with a code sent by text message, D87), email and language as for customers, with "Save changes".
+ * with a code sent by text message, D87), email and language as for customers, with "Save changes". The note at
+ * the bottom says what customers see of the pro, not the customer note about what pros see (D105).
  */
 export function ProPersonalPage() {
-  return <PersonalPage back={PRO_PROFILE_PATHS.profile} top={<ProPhoto />} />;
+  const { t } = useTranslation();
+  return <PersonalPage back={PRO_PROFILE_PATHS.profile} top={<ProPhoto />} privacy={t('proPersonal.privacy')} />;
 }

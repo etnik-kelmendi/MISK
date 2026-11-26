@@ -149,8 +149,9 @@ export async function catalogueRoutes(app: FastifyInstance, ctx: AppContext) {
     const [categories, services, settings] = await Promise.all([
       pool.query(
         `SELECT c.id, c.slug, c.name, c.icon, c.needs_certificate AS "needsCertificate",
+           -- Only trades the team has checked (D100, D105): a pro's newly added trade does not count until approved.
            (SELECT count(*)::int FROM pro_trades t JOIN pro_profiles p ON p.user_id = t.pro_id
-            WHERE t.category_id = c.id AND p.status = 'approved') AS "approvedPros"
+            WHERE t.category_id = c.id AND t.approved AND p.status = 'approved') AS "approvedPros"
          FROM categories c WHERE c.active ORDER BY c.sort_order, c.name`,
       ),
       pool.query(`SELECT ${SERVICE_COLUMNS} FROM services s WHERE s.active ORDER BY s.sort_order, s.name`),
@@ -186,7 +187,7 @@ export async function catalogueRoutes(app: FastifyInstance, ctx: AppContext) {
            (SELECT count(*)::int FROM pro_trades t JOIN pro_profiles p ON p.user_id = t.pro_id
               WHERE t.category_id = c.id AND p.status NOT IN ('draft', 'rejected')) AS pros,
            (SELECT count(*)::int FROM pro_trades t JOIN pro_profiles p ON p.user_id = t.pro_id
-              WHERE t.category_id = c.id AND p.status = 'approved') AS "verifiedPros"
+              WHERE t.category_id = c.id AND t.approved AND p.status = 'approved') AS "verifiedPros"
          FROM categories c ORDER BY c.sort_order, c.name`,
       ),
       // Removed services stay only for the bookings made with them.
