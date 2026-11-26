@@ -694,7 +694,10 @@ input.check { width: 18px; height: 18px; accent-color: var(--brand); }
 .psec:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 .psec-body { border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
 /* A message that just arrived, at the top of the customer and pro app until opened or closed. */
-.new-message { display: flex; gap: 10px; align-items: flex-start; margin: 10px 16px 0; padding: 12px; border-radius: 14px; background: var(--brand); color: #fff; box-shadow: 0 6px 16px rgba(11, 122, 85, 0.3); animation: slidein 0.3s ease; }
+/* An overlay below the page header (its offset is set from script), so a new message never moves the page. */
+.new-message-layer { position: fixed; top: 0; left: 50%; transform: translate(-50%, 8px); width: 100%; max-width: 480px; padding: 0 16px; z-index: 40; pointer-events: none; will-change: transform; }
+.new-message-layer .new-message { pointer-events: auto; }
+.new-message { display: flex; gap: 10px; align-items: flex-start; margin: 0; padding: 12px; border-radius: 14px; background: var(--brand); color: #fff; box-shadow: 0 6px 16px rgba(11, 122, 85, 0.3); animation: slidein 0.3s ease; }
 .new-message > svg { margin-top: 3px; font-size: 18px; flex: none; }
 .new-message a { color: #fff; text-decoration: underline; }
 .new-message .muted { color: #fff; }

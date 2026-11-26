@@ -1251,6 +1251,10 @@ describe('messages', () => {
     const box = banner.closest('[role="status"]') as HTMLElement;
     expect(box).toHaveTextContent('The team gave you a job, Lawn mowing on Wed 11 Nov, 10:00.');
     expect(within(box).getByRole('link', { name: 'Open messages' })).toHaveAttribute('href', '/pro/messages');
+    // An overlay placed below the page header, not in the page flow, so the page does not move down.
+    const layer = box.parentElement as HTMLElement;
+    expect(layer).toHaveClass('new-message-layer');
+    expect(layer.style.transform).toMatch(/^translate\(-50%, \d+px\)$/);
     await user().click(within(box).getByRole('button', { name: 'Close the new message' }));
     expect(screen.queryByText('New message')).not.toBeInTheDocument();
 
