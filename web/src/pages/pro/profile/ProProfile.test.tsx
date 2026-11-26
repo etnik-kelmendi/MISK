@@ -83,8 +83,11 @@ describe('the pro Profile', () => {
       ['Notifications', '/pro/profile/notifications'],
       ['Help & support', '/pro/profile/help'],
       ['Terms', '/pro/profile/terms'],
-      ['Switch to customer app', '/'],
     ]);
+    // At the top of the page instead, before the groups (D103).
+    const switchApp = screen.getByRole('link', { name: /Switch to Customer app/ });
+    expect(switchApp).toHaveAttribute('href', '/');
+    expect(switchApp.compareDocumentPosition(screen.getByRole('list', { name: 'Work' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('shows "Holiday set" while a holiday is planned, and no Verified badge before approval', async () => {
@@ -103,8 +106,8 @@ describe('the pro Profile', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Performance' })).toBeInTheDocument();
     await user().click(screen.getByRole('link', { name: 'Back' }));
 
-    await user().click(await screen.findByRole('link', { name: 'Switch to customer app' }));
-    expect(await screen.findByRole('navigation', { name: /menu/i })).toBeInTheDocument();
+    await user().click(await screen.findByRole('link', { name: /Switch to Customer app/ }));
+    expect(await screen.findByRole('navigation', { name: 'Main menu' })).toBeInTheDocument();
     expect(screen.queryByRole('navigation', { name: 'Pro menu' })).not.toBeInTheDocument();
   });
 

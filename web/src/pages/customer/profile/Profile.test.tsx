@@ -102,11 +102,15 @@ describe('Profile', () => {
     expect(api.calls).toContain('POST /auth/logout');
   });
 
-  it('offers a pro booking for themselves the pro app instead of Become a pro, and no Notifications', async () => {
+  it('offers a pro "Switch to Pro app" at the top instead of Become a pro, keeps the Profile tab, and no Notifications', async () => {
     fakeApi(users.pro);
     renderAt('/profile');
     const misk = await screen.findByRole('list', { name: 'MISK' });
-    expect(within(misk).getByRole('link', { name: 'Pro app' })).toHaveAttribute('href', '/pro');
+    const switchApp = screen.getByRole('link', { name: /Switch to Pro app/ });
+    expect(switchApp).toHaveAttribute('href', '/pro');
+    // It comes before everything else on the page.
+    expect(switchApp.compareDocumentPosition(screen.getByRole('region', { name: 'Your profile' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(screen.getByRole('navigation', { name: 'Main menu' })).getByRole('link', { name: 'Profile' })).toHaveAttribute('href', '/profile');
     expect(within(misk).queryByRole('link', { name: /Become a pro/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Notifications' })).not.toBeInTheDocument();
   });

@@ -5,6 +5,7 @@ import { useApi } from '../../api/ApiContext';
 import type { ProAvailability, ProProfile } from '../../api/types';
 import { useResource } from '../../api/useResource';
 import { useAuth, useUser } from '../../auth/AuthContext';
+import { AppSwitch } from '../../components/AppSwitch';
 import { Icon, type IconKey } from '../../components/Icon';
 import { Avatar } from '../../components/Photos';
 import { ResourceState } from '../../components/ResourceState';
@@ -89,8 +90,8 @@ function ProfileHeader({ profile, overview }: { profile: ProProfile; overview: P
 
 /**
  * The pro's Profile (D100): photo, name, trades, stars, finished jobs and "Verified pro" at the top, then the
- * Work, Performance and App groups, each row opening its page, and Log out. "Switch to customer app" opens Home
- * in the customer app with the same account (D64).
+ * Work, Performance and App groups, each row opening its page, and Log out. "Switch to Customer app" at the top
+ * opens Home in the customer app with the same account (D64, D103).
  */
 export function ProProfilePage() {
   const { t } = useTranslation();
@@ -109,6 +110,8 @@ export function ProProfilePage() {
         <>
           <ProfileHeader profile={profile} overview={overview} />
           <div className="body">
+            {/* The customer app with the same account (D64, D103): its Profile has the button back. */}
+            <AppSwitch to="/" label={t('proProfile.switchApp')} hint={t('nav.switchHint')} />
             <h2 className="h-sm first">{t('proProfile.work')}</h2>
             <ul className="lgroup plist" aria-label={t('proProfile.work')}>
               <ProfileRow to={PRO_PROFILE_PATHS.personal} icon="user" label={t('proProfile.personal')} />
@@ -139,7 +142,11 @@ export function ProProfilePage() {
                 to={PRO_PROFILE_PATHS.ratings}
                 icon="sparkle"
                 label={t('proProfile.ratings')}
-                value={profile.ratingAverage !== null ? <span>{t('proProfile.ratingValue', { rating: profile.ratingAverage.toFixed(1) })}</span> : null}
+                value={
+                  profile.ratingAverage !== null ? (
+                    <span>{t('proProfile.ratingValue', { rating: profile.ratingAverage.toFixed(1) })}</span>
+                  ) : null
+                }
               />
               <ProfileRow
                 to={PRO_PROFILE_PATHS.performance}
@@ -154,8 +161,6 @@ export function ProProfilePage() {
               <ProfileRow to={PRO_PROFILE_PATHS.notifications} icon="bell" label={t('proProfile.notifications')} />
               <ProfileRow to={PRO_PROFILE_PATHS.help} icon="help" label={t('proProfile.help')} />
               <ProfileRow to={PRO_PROFILE_PATHS.terms} icon="shield" label={t('proProfile.terms')} />
-              {/* The customer app with the same account (D64): its last tab leads back here. */}
-              <ProfileRow to="/" icon="repeat" label={t('proProfile.switchApp')} />
             </ul>
 
             <div className="lgroup">

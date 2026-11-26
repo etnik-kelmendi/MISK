@@ -7,6 +7,7 @@ import { useResource } from '../../../api/useResource';
 import { useAuth, useUser } from '../../../auth/AuthContext';
 import { Icon, type IconKey } from '../../../components/Icon';
 import { Avatar } from '../../../components/Photos';
+import { AppSwitch } from '../../../components/AppSwitch';
 import { AppHeader } from '../../../shells/Shells';
 import { useAddresses } from '../Addresses';
 import { DeleteAccountSheet } from './DeleteAccountSheet';
@@ -73,6 +74,8 @@ export function ProfilePage() {
     <>
       <AppHeader title={t('nav.profile')} />
       <div className="body">
+        {/* The pro app with the same account (D103); the pro Profile has the button back. */}
+        {isPro && <AppSwitch to="/pro" label={t('nav.switchToPro')} hint={t('nav.switchHint')} />}
         <section className="card row profile-head" aria-label={t('profile.you')}>
           <Avatar name={name} />
           <span className="grow">
@@ -107,9 +110,7 @@ export function ProfilePage() {
             label={t('profile.favourites')}
             value={favouriteCount ? <span>{favouriteCount}</span> : null}
           />
-          {isPro ? (
-            <ProfileRow to="/pro" icon="wrench" label={t('nav.proApp')} />
-          ) : (
+          {!isPro && (
             <ProfileRow
               to={PROFILE_PATHS.becomePro}
               icon="wrench"

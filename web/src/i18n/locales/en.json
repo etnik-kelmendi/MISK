@@ -262,7 +262,9 @@
     "profile": "Profile",
     "plans": "Plans",
     "messages": "Messages",
-    "proApp": "Pro app"
+    "proApp": "Pro app",
+    "switchToPro": "Switch to Pro app",
+    "switchHint": "Same account, same sign-in"
   },
   "signIn": {
     "tagline": "Trusted help for your home and garden",
@@ -3790,7 +3792,7 @@
     "help": "Help & support",
     "terms": "Terms",
     "termsTitle": "Terms & conditions",
-    "switchApp": "Switch to customer app",
+    "switchApp": "Switch to Customer app",
     "logOut": "Log out",
     "holidaySet": "Holiday set",
     "hours": "{{from}}–{{to}}",

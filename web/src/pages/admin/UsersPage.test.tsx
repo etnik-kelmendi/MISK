@@ -286,13 +286,17 @@ describe('a pro who also books (D64)', () => {
     api.on('GET /pro/profile/overview', { body: { overview: { jobsDone: 0, documents: { expiring: 0, expired: 0, checking: 0 }, bankLast4: null, topPercent: null } } });
     api.on('GET /pro/payouts', { body: { payouts: { sharePct: 82, interval: 'weekly', nextPayoutOn: '2026-11-20', bankLast4: '3000' } } });
     renderAt('/pro/profile');
-    const book = await screen.findByRole('link', { name: /Switch to customer app/ });
+    const book = await screen.findByRole('link', { name: /Switch to Customer app/ });
     expect(book).toHaveAttribute('href', '/');
     await user().click(book);
     const menu = await screen.findByRole('navigation', { name: 'Main menu' });
-    expect(within(menu).getByRole('link', { name: 'Pro app' })).toHaveAttribute('href', '/pro');
     expect(within(menu).queryByRole('link', { name: 'Account' })).not.toBeInTheDocument();
-    // Four buttons, as for every customer (D89), with the pro app in Profile's place.
-    expect(within(menu).getAllByRole('link').map((link) => link.textContent)).toEqual(['Home', 'Bookings', 'Plans', 'Pro app']);
+    // Four buttons, as for every customer (D89): Profile stays for a pro too, with the pro app switch at its top (D103).
+    expect(within(menu).getAllByRole('link').map((link) => link.textContent)).toEqual(['Home', 'Bookings', 'Plans', 'Profile']);
+    await user().click(within(menu).getByRole('link', { name: 'Profile' }));
+    const back = await screen.findByRole('link', { name: /Switch to Pro app/ });
+    expect(back).toHaveAttribute('href', '/pro');
+    await user().click(back);
+    expect(await screen.findByRole('navigation', { name: 'Pro menu' })).toBeInTheDocument();
   });
 });
