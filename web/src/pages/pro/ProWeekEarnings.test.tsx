@@ -2,6 +2,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { EarningItem, EarningsPage, EarningsSummary, ProAvailability, ProProfile, ProVisit, JobListItem } from '../../api/types';
 import { BASE, fakeApi, renderAt, users } from '../../test/harness';
+import { nextSevenDays } from './ProWeekPage';
 
 /** D99: the pro Week, Availability and Earnings pages. */
 
@@ -9,7 +10,8 @@ const user = () => userEvent.setup();
 const DAY = 24 * 3600 * 1000;
 const TZ = 'Europe/Berlin';
 /** The market's calendar day of an instant, "YYYY-MM-DD". */
-const dayKeyOf = (at: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(at);
+const dayKeyOf = (at: Date) =>
+  new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(at);
 const dayNameOf = (at: Date) => {
   const part = (options: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat('en-GB', { timeZone: TZ, ...options }).format(at);
   return `${part({ weekday: 'short' })} ${part({ day: 'numeric' })} ${part({ month: 'short' })}`;
@@ -97,6 +99,7 @@ describe('My week (D99)', () => {
     api.on('GET /pro/visits', { body: { visits: [visitAt('v1', now, 3500), visitAt('v2', new Date(now.getTime() + 2 * DAY), 3500)] } });
     api.on('GET /pro/plans', { body: { plans: [] } });
     api.on('GET /pro/earnings/summary', { body: { summary } });
+    api.on('GET /pro/availability', { body: { availability: current.availability } });
     api.on('PUT /pro/online', { body: { online: false, availability: { ...availability, onlineNow: false } } });
     return { api, now };
   }
@@ -119,7 +122,8 @@ describe('My week (D99)', () => {
     const today = screen.getByRole('button', { name: 'Today, €82.97' });
     expect(today).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getAllByRole('button', { pressed: false }).filter((b) => b.classList.contains('bcol'))).toHaveLength(6);
-    expect(screen.getByRole('heading', { name: 'Today · 2 jobs' })).toBeInTheDocument();
+    // The heading names the date, also for today.
+    expect(screen.getByRole('heading', { name: `Today, ${dayNameOf(now)} · 2 jobs` })).toBeInTheDocument();
     const oneOff = screen.getByRole('link', { name: /Hedge trimming/ });
     expect(oneOff).toHaveClass('one');
     expect(within(oneOff).getByText('One-off')).toBeInTheDocument();
@@ -168,11 +172,29 @@ describe('My week (D99)', () => {
     await user().click(await screen.findByRole('button', { name: `${dayNameOf(off)}, €0` }));
     const heading = screen.getByRole('heading', { name: new RegExp(`^${dayNameOf(off)} · 0 jobs`) });
     expect(within(heading).getByText('Day off')).toBeInTheDocument();
+
+    // The Availability page opened from the card goes back to My week.
+    await user().click(card);
+    const back = await screen.findByRole('link', { name: 'Back' });
+    expect(back).toHaveAttribute('href', '/pro/week');
+  });
+
+  it('counts the 7 days on the calendar, so a clock change neither skips nor repeats a day', () => {
+    // Saturday 27 March 2027, 23:30 in Berlin; the clocks go forward that night.
+    const keys = nextSevenDays(new Date('2027-03-27T22:30:00.000Z'), TZ).map((iso) => dayKeyOf(new Date(iso)));
+    expect(keys).toEqual(['2027-03-27', '2027-03-28', '2027-03-29', '2027-03-30', '2027-03-31', '2027-04-01', '2027-04-02']);
   });
 });
 
 describe('Availability (D99)', () => {
-  const visit = { id: 'v9', startsAt: '2026-12-16T09:00:00.000Z', planName: 'Lawn care', customerName: 'Sara', address: '12 Linden Street', teamAsked: false };
+  const visit = {
+    id: 'v9',
+    startsAt: '2026-12-16T09:00:00.000Z',
+    planName: 'Lawn care',
+    customerName: 'Sara',
+    address: '12 Linden Street',
+    teamAsked: false,
+  };
 
   function availabilityApi(current: ProAvailability = availability) {
     const api = fakeApi(users.pro);
@@ -215,7 +237,9 @@ describe('Availability (D99)', () => {
     api.on('DELETE /pro/days-off/d1', { body: { availability } });
     const withVisit = { ...availability, daysOff: [{ id: 'd2', day: '2026-12-16' }], visitsOnDaysOff: [visit] };
     api.on('POST /pro/days-off', { status: 201, body: { availability: withVisit } });
-    api.on('GET /pro/visits/v9/move-days', { body: { days: [{ startsAt: '2026-12-17T09:00:00.000Z', endsAt: '2026-12-17T10:00:00.000Z' }] } });
+    api.on('GET /pro/visits/v9/move-days', {
+      body: { days: [{ startsAt: '2026-12-17T09:00:00.000Z', endsAt: '2026-12-17T10:00:00.000Z' }] },
+    });
     api.on('POST /pro/visits/v9/move', { body: { availability: { ...withVisit, visitsOnDaysOff: [] } } });
     renderAt('/pro/availability');
 
@@ -250,7 +274,9 @@ describe('Availability (D99)', () => {
     api.on('POST /pro/visits/v9/hand-over', {
       body: { outcome: 'reassigned', standInName: 'Leon', availability: { ...availability, visitsOnDaysOff: [{ ...visit, id: 'v10' }] } },
     });
-    api.on('POST /pro/visits/v10/hand-over', { body: { outcome: 'team_asked', availability: { ...availability, visitsOnDaysOff: [{ ...visit, id: 'v10', teamAsked: true }] } } });
+    api.on('POST /pro/visits/v10/hand-over', {
+      body: { outcome: 'team_asked', availability: { ...availability, visitsOnDaysOff: [{ ...visit, id: 'v10', teamAsked: true }] } },
+    });
     renderAt('/pro/availability');
 
     const jobs = await screen.findByRole('region', { name: 'You still have these jobs on your days off' });
@@ -263,6 +289,24 @@ describe('Availability (D99)', () => {
     await user().click(screen.getByRole('button', { name: 'Give to another pro' }));
     expect(await screen.findByText('No other pro is free then. The MISK team is finding someone and will tell you.')).toBeInTheDocument();
     expect(await screen.findByText('MISK is finding a stand-in')).toBeInTheDocument();
+  });
+
+  it('goes back to the Profile when not opened from My week', async () => {
+    availabilityApi();
+    renderAt('/pro/availability');
+    expect(await screen.findByRole('link', { name: 'Back' })).toHaveAttribute('href', '/pro/profile');
+  });
+
+  it('refuses a holiday whose last day is before its first day', async () => {
+    const api = availabilityApi();
+    renderAt('/pro/availability');
+    await user().click(await screen.findByRole('switch', { name: /I'm going on holiday/ }));
+    await user().type(screen.getByLabelText('First day'), '2026-12-10');
+    await user().type(screen.getByLabelText('Last day'), '2026-12-05');
+    await user().click(screen.getByRole('button', { name: 'Save holiday' }));
+    expect(screen.getByText("The last day can't be before the first day.")).toBeInTheDocument();
+    expect(screen.getByLabelText('Last day')).toHaveAttribute('aria-invalid', 'true');
+    expect(api.calls).not.toContain('POST /pro/holidays');
   });
 
   it('turns "I\'m going on holiday" on with a first and last day, and off again', async () => {
@@ -332,7 +376,13 @@ describe('Earnings (D99)', () => {
 
   it('shows Ready, Pending and Paid, the statement, each job with its breakdown and status, and past payouts', async () => {
     const api = fakeApi(users.pro);
-    const held: EarningItem = { ...oneOff, id: 'b2', title: 'Garden clean-up', status: 'on_hold', breakdown: oneOff.breakdown && { ...oneOff.breakdown, tipCents: 0 } };
+    const held: EarningItem = {
+      ...oneOff,
+      id: 'b2',
+      title: 'Garden clean-up',
+      status: 'on_hold',
+      breakdown: oneOff.breakdown && { ...oneOff.breakdown, tipCents: 0 },
+    };
     const paid: EarningItem = { ...planVisit, id: 'v2', status: 'paid' };
     api.on('GET /pro/earnings', ({ url }) => ({
       body: url.searchParams.get('offset') ? page([paid]) : page([oneOff, planVisit, held], true),
@@ -368,9 +418,11 @@ describe('Earnings (D99)', () => {
     expect(await within(list).findByText('Paid')).toBeInTheDocument();
 
     expect(
-      screen.getByText((_, element) =>
-        element?.tagName === 'P' &&
-        element.textContent === 'Pending: the customer has 24 hours to check the work. Ready: goes out in the next payout. Paid: sent to your bank',
+      screen.getByText(
+        (_, element) =>
+          element?.tagName === 'P' &&
+          element.textContent ===
+            'Pending: the customer has 24 hours to check the work. Ready: goes out in the next payout. Paid: sent to your bank',
       ),
     ).toBeInTheDocument();
     const payouts = screen.getByRole('region', { name: 'Payouts' });
@@ -389,7 +441,11 @@ describe('Earnings (D99)', () => {
     });
     renderAt('/pro/earnings');
     const filters = await screen.findByRole('group', { name: 'Show earnings' });
-    expect(within(filters).getAllByRole('button').map((b) => b.textContent)).toEqual(['All', 'Pending', 'Ready', 'Paid']);
+    expect(
+      within(filters)
+        .getAllByRole('button')
+        .map((b) => b.textContent),
+    ).toEqual(['All', 'Pending', 'Ready', 'Paid']);
     expect(within(filters).getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'true');
     await screen.findByRole('listitem', { name: 'Hedge trimming' });
 
@@ -416,7 +472,11 @@ describe('Earnings (D99)', () => {
     api.on('GET /pro/earnings', { body: page([]) });
     renderAt('/pro/earnings');
     const menu = await screen.findByRole('navigation', { name: 'Pro menu' });
-    expect(within(menu).getAllByRole('link').map((link) => link.textContent)).toEqual(['Jobs', 'Week', 'Earnings', 'Messages', 'Profile']);
+    expect(
+      within(menu)
+        .getAllByRole('link')
+        .map((link) => link.textContent),
+    ).toEqual(['Jobs', 'Week', 'Earnings', 'Messages', 'Profile']);
     expect(await screen.findByText('Nothing here right now.')).toBeInTheDocument();
   });
 });

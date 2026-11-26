@@ -1,6 +1,6 @@
 import { useCallback, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link } from 'react-router';
+import { Link, useLocation } from 'react-router';
 import { useApi } from '../../api/ApiContext';
 import { useMarket } from '../../api/MarketContext';
 import type { HandOverResult, ProAvailability, VisitOnDayOff } from '../../api/types';
@@ -30,6 +30,12 @@ function dayLabel(day: string): string {
 }
 
 type Change = (next: ProAvailability) => void;
+
+/** Where the back arrow goes: My week when the page was opened from its Availability card, else the Profile. */
+function backPath(state: unknown): string {
+  const back = (state as { back?: unknown } | null)?.back;
+  return back === '/pro/week' ? '/pro/week' : '/pro/profile';
+}
 
 /** Seven buttons, Monday to Sunday, each switching a working day on or off; saved at once (D99). */
 function WorkingDays({ availability, onChange }: { availability: ProAvailability; onChange: Change }) {
@@ -98,7 +104,9 @@ function WorkingHours({ availability, onChange }: { availability: ProAvailabilit
   async function submit(event: FormEvent) {
     event.preventDefault();
     setSaved(false);
-    const result = await hours.run(() => api.put<{ availability: ProAvailability }>('/pro/working-hours', { workStart: start, workEnd: end }));
+    const result = await hours.run(() =>
+      api.put<{ availability: ProAvailability }>('/pro/working-hours', { workStart: start, workEnd: end }),
+    );
     if (result) {
       onChange(result.availability);
       setSaved(true);
@@ -152,7 +160,15 @@ function WorkingHours({ availability, onChange }: { availability: ProAvailabilit
 }
 
 /** Single days off (D99): a list with "Remove", and "Add a day off" with a date from today on. */
-function DaysOff({ availability, onChange, onAdded }: { availability: ProAvailability; onChange: Change; onAdded: (next: ProAvailability) => void }) {
+function DaysOff({
+  availability,
+  onChange,
+  onAdded,
+}: {
+  availability: ProAvailability;
+  onChange: Change;
+  onAdded: (next: ProAvailability) => void;
+}) {
   const { t } = useTranslation();
   const api = useApi();
   const { timezone } = useMarket();
@@ -252,7 +268,15 @@ function DaysOff({ availability, onChange, onAdded }: { availability: ProAvailab
 }
 
 /** "I'm going on holiday" (D99): on, choose a first and last day; off, every coming holiday ends. */
-function Holiday({ availability, onChange, onAdded }: { availability: ProAvailability; onChange: Change; onAdded: (next: ProAvailability) => void }) {
+function Holiday({
+  availability,
+  onChange,
+  onAdded,
+}: {
+  availability: ProAvailability;
+  onChange: Change;
+  onAdded: (next: ProAvailability) => void;
+}) {
   const { t } = useTranslation();
   const api = useApi();
   const { timezone } = useMarket();
@@ -261,12 +285,16 @@ function Holiday({ availability, onChange, onAdded }: { availability: ProAvailab
   const [open, setOpen] = useState(false);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
-  const [missing, setMissing] = useState(false);
+  // Both days are needed, and the last cannot come before the first (the server refuses it too).
+  const [problem, setProblem] = useState<'missing' | 'order' | null>(null);
   const [notice, setNotice] = useState('');
   const today = dayKey(new Date().toISOString(), timezone);
   const planned = availability.holidays.length > 0;
   const on = planned || open;
-  const range = (entry: { startsOn: string; endsOn: string }) => ({ from: longDate(entry.startsOn, 'UTC'), to: longDate(entry.endsOn, 'UTC') });
+  const range = (entry: { startsOn: string; endsOn: string }) => ({
+    from: longDate(entry.startsOn, 'UTC'),
+    to: longDate(entry.endsOn, 'UTC'),
+  });
 
   async function toggle() {
     setNotice('');
@@ -285,10 +313,15 @@ function Holiday({ availability, onChange, onAdded }: { availability: ProAvailab
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!from || !to) {
-      setMissing(true);
+      setProblem('missing');
       return;
     }
-    setMissing(false);
+    // "YYYY-MM-DD" text orders like the dates.
+    if (to < from) {
+      setProblem('order');
+      return;
+    }
+    setProblem(null);
     const result = await save.run(() => api.post<{ availability: ProAvailability }>('/pro/holidays', { startsOn: from, endsOn: to }));
     if (result) {
       onAdded(result.availability);
@@ -309,7 +342,9 @@ function Holiday({ availability, onChange, onAdded }: { availability: ProAvailab
           <span className="grow">
             <span className="block">{t('availability.holidaySwitch')}</span>
             <span className="tiny muted">
-              {planned ? availability.holidays.map((entry) => t('availability.holidayRange', range(entry))).join(', ') : t('availability.holidayOff')}
+              {planned
+                ? availability.holidays.map((entry) => t('availability.holidayRange', range(entry))).join(', ')
+                : t('availability.holidayOff')}
             </span>
           </span>
           <span className={`toggle ${on ? 'on' : ''}`} aria-hidden="true" />
@@ -347,8 +382,8 @@ function Holiday({ availability, onChange, onAdded }: { availability: ProAvailab
                 type="date"
                 min={today}
                 value={from}
-                aria-invalid={missing && !from}
-                aria-describedby={missing ? 'holiday-missing-error' : undefined}
+                aria-invalid={problem === 'missing' && !from}
+                aria-describedby={problem ? 'holiday-problem-error' : undefined}
                 onChange={(event) => setFrom(event.target.value)}
               />
             </div>
@@ -359,13 +394,16 @@ function Holiday({ availability, onChange, onAdded }: { availability: ProAvailab
                 type="date"
                 min={from || today}
                 value={to}
-                aria-invalid={missing && !to}
-                aria-describedby={missing ? 'holiday-missing-error' : undefined}
+                aria-invalid={(problem === 'missing' && !to) || problem === 'order'}
+                aria-describedby={problem ? 'holiday-problem-error' : undefined}
                 onChange={(event) => setTo(event.target.value)}
               />
             </div>
           </div>
-          <FieldError id="holiday-missing" message={missing ? t('availability.holidayMissing') : null} />
+          <FieldError
+            id="holiday-problem"
+            message={problem === 'missing' ? t('availability.holidayMissing') : problem === 'order' ? t('availability.holidayOrder') : null}
+          />
           <ErrorText error={save.error} />
           <div>
             <button type="submit" className="mini-btn pro-btn" disabled={save.busy}>
@@ -541,6 +579,7 @@ function OnDaysOff({ availability, onChange, prompt }: { availability: ProAvaila
 export function AvailabilityPage() {
   const { t } = useTranslation();
   const api = useApi();
+  const location = useLocation();
   const load = useCallback(() => api.get<{ availability: ProAvailability }>('/pro/availability'), [api]);
   const { state, reload, update } = useResource(load);
   const [prompt, setPrompt] = useState(false);
@@ -556,7 +595,7 @@ export function AvailabilityPage() {
 
   return (
     <>
-      <AppHeader title={t('availability.title')} back="/pro/profile" />
+      <AppHeader title={t('availability.title')} back={backPath(location.state)} />
       <div className="body">
         <ResourceState state={state} reload={reload}>
           {({ availability }) => (

@@ -7,7 +7,8 @@ import type { EarningsSummary, ProAvailability, ProProfile } from '../../api/typ
 import { useResource } from '../../api/useResource';
 import { Icon } from '../../components/Icon';
 import { ResourceState } from '../../components/ResourceState';
-import { dayKey, dayName, dayParts, euro, isoWeekday, longDate, time } from '../../lib/format';
+import { addDays } from '../../lib/calendar';
+import { dayKey, dayName, dayParts, euro, isoWeekday, longDate, time, zonedToIso } from '../../lib/format';
 import { loadSchedule, type ScheduleItem } from '../../lib/proSchedule';
 import { OnlineSwitch, saveOnline } from './OnlineSwitch';
 import { ProPlansSection } from './ProVisitPage';
@@ -28,6 +29,18 @@ export function isDayOff(availability: ProAvailability | undefined, key: string,
   );
 }
 
+/**
+ * Noon of each of the 7 calendar days from `start` on, in the market time zone, as ISO text. The days are counted
+ * on the calendar, not in 24-hour steps, so a clock change never skips or repeats a day.
+ */
+export function nextSevenDays(start: Date, timezone: string): string[] {
+  const first = dayKey(start.toISOString(), timezone);
+  return Array.from({ length: 7 }, (_, i) => {
+    const key = addDays(first, i);
+    return zonedToIso(key, '12:00', timezone) ?? `${key}T12:00:00.000Z`;
+  });
+}
+
 /** "Mon, Tue, Wed" for the pro's working days, in the market's short weekday names. */
 function workingDaysText(days: number[], noDays: string): string {
   if (days.length === 0) return noDays;
@@ -46,7 +59,8 @@ function AvailabilityCard({ availability }: { availability: ProAvailability }) {
     ...(availability.daysOff.length ? [t('week.daysOff', { count: availability.daysOff.length })] : []),
   ].join(' · ');
   return (
-    <Link to="/pro/availability" className="card row link-card gap8">
+    // The back arrow of the Availability page returns here rather than to the Profile.
+    <Link to="/pro/availability" state={{ back: '/pro/week' }} className="card row link-card gap8">
       <span className="tile-icon" aria-hidden="true">
         <Icon name="clock" />
       </span>
@@ -117,7 +131,7 @@ export function ProWeekPage() {
   const api = useApi();
   const { timezone } = useMarket();
   const [start] = useState(() => new Date());
-  const days = useMemo(() => Array.from({ length: 7 }, (_, i) => new Date(start.getTime() + i * DAY_MS).toISOString()), [start]);
+  const days = useMemo(() => nextSevenDays(start, timezone), [start, timezone]);
   const [selected, setSelected] = useState(() => dayKey(start.toISOString(), timezone));
 
   const loadProfile = useCallback(() => api.get<{ profile: ProProfile }>('/pro/profile'), [api]);
@@ -191,7 +205,8 @@ export function ProWeekPage() {
             const index = Math.max(0, dayKeys.indexOf(selected));
             const shown = byDay.get(selected) ?? [];
             const selectedIso = days[index] ?? start.toISOString();
-            const dayLabel = index === 0 ? t('week.today') : dayName(selectedIso, timezone);
+            // The heading always names the date, also for today: "Today, Thu 26 Nov · 2 jobs".
+            const dayLabel = index === 0 ? t('week.todayDate', { date: dayName(selectedIso, timezone) }) : dayName(selectedIso, timezone);
             const off = isDayOff(availability, selected, isoWeekday(selectedIso, timezone));
             return (
               <>
@@ -219,7 +234,11 @@ export function ProWeekPage() {
                           <span className="tiny b" aria-hidden="true">
                             {total ? euro(total) : ''}
                           </span>
-                          <span className={`bar ${key === selected ? 'hl' : ''}`} style={{ height: `${Math.max(4, (total / max) * 70)}px` }} aria-hidden="true" />
+                          <span
+                            className={`bar ${key === selected ? 'hl' : ''}`}
+                            style={{ height: `${Math.max(4, (total / max) * 70)}px` }}
+                            aria-hidden="true"
+                          />
                           <span className="bl" aria-hidden="true">
                             {label}
                           </span>
@@ -258,4 +277,3 @@ export function ProWeekPage() {
     </>
   );
 }
-
