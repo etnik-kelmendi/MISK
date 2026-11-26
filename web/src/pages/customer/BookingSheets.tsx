@@ -61,8 +61,10 @@ export function ReportSheet({
         type === 'other' && !trimmed
           ? t('validation.problemMissing')
           : trimmed.length > 0 && trimmed.length < 3 && t('validation.noteShort', { min: 3 }),
+      // At least one photo is needed so support can see the problem; a resend after a failed upload has sent them already.
+      photos: !reported && files.length === 0 && t('validation.problemPhotosMissing'),
     },
-    { type: `problem-type-${PROBLEM_TYPES[0]}`, note: 'problem-note' },
+    { type: `problem-type-${PROBLEM_TYPES[0]}`, note: 'problem-note', photos: 'problem-photos' },
   );
 
   function choose(event: ChangeEvent<HTMLInputElement>) {
@@ -102,7 +104,14 @@ export function ReportSheet({
       closeLabel={t('common.close')}
       onClose={onClose}
       footer={
-        <button type="submit" form="problem-form" className="cta red" disabled={busy}>
+        // aria-disabled rather than disabled while no photo is chosen, so a tap still shows why it cannot be sent.
+        <button
+          type="submit"
+          form="problem-form"
+          className="cta red"
+          disabled={busy}
+          aria-disabled={!reported && files.length === 0 ? true : undefined}
+        >
           {t('problem.send')}
         </button>
       }
@@ -174,12 +183,14 @@ export function ReportSheet({
                 className="visually-hidden"
                 onChange={choose}
                 disabled={busy}
+                {...form.describe('photos')}
               />
               <label htmlFor="problem-photos" className="mini-btn">
                 <Icon name="camera" /> {t('problem.addPhotos')}
               </label>
             </span>
           )}
+          <FieldError id="problem-photos" message={form.message('photos')} />
           {tooBig && (
             <span className="error-text" role="alert">
               {t('errors.file_too_large')}

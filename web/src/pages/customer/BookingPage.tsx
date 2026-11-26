@@ -23,6 +23,8 @@ import { AppHeader } from '../../shells/Shells';
 import { MAX_PROBLEM_PHOTOS, ReceiptSheet, ReportSheet } from './BookingSheets';
 
 const TIMELINE = ['searching', 'accepted', 'on_the_way', 'working', 'completed'] as const;
+/** Statuses the Bookings page lists under Past bookings & receipts. */
+const PAST = new Set<BookingStatus>(['completed', 'cancelled']);
 export const LIVE = new Set<BookingStatus>(['awaiting_payment', 'searching', 'accepted', 'on_the_way', 'working']);
 /** A pro who has not set off this long after the start time counts as running late. */
 const LATE_AFTER_MS = 10 * 60_000;
@@ -820,7 +822,8 @@ export function BookingPage() {
     <>
       <AppHeader
         title={state.status === 'ready' && state.data.booking.status === 'completed' ? t('booking.doneTitle') : t('booking.title')}
-        back="/bookings"
+        // A finished or cancelled booking is listed under Past, so going back returns there.
+        back={state.status === 'ready' && PAST.has(state.data.booking.status) ? '/bookings?tab=past' : '/bookings'}
       />
       <ResourceState state={state} reload={reload}>
         {({ booking }) => <BookingView booking={booking} reload={reload} onChanged={(next) => update(() => ({ booking: next }))} />}

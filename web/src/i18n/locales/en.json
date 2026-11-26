@@ -563,11 +563,11 @@
     "open": "Report a problem",
     "title": "What went wrong?",
     "note": "Tell us more",
-    "hint": "The payment is put on hold while we look into it. Support replies within 2 hours, and {{name}} gets the chance to put it right first.",
+    "hint": "The payment is put on hold while we look into it. Our support team will contact you as soon as possible, and {{name}} gets the chance to put it right first.",
     "send": "Send report",
-    "received": "within 2 hours. The payment is on hold.",
+    "received": "Our support team will contact you as soon as possible. The payment is on hold.",
     "resolved": "The MISK team has dealt with the problem you reported.",
-    "photos": "Photos (optional, up to {{max}})",
+    "photos": "Photos (at least 1, up to {{max}})",
     "addPhotos": "Add photos",
     "chosen": "Photos to send",
     "remove": "Remove",
@@ -588,7 +588,7 @@
     "notRight": "Something not right?",
     "within24h": "Report it within 24 h and the payment is put on hold.",
     "report": "Report",
-    "reportedTitle": "Problem reported. Support will contact you"
+    "reportedTitle": "Problem reported."
   },
   "rating": {
     "title": "How was {{name}}?",
@@ -3031,6 +3031,7 @@
     "daysMissing_other": "Choose {{count}} days for the visits.",
     "starsMissing": "Choose from 1 to 5 stars.",
     "problemMissing": "Tell us what went wrong.",
+    "problemPhotosMissing": "Add at least one photo of the problem to send the report.",
     "noteMissing": "Write a short note.",
     "noteShort": "Write at least {{min}} characters.",
     "tipMissing": "Enter an amount from €1 to €200.",

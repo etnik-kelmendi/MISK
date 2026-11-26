@@ -605,7 +605,14 @@ describe('my bookings', () => {
     expect(api.calls).not.toContain('POST /bookings/b-0/problem');
     await user().click(within(sheet).getByRole('radio', { name: 'Poor quality' }));
     await user().type(within(sheet).getByLabelText('Tell us more'), ' Edges not cut ');
-    await user().click(within(sheet).getByRole('button', { name: 'Send report' }));
+    const send = within(sheet).getByRole('button', { name: 'Send report' });
+    expect(send).toHaveAttribute('aria-disabled', 'true');
+    await user().click(send);
+    expect(within(sheet).getByText('Add at least one photo of the problem to send the report.')).toBeInTheDocument();
+    expect(api.calls).not.toContain('POST /bookings/b-0/problem');
+    await user().upload(within(sheet).getByLabelText('Add photos'), new File(['a'], 'edges.jpg', { type: 'image/jpeg' }));
+    expect(send).not.toHaveAttribute('aria-disabled');
+    await user().click(send);
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(api.bodies['POST /bookings/b-0/problem']).toEqual({ note: 'Poor quality: Edges not cut' });
     expect(api.calls.filter((c) => c === 'GET /bookings').length).toBeGreaterThan(1);
@@ -1089,8 +1096,9 @@ describe('a booking', () => {
     expect(api.calls).not.toContain('POST /bookings/b1/problem');
     await user().clear(within(sheet).getByLabelText('Tell us more'));
     await user().type(within(sheet).getByLabelText('Tell us more'), '  Back lawn not mowed ');
+    await user().upload(within(sheet).getByLabelText('Add photos'), new File(['a'], 'lawn.jpg', { type: 'image/jpeg' }));
     await user().click(send);
-    expect(await screen.findByText('within 2 hours. The payment is on hold.', { exact: false })).toBeInTheDocument();
+    expect(await screen.findByText('Our support team will contact you as soon as possible. The payment is on hold.', { exact: false })).toBeInTheDocument();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(api.bodies['POST /bookings/b1/problem']).toEqual({ note: 'Other: Back lawn not mowed' });
   });
@@ -1121,7 +1129,7 @@ describe('a booking', () => {
     expect(within(within(sheet).getByRole('list', { name: 'Photos to send' })).getAllByRole('listitem')).toHaveLength(2);
 
     await user().click(within(sheet).getByRole('button', { name: 'Send report' }));
-    expect(await screen.findByText('within 2 hours. The payment is on hold.', { exact: false })).toBeInTheDocument();
+    expect(await screen.findByText('Our support team will contact you as soon as possible. The payment is on hold.', { exact: false })).toBeInTheDocument();
     expect(api.calls.filter((c) => c === 'POST /bookings/b1/problem/photos')).toHaveLength(2);
     expect(screen.getByText('Something was damaged: Mud on the terrace')).toBeInTheDocument();
     const sent = screen.getByRole('list', { name: 'Your photo of the problem' });
@@ -3023,15 +3031,29 @@ describe('booking pages (D83)', () => {
     expect(within(card).getByRole('button', { name: 'Saved' })).toHaveAttribute('aria-pressed', 'true');
   });
 
-  it('says "Problem reported. Support will contact you" after a report', async () => {
+  it('goes back to Past bookings & receipts from a finished booking', async () => {
+    const api = fakeApi(users.customer);
+    api.on('GET /bookings/b1', { body: { booking: booking({ status: 'completed', canCancel: false }) } });
+    renderAt('/bookings/b1');
+    expect(await screen.findByRole('link', { name: 'Back' })).toHaveAttribute('href', '/bookings?tab=past');
+  });
+
+  it('goes back to Upcoming from a booking that is still open', async () => {
+    const api = fakeApi(users.customer);
+    api.on('GET /bookings/b1', { body: { booking: booking({ status: 'accepted' }) } });
+    renderAt('/bookings/b1');
+    expect(await screen.findByRole('link', { name: 'Back' })).toHaveAttribute('href', '/bookings');
+  });
+
+  it('says "Problem reported. Our support team will contact you as soon as possible." after a report', async () => {
     const api = fakeApi(users.customer);
     api.on('GET /bookings/b1', {
       body: { booking: booking({ status: 'completed', canCancel: false, problemReportedAt: '2026-11-06T12:00:00.000Z' }) },
     });
     renderAt('/bookings/b1');
-    const title = await screen.findByText('Problem reported. Support will contact you');
-    expect(title.closest('p')?.textContent?.startsWith('Problem reported. Support will contact you')).toBe(true);
-    expect(title.closest('p')).toHaveTextContent('Problem reported. Support will contact you within 2 hours. The payment is on hold.');
+    const title = await screen.findByText('Problem reported.');
+    expect(title.closest('p')).toHaveTextContent('Problem reported. Our support team will contact you as soon as possible. The payment is on hold.');
+    expect(title.closest('p')).not.toHaveTextContent('2 hours');
   });
 
   it('keeps the report pop-up saying the payment is put on hold', async () => {
