@@ -12,7 +12,7 @@ import { ResourceState } from '../../components/ResourceState';
 import { dateTime, dayKey, dayName, dayParts, time } from '../../lib/format';
 import { useAction } from '../../lib/useAction';
 import { AppHeader } from '../../shells/Shells';
-import { rangeOf, weekFor, weekQuery, type Availability } from './ChooseTimeStep';
+import { placeholderCount, rangeOf, SlotPlaceholders, weekFor, weekQuery, type Availability } from './ChooseTimeStep';
 
 /**
  * The picker: a week of days with the date picker for any day up to the booking horizon (D101), and the free
@@ -26,19 +26,20 @@ function TimePicker({ booking }: { booking: CustomerBooking }) {
   const ids = booking.services.map((service) => service.id).join(',');
   const [today] = useState(() => dayKey(new Date().toISOString(), timezone));
   const [day, setDay] = useState<string | null>(null);
-  // The first day of the week shown; null for the first week (today and the next six days).
-  const [weekFrom, setWeekFrom] = useState<string | null>(null);
+  // The Monday of the week shown.
+  const [week, setWeek] = useState<string>(() => weekFor(today));
   const base = `serviceIds=${encodeURIComponent(ids)}&postcode=${encodeURIComponent(booking.postcode)}`;
   const load = useCallback(
     // The booking being moved does not count against its new time (D75).
     () =>
       api
-        .get<Availability>(`/availability?${base}&bookingId=${encodeURIComponent(booking.id)}${weekQuery(weekFrom)}`)
-        .then((data) => ({ ...data, requested: weekFrom })),
-    [api, base, booking.id, weekFrom],
+        .get<Availability>(`/availability?${base}&bookingId=${encodeURIComponent(booking.id)}${weekQuery(week, today)}`)
+        .then((data) => ({ ...data, requested: week })),
+    [api, base, booking.id, week, today],
   );
   const loadMonth = useCallback(
-    (month: string) => api.get<{ days: ServiceDay[] }>(`/availability/calendar?${base}&month=${encodeURIComponent(month)}`).then((data) => data.days),
+    (month: string) =>
+      api.get<{ days: ServiceDay[] }>(`/availability/calendar?${base}&month=${encodeURIComponent(month)}`).then((data) => data.days),
     [api, base],
   );
   const { state, reload } = useResource(load);
@@ -59,73 +60,72 @@ function TimePicker({ booking }: { booking: CustomerBooking }) {
 
   return (
     <ResourceState state={state} reload={reload}>
-      {({ slots, range: loadedRange, requested }) => {
+      {({ slots: loaded, range: loadedRange, requested }) => {
         const range = rangeOf(loadedRange, today);
-        const pending = requested !== weekFrom;
-        const days = pending ? [] : [...new Set(slots.map((s) => dayKey(s.startsAt, timezone)))];
+        // A new week is on its way: the page keeps its shape, with grey boxes where its times will be.
+        const pending = requested !== week;
+        const slots = pending ? [] : loaded;
+        const days = [...new Set(slots.map((s) => dayKey(s.startsAt, timezone)))];
         const isCurrent = (s: Slot) => new Date(s.startsAt).getTime() === new Date(booking.startsAt).getTime();
         const choosable = (s: Slot) => s.available && !isCurrent(s);
-        const shownDay = pending
-          ? (day ?? weekFrom ?? range.today)
-          : day && days.includes(day)
+        const firstBookable = week < range.today ? range.today : week;
+        const shownDay =
+          day && weekFor(day) === week
             ? day
-            : (days.find((d) => slots.some((s) => choosable(s) && dayKey(s.startsAt, timezone) === d)) ?? days[0] ?? day ?? range.today);
+            : pending
+              ? firstBookable
+              : (days.find((d) => slots.some((s) => choosable(s) && dayKey(s.startsAt, timezone) === d)) ?? days[0] ?? firstBookable);
         const daySlots = slots.filter((s) => dayKey(s.startsAt, timezone) === shownDay);
         const chosen = slot && dayKey(slot.startsAt, timezone) === shownDay ? slot : null;
         const dateBar = (
           <DateBar
-            days={days}
             selected={shownDay}
             range={range}
-            weekFrom={weekFrom ?? range.today}
-            pending={pending}
+            week={week}
             loadMonth={loadMonth}
             onSelect={(next) => {
               setDay(next);
               setSlot(null);
-              setWeekFrom(weekFor(next, range.today));
+              setWeek(weekFor(next));
             }}
-            onWeek={(from) => {
+            onWeek={(monday) => {
               setDay(null);
               setSlot(null);
-              setWeekFrom(from === range.today ? null : from);
+              setWeek(monday);
             }}
           />
         );
-        if (pending) return dateBar;
-        if (days.length === 0) {
-          return (
-            <>
-              {dateBar}
-              <p className="card">{t('book.noSlots')}</p>
-            </>
-          );
-        }
         return (
           <>
             {dateBar}
             <h2 className="h-sm">{t('book.times')}</h2>
-            <div className="slots">
-              {daySlots.map((s) =>
-                choosable(s) ? (
-                  <button
-                    key={s.startsAt}
-                    type="button"
-                    className={`slot ${chosen?.startsAt === s.startsAt ? 'on' : ''}`}
-                    aria-pressed={chosen?.startsAt === s.startsAt}
-                    onClick={() => setSlot(s)}
-                  >
-                    {time(s.startsAt, timezone)}
-                    <small>{t('time.prosFree', { count: s.freePros })}</small>
-                  </button>
-                ) : (
-                  <button key={s.startsAt} type="button" className="slot off" disabled>
-                    <span className="tm">{time(s.startsAt, timezone)}</span>
-                    <small>{isCurrent(s) ? t('reschedule.current') : t('reschedule.full')}</small>
-                  </button>
-                ),
-              )}
-            </div>
+            {pending ? (
+              <SlotPlaceholders count={placeholderCount(loaded, timezone)} label={t('common.loading')} />
+            ) : daySlots.length === 0 ? (
+              <p className="card">{t('book.noSlots')}</p>
+            ) : (
+              <div className="slots">
+                {daySlots.map((s) =>
+                  choosable(s) ? (
+                    <button
+                      key={s.startsAt}
+                      type="button"
+                      className={`slot ${chosen?.startsAt === s.startsAt ? 'on' : ''}`}
+                      aria-pressed={chosen?.startsAt === s.startsAt}
+                      onClick={() => setSlot(s)}
+                    >
+                      {time(s.startsAt, timezone)}
+                      <small>{t('time.prosFree', { count: s.freePros })}</small>
+                    </button>
+                  ) : (
+                    <button key={s.startsAt} type="button" className="slot off" disabled>
+                      <span className="tm">{time(s.startsAt, timezone)}</span>
+                      <small>{isCurrent(s) ? t('reschedule.current') : t('reschedule.full')}</small>
+                    </button>
+                  ),
+                )}
+              </div>
+            )}
             <p className="info">
               <Icon name="clock" />
               <span>{t('reschedule.rules')}</span>

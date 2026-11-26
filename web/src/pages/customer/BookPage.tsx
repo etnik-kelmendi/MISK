@@ -97,7 +97,6 @@ export function BookPage() {
         <ChooseTimeStep
           services={services}
           postcode={details.postcode}
-          address={details.address}
           picked={picked}
           initial={when}
           onDone={(next) => {

@@ -8,7 +8,7 @@ import { DateBar, type DayRange } from '../../components/DatePicker';
 import { ErrorText } from '../../components/ErrorText';
 import { Icon } from '../../components/Icon';
 import { ResourceState } from '../../components/ResourceState';
-import { addDays, formatDay, weekStart } from '../../lib/calendar';
+import { addDays, daysBetween, formatDay, weekStart } from '../../lib/calendar';
 import { dayKey, dayParts, time } from '../../lib/format';
 import { useAction } from '../../lib/useAction';
 
@@ -63,16 +63,51 @@ export function rangeOf(range: BookingRange | undefined, today: string): DayRang
   return range ?? { today, lastDay: addDays(today, DEFAULT_HORIZON_DAYS - 1) };
 }
 
-/** The week to ask for with a day in it: none (the API's default, from today) for the first week. */
-export function weekFor(day: string, today: string): string | null {
-  const start = weekStart(day, today);
-  return start === today ? null : start;
+/** The week (its Monday) with a day in it: weeks run Monday to Sunday, the same as the calendar. */
+export function weekFor(day: string): string {
+  return weekStart(day);
 }
 
-/** "&from=...&days=7" for a week other than the first, so only that week is computed (D101). */
-export function weekQuery(from: string | null): string {
-  return from ? `&from=${encodeURIComponent(from)}&days=${WEEK_DAYS}` : '';
+/**
+ * "&from=...&days=..." for the bookable part of the week starting on Monday `week`, so only that week is
+ * computed (D101): from today in the current week, as the API refuses days before today.
+ */
+export function weekQuery(week: string, today: string): string {
+  const from = week < today ? today : week;
+  const days = daysBetween(from, addDays(week, WEEK_DAYS - 1)) + 1;
+  return `&from=${encodeURIComponent(from)}&days=${days}`;
 }
+
+/** Grey boxes shown while a week loads when the week before had fewer times. */
+const DEFAULT_PLACEHOLDERS = 3;
+
+/** The most times on one day of a week: as many grey boxes stand in for the times while a new week loads. */
+export function placeholderCount(slots: Slot[], timeZone: string): number {
+  const perDay = new Map<string, number>();
+  for (const s of slots) {
+    const key = dayKey(s.startsAt, timeZone);
+    perDay.set(key, (perDay.get(key) ?? 0) + 1);
+  }
+  return Math.max(DEFAULT_PLACEHOLDERS, ...perDay.values());
+}
+
+/** The grey boxes that keep the place of the times while a new week loads, with a status for screen readers. */
+export function SlotPlaceholders({ count, label }: { count: number; label: string }) {
+  return (
+    <div className="slots" aria-busy="true">
+      <span className="visually-hidden" role="status">
+        {label}
+      </span>
+      {Array.from({ length: count }, (_, index) => (
+        <span key={index} className="slot skel" aria-hidden="true">
+          00:00
+          <small>&nbsp;</small>
+        </span>
+      ))}
+    </div>
+  );
+}
+
 
 /** The hour of a moment in the market's time zone. */
 function localHour(iso: string, timeZone: string): number {
@@ -101,14 +136,12 @@ export function flexibleOpen(day: string, timeZone: string, now = new Date()): b
 export function ChooseTimeStep({
   services,
   postcode,
-  address,
   picked = null,
   initial,
   onDone,
 }: {
   services: Service[];
   postcode: string;
-  address: string;
   /** The pro picked on Home (D89): only their free times are offered while they have any. */
   picked?: HomePro | null;
   /** What was chosen before, when the customer comes back to this step. */
@@ -123,18 +156,19 @@ export function ChooseTimeStep({
   const [today] = useState(() => dayKey(new Date().toISOString(), timezone));
   const initialDay = initial?.kind === 'flexible' ? initial.day : initial ? dayKey(initial.slot.startsAt, timezone) : null;
   const [day, setDay] = useState<string | null>(initialDay);
-  // The first day of the week shown; null for the first week (today and the next six days).
-  const [weekFrom, setWeekFrom] = useState<string | null>(() => (initialDay ? weekFor(initialDay, today) : null));
+  // The Monday of the week shown.
+  const [week, setWeek] = useState<string>(() => weekFor(initialDay ?? today));
   const base = `serviceIds=${encodeURIComponent(ids)}&postcode=${encodeURIComponent(postcode)}`;
   const load = useCallback(
     () =>
       api
-        .get<Availability>(`/availability?${base}${proId ? `&proId=${encodeURIComponent(proId)}` : ''}${weekQuery(weekFrom)}`)
-        .then((data) => ({ ...data, requested: weekFrom })),
-    [api, base, proId, weekFrom],
+        .get<Availability>(`/availability?${base}${proId ? `&proId=${encodeURIComponent(proId)}` : ''}${weekQuery(week, today)}`)
+        .then((data) => ({ ...data, requested: week })),
+    [api, base, proId, week, today],
   );
   const loadMonth = useCallback(
-    (month: string) => api.get<{ days: ServiceDay[] }>(`/availability/calendar?${base}&month=${encodeURIComponent(month)}`).then((data) => data.days),
+    (month: string) =>
+      api.get<{ days: ServiceDay[] }>(`/availability/calendar?${base}&month=${encodeURIComponent(month)}`).then((data) => data.days),
     [api, base],
   );
   const proName = picked?.firstName ?? t('home.yourPro');
@@ -182,37 +216,38 @@ export function ChooseTimeStep({
         <ResourceState state={state} reload={reload}>
           {({ slots: allSlots, waitlist = [], held = [], range: loadedRange, requested }) => {
             const range = rangeOf(loadedRange, today);
-            // A new week is on its way: the old one's times are not shown meanwhile.
-            const pending = requested !== weekFrom;
+            // A new week is on its way: the page keeps its shape, with grey boxes where its times will be.
+            const pending = requested !== week;
             // With a picked pro, only the times they are free, as long as they have any (D89).
             const proSlots = picked ? allSlots.filter((s) => s.preferredFree) : [];
             const proOnly = proSlots.length > 0;
-            const slots = proOnly ? proSlots : allSlots;
-            const days = pending ? [] : [...new Set(slots.map((s) => dayKey(s.startsAt, timezone)))];
-            const shownDay = pending
-              ? (day ?? weekFrom ?? range.today)
-              : day && days.includes(day)
+            const loaded = proOnly ? proSlots : allSlots;
+            const slots = pending ? [] : loaded;
+            const days = [...new Set(slots.map((s) => dayKey(s.startsAt, timezone)))];
+            const firstBookable = week < range.today ? range.today : week;
+            const shownDay =
+              day && weekFor(day) === week
                 ? day
-                : (days.find((d) => slots.some((s) => s.available && dayKey(s.startsAt, timezone) === d)) ?? days[0] ?? day ?? range.today);
+                : pending
+                  ? firstBookable
+                  : (days.find((d) => slots.some((s) => s.available && dayKey(s.startsAt, timezone) === d)) ?? days[0] ?? firstBookable);
 
             function chooseDay(next: string) {
               setDay(next);
               setSlot(null);
-              setWeekFrom(weekFor(next, range.today));
+              setWeek(weekFor(next));
             }
             const dateBar = (
               <DateBar
-                days={days}
                 selected={shownDay}
                 range={range}
-                weekFrom={weekFrom ?? range.today}
-                pending={pending}
+                week={week}
                 loadMonth={loadMonth}
                 onSelect={chooseDay}
-                onWeek={(from) => {
+                onWeek={(monday) => {
                   setDay(null);
                   setSlot(null);
-                  setWeekFrom(from === range.today ? null : from);
+                  setWeek(monday);
                 }}
               />
             );
@@ -223,7 +258,9 @@ export function ChooseTimeStep({
               </p>
             );
             // Every day and time the customer waits for, wherever it is, each removable (D101).
-            const heldElsewhere = held.filter((h) => new Date(h.expiresAt).getTime() > Date.now() && dayKey(h.startsAt, timezone) !== shownDay);
+            const heldElsewhere = held.filter(
+              (h) => new Date(h.expiresAt).getTime() > Date.now() && dayKey(h.startsAt, timezone) !== shownDay,
+            );
             const summary = (waitlist.length > 0 || heldElsewhere.length > 0) && (
               <section className="card wl-summary" aria-labelledby={summaryId}>
                 <h3 id={summaryId} className="b small">
@@ -235,7 +272,12 @@ export function ChooseTimeStep({
                     <p key={h.startsAt} className="info wl-held" role="status">
                       <Icon name="clock" />
                       <span className="grow">{t('time.heldElsewhere', { when, time: time(h.expiresAt, timezone) })}</span>
-                      <button type="button" className="mini-btn green" aria-label={t('time.showDay', { when })} onClick={() => chooseDay(dayKey(h.startsAt, timezone))}>
+                      <button
+                        type="button"
+                        className="mini-btn green"
+                        aria-label={t('time.showDay', { when })}
+                        onClick={() => chooseDay(dayKey(h.startsAt, timezone))}
+                      >
                         {t('time.show')}
                       </button>
                     </p>
@@ -251,7 +293,12 @@ export function ChooseTimeStep({
                           const when = entryLabel(entry);
                           return (
                             <li key={entry.id} className={`wl-chip ${entry.day === shownDay ? 'on' : ''}`}>
-                              <button type="button" className="wl-chip-go" aria-label={t('time.showDay', { when })} onClick={() => chooseDay(entry.day)}>
+                              <button
+                                type="button"
+                                className="wl-chip-go"
+                                aria-label={t('time.showDay', { when })}
+                                onClick={() => chooseDay(entry.day)}
+                              >
                                 {when}
                               </button>
                               <button
@@ -271,23 +318,11 @@ export function ChooseTimeStep({
                 )}
               </section>
             );
-            if (pending || days.length === 0) {
-              return (
-                <>
-                  {pickedNote}
-                  {dateBar}
-                  {!pending && <p className="card">{t('book.noSlots')}</p>}
-                  {summary}
-                  <ErrorText error={wait.error} />
-                </>
-              );
-            }
             const daySlots = slots.filter((s) => dayKey(s.startsAt, timezone) === shownDay);
             const firstOfDay = daySlots[0]?.startsAt ?? slots[0]?.startsAt ?? new Date().toISOString();
-            const freeCount = daySlots.filter((s) => s.available).length;
             const onWait = (startsAt: string | null) => waitlist.some((e) => e.day === shownDay && e.startsAt === startsAt);
             const dayWaiting = onWait(null);
-            const dayName = `${dayParts(firstOfDay, timezone).weekday} ${dayParts(firstOfDay, timezone).day} ${dayParts(firstOfDay, timezone).month}`;
+            const dayName = formatDay(shownDay, { weekday: 'short', day: 'numeric', month: 'short' });
             const canFlex = flexibleOpen(shownDay, timezone);
             const hours = WINDOWS[window];
             const windowFree = daySlots.some(
@@ -312,20 +347,10 @@ export function ChooseTimeStep({
                 {dateBar}
 
                 <div className="seg seg-full" role="group" aria-label={t('time.kind')}>
-                  <button
-                    type="button"
-                    className={flexible ? '' : 'on'}
-                    aria-pressed={!flexible}
-                    onClick={() => setFlexible(false)}
-                  >
+                  <button type="button" className={flexible ? '' : 'on'} aria-pressed={!flexible} onClick={() => setFlexible(false)}>
                     {t('time.pick')}
                   </button>
-                  <button
-                    type="button"
-                    className={flexible ? 'on' : ''}
-                    aria-pressed={flexible}
-                    onClick={() => setFlexible(true)}
-                  >
+                  <button type="button" className={flexible ? 'on' : ''} aria-pressed={flexible} onClick={() => setFlexible(true)}>
                     {t('time.flexible')}
                   </button>
                 </div>
@@ -335,7 +360,13 @@ export function ChooseTimeStep({
                     <h2 className="h-sm">{t('time.whenSuits', { day: dayName })}</h2>
                     <div className="seg seg-full" role="group" aria-label={t('time.windowLabel')}>
                       {FLEXIBLE_WINDOWS.map((w) => (
-                        <button key={w} type="button" className={`window-btn ${window === w ? 'on' : ''}`} aria-pressed={window === w} onClick={() => setWindow(w)}>
+                        <button
+                          key={w}
+                          type="button"
+                          className={`window-btn ${window === w ? 'on' : ''}`}
+                          aria-pressed={window === w}
+                          onClick={() => setWindow(w)}
+                        >
                           <span className="block">{t(`time.window.${w}`)}</span>
                           {w !== 'any' && (
                             <span className="tiny block window-range">
@@ -345,7 +376,14 @@ export function ChooseTimeStep({
                         </button>
                       ))}
                     </div>
-                    {!canFlex ? (
+                    {pending ? (
+                      <p className="info">
+                        <Icon name="clock" />
+                        <span>
+                          <b>{t('time.flexibleTitle')}</b> {t('time.flexibleText')}
+                        </span>
+                      </p>
+                    ) : !canFlex ? (
                       <p className="info amber" role="status">
                         <Icon name="clock" />
                         <span>{t('time.flexibleTooLate')}</span>
@@ -367,48 +405,58 @@ export function ChooseTimeStep({
                 ) : (
                   <>
                     <h2 className="h-sm">{t('book.times')}</h2>
-                    <div className="slots">
-                      {daySlots.map((s) => {
-                        const chosen = slot?.startsAt === s.startsAt;
-                        // A time that freed up and is held for this customer for 15 minutes (D74).
-                        const heldUntil = held.find((h) => h.startsAt === s.startsAt && new Date(h.expiresAt).getTime() > Date.now())?.expiresAt;
-                        if (!s.available) {
-                          const waiting = onWait(s.startsAt);
+                    {pending ? (
+                      <SlotPlaceholders count={placeholderCount(loaded, timezone)} label={t('common.loading')} />
+                    ) : daySlots.length === 0 ? (
+                      <p className="card">{t('book.noSlots')}</p>
+                    ) : (
+                      <div className="slots">
+                        {daySlots.map((s) => {
+                          const chosen = slot?.startsAt === s.startsAt;
+                          // A time that freed up and is held for this customer for 15 minutes (D74).
+                          const heldUntil = held.find(
+                            (h) => h.startsAt === s.startsAt && new Date(h.expiresAt).getTime() > Date.now(),
+                          )?.expiresAt;
+                          if (!s.available) {
+                            const waiting = onWait(s.startsAt);
+                            return (
+                              <button
+                                key={s.startsAt}
+                                type="button"
+                                className={`slot off ${waiting ? 'wl' : ''}`}
+                                aria-pressed={waiting}
+                                disabled={wait.busy}
+                                onClick={() => void toggleWait(waitlist, shownDay, s.startsAt)}
+                              >
+                                <span className="tm">{time(s.startsAt, timezone)}</span>
+                                <small>{waiting ? t('time.onWaitlist') : t('time.fullWaitlist')}</small>
+                              </button>
+                            );
+                          }
                           return (
                             <button
                               key={s.startsAt}
                               type="button"
-                              className={`slot off ${waiting ? 'wl' : ''}`}
-                              aria-pressed={waiting}
-                              disabled={wait.busy}
-                              onClick={() => void toggleWait(waitlist, shownDay, s.startsAt)}
+                              className={`slot ${chosen ? 'on' : ''} ${heldUntil ? 'held' : ''}`}
+                              aria-pressed={chosen}
+                              onClick={() => setSlot(s)}
                             >
-                              <span className="tm">{time(s.startsAt, timezone)}</span>
-                              <small>{waiting ? t('time.onWaitlist') : t('time.fullWaitlist')}</small>
+                              {time(s.startsAt, timezone)}
+                              <small>
+                                {heldUntil
+                                  ? t('time.heldUntil', { time: time(heldUntil, timezone) })
+                                  : t('time.prosFree', { count: s.freePros })}
+                              </small>
                             </button>
                           );
-                        }
-                        return (
-                          <button
-                            key={s.startsAt}
-                            type="button"
-                            className={`slot ${chosen ? 'on' : ''} ${heldUntil ? 'held' : ''}`}
-                            aria-pressed={chosen}
-                            onClick={() => setSlot(s)}
-                          >
-                            {time(s.startsAt, timezone)}
-                            <small>
-                              {heldUntil ? t('time.heldUntil', { time: time(heldUntil, timezone) }) : t('time.prosFree', { count: s.freePros })}
-                            </small>
-                          </button>
-                        );
-                      })}
-                    </div>
+                        })}
+                      </div>
+                    )}
                     <button
                       type="button"
                       className="card row wait-day"
                       aria-pressed={dayWaiting}
-                      disabled={wait.busy}
+                      disabled={wait.busy || pending}
                       onClick={() => void toggleWait(waitlist, shownDay, null)}
                     >
                       <span className="wait-icon" aria-hidden="true">
@@ -416,7 +464,9 @@ export function ChooseTimeStep({
                       </span>
                       <span className="grow">
                         <span className="b small block">{dayWaiting ? t('time.dayWaiting') : t('time.joinDay')}</span>
-                        <span className="tiny muted">{dayWaiting ? t('time.dayWaitingText', { day: dayName }) : t('time.joinDayText')}</span>
+                        <span className="tiny muted">
+                          {dayWaiting ? t('time.dayWaitingText', { day: dayName }) : t('time.joinDayText')}
+                        </span>
                       </span>
                       {dayWaiting ? (
                         <span className="badge g">
@@ -427,13 +477,6 @@ export function ChooseTimeStep({
                       )}
                     </button>
                     <ErrorText error={wait.error} />
-                    <p className="info">
-                      <Icon name="users" />
-                      <span>
-                        <b>{t('time.slotsFree', { free: freeCount, total: daySlots.length })}</b>{' '}
-                        {t('time.slotsFreeText', { place: address.split(',')[0] || postcode })}
-                      </span>
-                    </p>
                   </>
                 )}
                 {summary}

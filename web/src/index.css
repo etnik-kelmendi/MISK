@@ -851,6 +851,12 @@ span.cbox.on { background: var(--brand); border-color: var(--brand); }
 .slot.held small { color: var(--brand); font-weight: 700; }
 .slot.held.on small { color: #d8f1e6; }
 /* All seven days fit across the screen (D74). */
+.day:disabled { opacity: 0.35; cursor: not-allowed; }
+/* Grey boxes the size of a time while a new week's times load, so the page keeps its height. */
+.slot.skel { color: transparent; background: var(--line-2); box-shadow: none; animation: skel-pulse 1.2s ease-in-out infinite; }
+.slot.skel small { color: transparent; }
+@keyframes skel-pulse { 50% { opacity: 0.55; } }
+@media (prefers-reduced-motion: reduce) { .slot.skel { animation: none; } }
 .days.days-fit { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; overflow: visible; padding-bottom: 0; }
 .days.days-fit .day { min-width: 0; padding: 8px 0; }
 /* D83: the pro's photo, live arrival map, full-screen photos, chat photos and favourites. */

@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { CustomerBooking } from '../../api/types';
-import { addDays, formatDay, longDayName, monthName, monthOf, weekStart } from '../../lib/calendar';
+import { addDays, formatDay, isoWeekday, longDayName, monthName, monthOf, weekMonths, weekStart } from '../../lib/calendar';
 import { fakeApi, renderAt, users } from '../../test/harness';
 
 /**
@@ -41,36 +41,41 @@ const slot = (day: string, hour: number, available = true): FakeSlot => ({
 });
 
 /** A week of times like the API's: 08:00 is full on `fullDay`, the other times free. */
-function week(from: string, fullDay?: string): FakeSlot[] {
-  const days = Array.from({ length: 7 }, (_, index) => addDays(from, index)).filter((d) => d <= LAST_DAY);
+function week(from: string, fullDay?: string, count = 7): FakeSlot[] {
+  const days = Array.from({ length: count }, (_, index) => addDays(from, index)).filter((d) => d <= LAST_DAY);
   return days.flatMap((d) => [slot(d, 8, d !== fullDay), slot(d, 10), slot(d, 14)]);
 }
 
 /** Wednesday 14 January 2026, as a calendar day button names it. */
 const calendarName = (day: string) => formatDay(day, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
-function setUp(options: { waitlist?: object[]; held?: object[]; fullDay?: string; closed?: string[] } = {}) {
+function setUp(options: { waitlist?: object[]; held?: object[]; fullDay?: string; closed?: string[]; slow?: Promise<void> } = {}) {
   const api = fakeApi(users.customer);
   const weeks: (string | null)[] = [];
   const months: string[] = [];
   const bookingIds: (string | null)[] = [];
   api.on('GET /postcodes', { body: { postcodes: [{ code: '10115', name: 'Mitte' }] } });
   api.on('GET /bookings', { body: { bookings: [] } });
-  api.on('GET /availability', ({ url }) => {
-    const from = url.searchParams.get('from');
-    weeks.push(from);
+  api.on('GET /availability', async ({ url }) => {
+    const start = url.searchParams.get('from') ?? '';
+    const days = Number(url.searchParams.get('days'));
+    weeks.push(start);
     bookingIds.push(url.searchParams.get('bookingId'));
-    expect(url.searchParams.get('days')).toBe(from ? '7' : null);
-    const start = from ?? today;
-    return {
+    // Monday to Sunday, from today in the current week: never a day before today, never past Sunday.
+    expect(start >= today).toBe(true);
+    expect(isoWeekday(addDays(start, days - 1))).toBe(7);
+    const answer = {
       body: {
-        slots: week(start, options.fullDay),
+        slots: week(start, options.fullDay, days),
         waitlist: options.waitlist ?? [],
         held: options.held ?? [],
         range: { today, lastDay: LAST_DAY, horizonDays: 60 },
-        window: { from: start, days: 7 },
+        window: { from: start, days },
       },
     };
+    // Every week after the first can be held back, to look at the page while it loads.
+    if (options.slow && weeks.length > 1) await options.slow;
+    return answer;
   });
   api.on('GET /availability/calendar', ({ url }) => {
     const month = url.searchParams.get('month') ?? '';
@@ -103,13 +108,15 @@ async function openCalendarAt(day: string) {
 }
 
 const stripDays = () => within(screen.getByRole('group', { name: 'Day' })).getAllByRole('button');
+/** The day button of `day` in the week row, which runs Monday to Sunday. */
+const stripDay = (day: string) => stripDays()[isoWeekday(day) - 1];
 
 describe('Choose time: the date picker (D101)', () => {
   it('keeps a week of day buttons and opens a month calendar limited to the bookable days', async () => {
     setUp();
     await toTimeStep();
     expect(stripDays()).toHaveLength(7);
-    expect(stripDays()[0]).toHaveAttribute('aria-pressed', 'true');
+    expect(stripDay(today)).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByText(longDayName(today))).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Earlier days' })).toBeDisabled();
 
@@ -166,10 +173,10 @@ describe('Choose time: the date picker (D101)', () => {
     await user().keyboard('{ArrowDown}{ArrowDown}{Enter}');
 
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
-    // The week with that day is loaded: weeks are counted from today.
-    await waitFor(() => expect(weeks).toEqual([null, ahead(14)]));
+    // The week with that day is loaded: weeks run Monday to Sunday, like the calendar.
+    await waitFor(() => expect(weeks).toEqual([today, weekStart(ahead(14))]));
     expect(await screen.findByText(longDayName(ahead(14)))).toBeInTheDocument();
-    expect(stripDays()[0]).toHaveAttribute('aria-pressed', 'true');
+    expect(stripDay(ahead(14))).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: 'Earlier days' })).toBeEnabled();
   });
 
@@ -181,12 +188,12 @@ describe('Choose time: the date picker (D101)', () => {
     await waitFor(() => expect(months).toContain(monthOf(far)));
     await user().click(within(dialog).getByRole('button', { name: calendarName(far) }));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
-    await waitFor(() => expect(weeks.at(-1)).toBe(weekStart(far, today)));
+    await waitFor(() => expect(weeks.at(-1)).toBe(weekStart(far)));
 
     expect(await screen.findByText(longDayName(far))).toBeInTheDocument();
     const pressed = stripDays().find((b) => b.getAttribute('aria-pressed') === 'true');
     expect(pressed).toHaveTextContent(new RegExp(`^${formatDay(far, { weekday: 'short' })}\\s*${Number(far.slice(8))}$`));
-    expect(screen.getByRole('heading', { name: monthName(monthOf(far)) })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: weekMonths(weekStart(far)) })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Select a time' })).toBeDisabled();
     await user().click(screen.getByRole('button', { name: /^10:00/ }));
     const label = `${formatDay(far, { weekday: 'short', day: 'numeric', month: 'short' })}, 10:00`;
@@ -217,7 +224,73 @@ describe('Choose time: the date picker (D101)', () => {
     expect(day).toHaveAttribute('aria-disabled', 'true');
     await user().click(day);
     expect(screen.getByRole('dialog', { name: 'Pick a date' })).toBeInTheDocument();
-    expect(weeks).toEqual([null]);
+    expect(weeks).toEqual([today]);
+  });
+
+  it('shows Monday to Sunday, with the days before today and after the last bookable day greyed out', async () => {
+    setUp();
+    await toTimeStep();
+    const monday = weekStart(today);
+    expect(stripDays().map((b) => b.textContent)).toEqual(
+      Array.from({ length: 7 }, (_, index) => addDays(monday, index)).map((d) => `${formatDay(d, { weekday: 'short' })}${Number(d.slice(8))}`),
+    );
+    stripDays().forEach((button, index) => {
+      if (addDays(monday, index) < today) expect(button).toBeDisabled();
+      else expect(button).toBeEnabled();
+    });
+    expect(screen.getByRole('heading', { name: weekMonths(monday) })).toBeInTheDocument();
+
+    // The last week: days after the last bookable day are greyed out.
+    while (screen.getByRole('button', { name: 'Later days' }).hasAttribute('disabled') === false) {
+      await user().click(screen.getByRole('button', { name: 'Later days' }));
+    }
+    await waitFor(() => expect(stripDay(LAST_DAY)).toBeEnabled());
+    const lastMonday = weekStart(LAST_DAY);
+    stripDays().forEach((button, index) => {
+      if (addDays(lastMonday, index) > LAST_DAY) expect(button).toBeDisabled();
+    });
+  });
+
+  it('keeps the page in place while the next week loads: its days at once, grey boxes for the times', async () => {
+    let release = () => {};
+    const slow = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    setUp({ slow });
+    await toTimeStep();
+    await screen.findByRole('button', { name: /^10:00/ });
+    const next = addDays(weekStart(today), 7);
+    await user().click(screen.getByRole('button', { name: 'Later days' }));
+
+    // The new week's day buttons are there straight away, with its first day chosen.
+    expect(stripDay(next)).toHaveAttribute('aria-pressed', 'true');
+    expect(stripDays()).toHaveLength(7);
+    // Grey boxes stand in for the times; the rest of the page stays.
+    expect(screen.getByText('Loading…')).toBeInTheDocument();
+    expect(document.querySelectorAll('.slot.skel').length).toBeGreaterThanOrEqual(3);
+    expect(screen.queryByRole('button', { name: /^10:00/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Join the waiting list for this day/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Select a time' })).toBeDisabled();
+
+    release();
+    expect(await screen.findByRole('button', { name: /^10:00/ })).toBeInTheDocument();
+    expect(document.querySelectorAll('.slot.skel')).toHaveLength(0);
+    expect(screen.getByText(longDayName(next))).toBeInTheDocument();
+  });
+
+  it('no longer shows how many times have a verified pro free', async () => {
+    setUp();
+    await toTimeStep();
+    await screen.findByRole('button', { name: /^10:00/ });
+    expect(screen.queryByText(/have a verified pro free/)).not.toBeInTheDocument();
+  });
+});
+
+describe('weekMonths', () => {
+  it('names one month, or both when the week spans two', () => {
+    expect(weekMonths('2026-11-16')).toBe('November 2026');
+    expect(weekMonths('2026-11-30')).toBe('Nov – Dec 2026');
+    expect(weekMonths('2026-12-28')).toBe('Dec 2026 – Jan 2027');
   });
 });
 
@@ -278,7 +351,7 @@ describe('Choose time: the waiting list on any date (D101)', () => {
     expect(api.calls).toContain('DELETE /time-waitlist/w-far');
 
     await user().click(within(summary).getByRole('button', { name: `Show ${short(further)}, 08:00` }));
-    await waitFor(() => expect(weeks.at(-1)).toBe(weekStart(further, today)));
+    await waitFor(() => expect(weeks.at(-1)).toBe(weekStart(further)));
     expect(await screen.findByText(longDayName(further))).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /08:00\s*On waiting list/ })).toHaveAttribute('aria-pressed', 'true');
   });
@@ -320,7 +393,7 @@ describe('Reschedule with the date picker (D101)', () => {
     await screen.findByRole('group', { name: 'Day' });
     const dialog = await openCalendarAt(far);
     await user().click(within(dialog).getByRole('button', { name: calendarName(far) }));
-    await waitFor(() => expect(weeks.at(-1)).toBe(weekStart(far, today)));
+    await waitFor(() => expect(weeks.at(-1)).toBe(weekStart(far)));
     expect(await screen.findByText(longDayName(far))).toBeInTheDocument();
     await user().click(screen.getByRole('button', { name: /^14:00/ }));
     const label = `${formatDay(far, { weekday: 'short', day: 'numeric', month: 'short' })}, 14:00`;

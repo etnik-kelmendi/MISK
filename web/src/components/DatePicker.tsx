@@ -1,7 +1,18 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { BookingRange, ServiceDay } from '../api/types';
-import { addDays, addMonths, formatDay, isoWeekday, longDayName, monthName, monthOf, monthWeeks, WEEKDAYS } from '../lib/calendar';
+import {
+  addDays,
+  addMonths,
+  formatDay,
+  isoWeekday,
+  longDayName,
+  monthName,
+  monthOf,
+  monthWeeks,
+  WEEKDAYS,
+  weekMonths,
+} from '../lib/calendar';
 import { Icon } from './Icon';
 import { Sheet } from './Sheet';
 
@@ -11,7 +22,10 @@ export type DayRange = Pick<BookingRange, 'today' | 'lastDay'>;
 /** Loads which days of a month ("YYYY-MM") have a pro working, for greying out the others. */
 export type MonthLoader = (month: string) => Promise<ServiceDay[]>;
 
-type MonthState = { month: string; status: 'loading' } | { month: string; status: 'ready'; open: Map<string, boolean> } | { month: string; status: 'error' };
+type MonthState =
+  | { month: string; status: 'loading' }
+  | { month: string; status: 'ready'; open: Map<string, boolean> }
+  | { month: string; status: 'error' };
 
 /**
  * The month calendar of the date picker (D101), in a sheet: weekday headers, a button per day, and the previous
@@ -170,7 +184,11 @@ export function CalendarSheet({
         </tbody>
       </table>
       <p className="tiny muted cal-note" role="status">
-        {status === 'loading' ? t('datePicker.checking') : status === 'error' ? t('datePicker.checkFailed') : t('datePicker.hint', { day: longDayName(range.lastDay) })}
+        {status === 'loading'
+          ? t('datePicker.checking')
+          : status === 'error'
+            ? t('datePicker.checkFailed')
+            : t('datePicker.hint', { day: longDayName(range.lastDay) })}
       </p>
     </Sheet>
   );
@@ -189,60 +207,74 @@ function addMonthsKeepingDay(day: string, count: number): string {
  * opens the month calendar, the week's day buttons with the chosen one highlighted, and the chosen day in full.
  */
 export function DateBar({
-  days,
   selected,
   range,
-  weekFrom,
-  pending = false,
+  week,
   loadMonth,
   onSelect,
   onWeek,
 }: {
-  /** The days of the loaded week that have times, "YYYY-MM-DD". */
-  days: string[];
   selected: string;
   range: DayRange;
-  /** The first day of the loaded week. */
-  weekFrom: string;
-  /** A week is loading: its day buttons are not drawn yet. */
-  pending?: boolean;
+  /** The Monday of the week shown. Its seven day buttons are drawn at once, also while its times load. */
+  week: string;
   loadMonth?: MonthLoader;
   onSelect: (day: string) => void;
-  onWeek: (from: string) => void;
+  /** Moves to the week starting on this Monday. */
+  onWeek: (monday: string) => void;
 }) {
   const { t } = useTranslation();
   const [picking, setPicking] = useState(false);
-  const earlier = weekFrom <= range.today ? null : addDays(weekFrom, -7) < range.today ? range.today : addDays(weekFrom, -7);
-  const later = addDays(weekFrom, 7) > range.lastDay ? null : addDays(weekFrom, 7);
+  const weekDays = Array.from({ length: 7 }, (_, index) => addDays(week, index));
+  // A week is reachable while one of its days can be booked.
+  const earlier = addDays(week, -1) >= range.today ? addDays(week, -7) : null;
+  const later = addDays(week, 7) <= range.lastDay ? addDays(week, 7) : null;
 
   return (
     <>
       <div className="datebar-head">
-        <h2 className="h-sm grow">{monthName(monthOf(selected))}</h2>
-        <button type="button" className="iconbtn small-icon" aria-label={t('datePicker.earlierWeek')} disabled={!earlier} onClick={() => earlier && onWeek(earlier)}>
+        <h2 className="h-sm grow">{weekMonths(week)}</h2>
+        <button
+          type="button"
+          className="iconbtn small-icon"
+          aria-label={t('datePicker.earlierWeek')}
+          disabled={!earlier}
+          onClick={() => earlier && onWeek(earlier)}
+        >
           <Icon name="chevL" />
         </button>
-        <button type="button" className="iconbtn small-icon" aria-label={t('datePicker.laterWeek')} disabled={!later} onClick={() => later && onWeek(later)}>
+        <button
+          type="button"
+          className="iconbtn small-icon"
+          aria-label={t('datePicker.laterWeek')}
+          disabled={!later}
+          onClick={() => later && onWeek(later)}
+        >
           <Icon name="chevR" />
         </button>
         <button type="button" className="mini-btn" aria-haspopup="dialog" onClick={() => setPicking(true)}>
           <Icon name="calendar" /> {t('datePicker.pick')}
         </button>
       </div>
-      {pending ? (
-        <p className="muted center" role="status">
-          {t('common.loading')}
-        </p>
-      ) : (
-        <div className="days days-fit" role="group" aria-label={t('book.day')}>
-          {days.map((d) => (
-            <button key={d} type="button" className={`day ${d === selected ? 'on' : ''}`} aria-pressed={d === selected} onClick={() => onSelect(d)}>
+      <div className="days days-fit" role="group" aria-label={t('book.day')}>
+        {weekDays.map((d) => {
+          // Days before today or after the last bookable day are greyed out.
+          const outside = d < range.today || d > range.lastDay;
+          return (
+            <button
+              key={d}
+              type="button"
+              className={`day ${d === selected ? 'on' : ''}`}
+              aria-pressed={d === selected}
+              disabled={outside}
+              onClick={() => onSelect(d)}
+            >
               <span className="dn">{formatDay(d, { weekday: 'short' })}</span>
               <span className="dd">{Number(d.slice(8))}</span>
             </button>
-          ))}
-        </div>
-      )}
+          );
+        })}
+      </div>
       <p className="chosen-day" aria-live="polite">
         {longDayName(selected)}
       </p>

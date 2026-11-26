@@ -83,11 +83,19 @@ export const WEEKDAYS: { short: string; long: string }[] = Array.from({ length: 
   return { short: formatDay(day, { weekday: 'short' }), long: formatDay(day, { weekday: 'long' }) };
 });
 
+/** The Monday of the week `day` is in: the week row of Choose time shows Monday to Sunday, like the calendar. */
+export function weekStart(day: string): string {
+  return addDays(day, 1 - isoWeekday(day));
+}
+
 /**
- * The first day of the week of days shown with `day` (D101): weeks are counted from today, so the first week
- * is today and the next six days, as before (D74).
+ * The month label of the week starting on Monday `monday`: "November 2026", or both months when the week
+ * spans two, "Nov – Dec 2026", with both years when it spans two years, "Dec 2026 – Jan 2027".
  */
-export function weekStart(day: string, today: string): string {
-  if (day <= today) return today;
-  return addDays(today, Math.floor(daysBetween(today, day) / 7) * 7);
+export function weekMonths(monday: string): string {
+  const sunday = addDays(monday, 6);
+  if (monthOf(monday) === monthOf(sunday)) return monthName(monthOf(monday));
+  const end = formatDay(sunday, { month: 'short', year: 'numeric' });
+  const sameYear = monday.slice(0, 4) === sunday.slice(0, 4);
+  return `${formatDay(monday, sameYear ? { month: 'short' } : { month: 'short', year: 'numeric' })} – ${end}`;
 }
