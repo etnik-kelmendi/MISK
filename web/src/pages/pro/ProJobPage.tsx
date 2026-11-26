@@ -262,7 +262,6 @@ function RateCustomer({ job, onChanged }: { job: ProJob; onChanged: (job: ProJob
   const [stars, setStars] = useState(0);
   const [tags, setTags] = useState<CustomerRatingTag[]>([]);
   const [comment, setComment] = useState('');
-  const [commenting, setCommenting] = useState(false);
   const { run, busy, error } = useAction();
   const form = useValidation({ stars: stars === 0 && t('validation.starsMissing') }, { stars: 'customer-star-1' });
 
@@ -290,7 +289,7 @@ function RateCustomer({ job, onChanged }: { job: ProJob; onChanged: (job: ProJob
   }
 
   return (
-    <form className="card stack" onSubmit={submit} noValidate aria-labelledby="rate-customer-heading">
+    <form className="card stack rate-customer" onSubmit={submit} noValidate aria-labelledby="rate-customer-heading">
       <div>
         <h2 id="rate-customer-heading" className="b small">
           {t('customerRating.title', { name })}
@@ -332,32 +331,29 @@ function RateCustomer({ job, onChanged }: { job: ProJob; onChanged: (job: ProJob
           ))}
         </div>
       </fieldset>
-      {commenting ? (
-        <div className="field">
-          <label htmlFor="customer-comment">{t('customerRating.comment')}</label>
-          <textarea
-            id="customer-comment"
-            rows={2}
-            maxLength={CUSTOMER_COMMENT_MAX}
-            placeholder={t('customerRating.commentPlaceholder')}
-            value={comment}
-            onChange={(event) => setComment(event.target.value)}
-          />
-        </div>
-      ) : (
-        <div>
-          <button type="button" className="mini-btn" aria-expanded={false} onClick={() => setCommenting(true)}>
-            <Icon name="plus" /> {t('customerRating.addComment')}
-          </button>
-        </div>
-      )}
+      {/* "Add comment" is always shown; the comment itself is optional (D94, D106). */}
+      <section className="field" aria-labelledby="customer-comment-heading">
+        <h3 id="customer-comment-heading" className="b small">
+          {t('customerRating.addComment')}
+        </h3>
+        <label htmlFor="customer-comment" className="tiny muted">
+          {t('customerRating.comment')}
+        </label>
+        <textarea
+          id="customer-comment"
+          rows={2}
+          maxLength={CUSTOMER_COMMENT_MAX}
+          placeholder={t('customerRating.commentPlaceholder')}
+          value={comment}
+          onChange={(event) => setComment(event.target.value)}
+        />
+      </section>
       <ErrorText error={error} />
       {stars === 0 && <p className="tiny muted">{t('customerRating.pickStars')}</p>}
-      <div>
-        <button type="submit" className="mini-btn pro-btn" disabled={busy || stars === 0}>
-          {t('customerRating.send')}
-        </button>
-      </div>
+      {/* A full-width row of its own, clear of the tags above, so neither can cover the other. */}
+      <button type="submit" className="mini-btn pro-btn rate-send" disabled={busy || stars === 0}>
+        {t('customerRating.send')}
+      </button>
     </form>
   );
 }
@@ -449,7 +445,9 @@ function MainButton({ job, onChanged }: { job: ProJob; onChanged: (job: ProJob) 
   }
 
   return (
-    <div className="cta-bar">
+    // Once the job is done the button is no longer the next step, so it sits in the page instead of floating
+    // over the end of it, where it covered the customer rating (D106).
+    <div className={`cta-bar ${job.status === 'completed' ? 'in-flow' : ''}`}>
       {job.status === 'working' && (
         <input
           ref={photoInput}

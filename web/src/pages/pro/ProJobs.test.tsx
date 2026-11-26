@@ -242,11 +242,30 @@ describe('Job page (D86)', () => {
 
     await user().click(within(form).getByRole('radio', { name: '4 stars' }));
     await user().click(within(form).getByRole('checkbox', { name: 'Friendly' }));
-    await user().click(within(form).getByRole('button', { name: 'Add comment' }));
+    // "Add comment" is shown straight away, and the comment is optional.
+    expect(within(form).getByRole('heading', { name: 'Add comment' })).toBeInTheDocument();
+    expect(within(form).getByLabelText('Comment (optional)')).not.toBeRequired();
     await user().type(within(form).getByLabelText('Comment (optional)'), 'Lovely dog');
     await user().click(within(form).getByRole('button', { name: 'Send rating' }));
     await waitFor(() => expect(api.bodies['POST /pro/jobs/b1/customer-rating']).toEqual({ stars: 4, tags: ['friendly'], comment: 'Lovely dog' }));
     expect(await screen.findByText('You rated Sara 4 stars. Thanks, this helps match good customers with pros.')).toBeInTheDocument();
+  });
+
+  it('sends a customer rating without a comment, and keeps "See my week" in the page below it', async () => {
+    const api = fakeApi(users.pro);
+    const done = job({ status: 'completed', completedAt: '2026-11-06T10:00:00.000Z', canCancel: false, canRateCustomer: true });
+    api.on('GET /pro/jobs/b1', { body: { job: done } });
+    api.on('POST /pro/jobs/b1/customer-rating', {
+      status: 201,
+      body: { job: { ...done, canRateCustomer: false, customerRating: { stars: 5, tags: [] } } },
+    });
+    renderAt('/pro/jobs/b1');
+    const form = await screen.findByRole('form', { name: 'How was Sara as a customer?' });
+    // The bottom button no longer floats over the rating once the job is done.
+    expect(screen.getByRole('link', { name: /See my week/ }).closest('.cta-bar')).toHaveClass('in-flow');
+    await user().click(within(form).getByRole('radio', { name: '5 stars' }));
+    await user().click(within(form).getByRole('button', { name: 'Send rating' }));
+    await waitFor(() => expect(api.bodies['POST /pro/jobs/b1/customer-rating']).toEqual({ stars: 5, tags: [] }));
   });
 });
 
