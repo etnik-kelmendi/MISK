@@ -597,6 +597,7 @@ describe('my bookings', () => {
     const api = fakeApi(users.customer);
     api.on('GET /bookings', { body: { bookings: [{ ...booking(0), canReportProblem: true }] } });
     api.on('POST /bookings/b-0/problem', { body: { booking: {} } });
+    api.on('POST /bookings/b-0/problem/photos', { status: 201, body: { booking: {} } });
     renderAt('/bookings?tab=past');
     await user().click(await screen.findByRole('button', { name: 'Report' }));
     const sheet = screen.getByRole('dialog', { name: 'Report a problem' });
@@ -1080,11 +1081,9 @@ describe('a booking', () => {
     const api = fakeApi(users.customer);
     const done = { status: 'completed' as const, canCancel: false, chargeAt: '2026-11-07T10:00:00.000Z' };
     api.on('GET /bookings/b1', { body: { booking: booking({ ...done, canReportProblem: true }) } });
-    api.on('POST /bookings/b1/problem', {
-      body: {
-        booking: booking({ ...done, canReportProblem: false, problemReportedAt: '2026-11-06T12:00:00.000Z', problemNote: 'Other: Back lawn not mowed' }),
-      },
-    });
+    const reported = booking({ ...done, canReportProblem: false, problemReportedAt: '2026-11-06T12:00:00.000Z', problemNote: 'Other: Back lawn not mowed' });
+    api.on('POST /bookings/b1/problem', { body: { booking: reported } });
+    api.on('POST /bookings/b1/problem/photos', { status: 201, body: { booking: reported } });
     renderAt('/bookings/b1');
     expect(await screen.findByText('We charge your card on Sat 7 Nov, 11:00. Not happy with the job? Tell us before then.')).toBeInTheDocument();
     await user().click(screen.getByRole('button', { name: 'Report' }));
@@ -2678,6 +2677,13 @@ describe('rescheduling and payment status (D75)', () => {
   });
 
   it('moves a booking: pick a day and a time, then it opens the booking', async () => {
+    // The date bar starts at today, so the clock is set to the week of these slots. Only Date is faked, so
+    // timers and user-event keep running.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-05T12:00:00.000Z'));
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
     const api = fakeApi(users.customer);
     api.on('GET /bookings/b1', { body: { booking: booking() } });
     api.on('GET /availability', {
@@ -3042,7 +3048,8 @@ describe('booking pages (D83)', () => {
     const api = fakeApi(users.customer);
     api.on('GET /bookings/b1', { body: { booking: booking({ status: 'completed', canCancel: false }) } });
     renderAt('/bookings/b1');
-    expect(await screen.findByRole('link', { name: 'Back' })).toHaveAttribute('href', '/bookings?tab=past');
+    // The Back link is there while the booking loads, pointing to Upcoming; it changes once the booking is in.
+    await waitFor(() => expect(screen.getByRole('link', { name: 'Back' })).toHaveAttribute('href', '/bookings?tab=past'));
   });
 
   it('goes back to Upcoming from a booking that is still open', async () => {

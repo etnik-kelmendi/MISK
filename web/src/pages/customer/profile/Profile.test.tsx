@@ -370,7 +370,7 @@ describe('Become a pro', () => {
 describe('Help & support', () => {
   it('opens the answer of a question and offers chat and call when support is set up', async () => {
     const api = fakeApi(sara);
-    api.on('GET /account/settings', { body: { language: 'en', languages: ['en'], support: { email: 'help@example.com', phone: '+493012345678' } } });
+    api.on('GET /account/settings', { body: { language: 'en', languages: ['en', 'de', 'sq'], support: { email: 'help@example.com', phone: '+493012345678' } } });
     renderAt('/profile/help');
     const question = await screen.findByRole('button', { name: 'When am I charged?' });
     expect(question).toHaveAttribute('aria-expanded', 'false');

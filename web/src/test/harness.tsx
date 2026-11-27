@@ -97,7 +97,7 @@ export function fakeApi(user: User | null): FakeApi {
   routes.set('GET /addresses', { body: { addresses: [], max: 10 } });
   routes.set('GET /home', { body: { plan: null, pros: [] } });
   // Profile (D92): English, no support contact set up and no favourite pros, unless a test says so.
-  routes.set('GET /account/settings', { body: { language: 'en', languages: ['en'], support: { email: null, phone: null } } });
+  routes.set('GET /account/settings', { body: { language: 'en', languages: ['en', 'de', 'sq'], support: { email: null, phone: null } } });
   routes.set('GET /favourites/pros', { body: { pros: [] } });
   // No email change waiting (D97); an account with an email is taken to have a password.
   routes.set('GET /account/email', { body: { email: user?.email ?? null, hasPassword: Boolean(user?.email), pending: null } });

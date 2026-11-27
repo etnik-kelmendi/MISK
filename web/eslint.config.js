@@ -36,7 +36,12 @@ export default tseslint.config(
     },
   },
   {
-    files: ['*.{js,ts}', 'e2e/**/*.ts', ],
+    files: ['*.{js,ts}', 'e2e/**/*.ts'],
     languageOptions: { globals: globals.node },
+  },
+  {
+    // The service worker runs in its own global scope, where `self` is the worker.
+    files: ['public/sw.js'],
+    languageOptions: { globals: globals.serviceworker },
   },
 );

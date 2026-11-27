@@ -107,7 +107,7 @@ describe('Delete account', () => {
   it('sends a pro who also books to support', async () => {
     const api = fakeApi(users.pro);
     api.on('GET /account/deletion', { body: { ...ALLOWED, pro: true, allowed: false, upcomingBookings: 0 } });
-    api.on('GET /account/settings', { body: { language: 'en', languages: ['en'], support: { email: 'help@example.com', phone: null } } });
+    api.on('GET /account/settings', { body: { language: 'en', languages: ['en', 'de', 'sq'], support: { email: 'help@example.com', phone: null } } });
     renderAt('/profile');
     const sheet = await openSheet();
     expect(await within(sheet).findByText(/MISK support closes it for you/)).toBeInTheDocument();
