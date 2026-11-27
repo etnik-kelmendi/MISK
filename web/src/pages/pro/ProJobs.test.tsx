@@ -242,8 +242,8 @@ describe('Job page (D86)', () => {
 
     await user().click(within(form).getByRole('radio', { name: '4 stars' }));
     await user().click(within(form).getByRole('checkbox', { name: 'Friendly' }));
-    // "Add comment" is shown straight away, and the comment is optional.
-    expect(within(form).getByRole('heading', { name: 'Add comment' })).toBeInTheDocument();
+    // The comment field is shown straight away under its one label, and is optional.
+    expect(within(form).queryByText('Add comment')).not.toBeInTheDocument();
     expect(within(form).getByLabelText('Comment (optional)')).not.toBeRequired();
     await user().type(within(form).getByLabelText('Comment (optional)'), 'Lovely dog');
     await user().click(within(form).getByRole('button', { name: 'Send rating' }));

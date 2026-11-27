@@ -3331,7 +3331,6 @@
     "send": "Send rating",
     "thanks_one": "You rated {{name}} {{count}} star. Thanks, this helps match good customers with pros.",
     "thanks_other": "You rated {{name}} {{count}} stars. Thanks, this helps match good customers with pros.",
-    "addComment": "Add comment",
     "comment": "Comment (optional)",
     "commentPlaceholder": "Anything MISK should know about this customer?",
     "pickStars": "Choose 1 to 5 stars to send your rating."

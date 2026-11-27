@@ -331,12 +331,9 @@ function RateCustomer({ job, onChanged }: { job: ProJob; onChanged: (job: ProJob
           ))}
         </div>
       </fieldset>
-      {/* "Add comment" is always shown; the comment itself is optional (D94, D106). */}
-      <section className="field" aria-labelledby="customer-comment-heading">
-        <h3 id="customer-comment-heading" className="b small">
-          {t('customerRating.addComment')}
-        </h3>
-        <label htmlFor="customer-comment" className="tiny muted">
+      {/* The comment field is always shown under its one label, "Comment (optional)" (D94, D106, D109). */}
+      <div className="field">
+        <label htmlFor="customer-comment" className="b small">
           {t('customerRating.comment')}
         </label>
         <textarea
@@ -347,7 +344,7 @@ function RateCustomer({ job, onChanged }: { job: ProJob; onChanged: (job: ProJob
           value={comment}
           onChange={(event) => setComment(event.target.value)}
         />
-      </section>
+      </div>
       <ErrorText error={error} />
       {stars === 0 && <p className="tiny muted">{t('customerRating.pickStars')}</p>}
       {/* A full-width row of its own, clear of the tags above, so neither can cover the other. */}
