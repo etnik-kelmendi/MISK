@@ -1181,3 +1181,5 @@ ol.flow { list-style: none; padding: 0; margin: 12px 0 0; }
 .rate-customer .chip { min-height: 36px; display: inline-flex; align-items: center; }
 .rate-send { width: 100%; justify-content: center; min-height: 44px; margin-top: 6px; }
 .cta-bar.in-flow { position: static; background: none; }
+/* A field message that has to be seen (D107): the missing photo of a problem report. */
+.error-box { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 12px; background: var(--danger-soft); color: var(--danger); font-weight: 700; }

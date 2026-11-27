@@ -608,9 +608,11 @@ describe('my bookings', () => {
     const send = within(sheet).getByRole('button', { name: 'Send report' });
     expect(send).toHaveAttribute('aria-disabled', 'true');
     await user().click(send);
-    expect(within(sheet).getByText('Add at least one photo of the problem to send the report.')).toBeInTheDocument();
+    expect(within(sheet).getByRole('alert')).toHaveTextContent('Please upload at least one image before submitting your report.');
     expect(api.calls).not.toContain('POST /bookings/b-0/problem');
     await user().upload(within(sheet).getByLabelText('Add photos'), new File(['a'], 'edges.jpg', { type: 'image/jpeg' }));
+    // The message goes as soon as a photo is there.
+    expect(within(sheet).queryByText('Please upload at least one image before submitting your report.')).not.toBeInTheDocument();
     expect(send).not.toHaveAttribute('aria-disabled');
     await user().click(send);
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());

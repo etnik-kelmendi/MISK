@@ -3033,7 +3033,7 @@
     "daysMissing_other": "Choose {{count}} days for the visits.",
     "starsMissing": "Choose from 1 to 5 stars.",
     "problemMissing": "Tell us what went wrong.",
-    "problemPhotosMissing": "Add at least one photo of the problem to send the report.",
+    "problemPhotosMissing": "Please upload at least one image before submitting your report.",
     "noteMissing": "Write a short note.",
     "noteShort": "Write at least {{min}} characters.",
     "tipMissing": "Enter an amount from €1 to €200.",

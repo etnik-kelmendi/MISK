@@ -190,7 +190,8 @@ export function ReportSheet({
               </label>
             </span>
           )}
-          <FieldError id="problem-photos" message={form.message('photos')} />
+          {/* "Send report" is in the footer, away from the photos, so this one is announced and highlighted (D107). */}
+          <FieldError id="problem-photos" message={form.message('photos')} alert />
           {tooBig && (
             <span className="error-text" role="alert">
               {t('errors.file_too_large')}
