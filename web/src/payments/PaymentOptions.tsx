@@ -86,7 +86,7 @@ export function PaymentOptionList({
       badge: BRAND[card.brand] ?? { label: card.brand.toUpperCase().slice(0, 4), bg: '#3A4A43' },
     })),
     { option: { choice: 'apple_pay' }, title: t('review.applePay'), detail: '', badge: { label: 'Pay', bg: '#000' } },
-    { option: { choice: 'google_pay' }, title: t('review.googlePay'), detail: '', badge: { label: 'G Pay', bg: '#4285F4' } },
+    { option: { choice: 'google_pay' }, title: t('review.googlePay'), detail: '', badge: { label: 'G Pay', bg: '#1967D2' } },
     { option: { choice: 'new_card' }, title: t('review.newCard'), detail: t('review.newCardText'), badge: { label: '+', bg: '#3A4A43' } },
   ];
   return (

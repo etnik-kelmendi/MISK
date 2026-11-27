@@ -119,7 +119,7 @@ describe('My week (D99)', () => {
     await waitFor(() => expect(toggle).toHaveAttribute('aria-checked', 'false'));
     expect(api.bodies['PUT /pro/online']).toEqual({ online: false });
 
-    const today = screen.getByRole('button', { name: 'Today, €82.97' });
+    const today = screen.getByRole('button', { name: '€82.97 Today' });
     expect(today).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getAllByRole('button', { pressed: false }).filter((b) => b.classList.contains('bcol'))).toHaveLength(6);
     // The heading names the date, also for today.
@@ -134,12 +134,12 @@ describe('My week (D99)', () => {
     expect(within(plan).getByText('Plan')).toBeInTheDocument();
 
     const later = new Date(now.getTime() + 2 * DAY);
-    await user().click(screen.getByRole('button', { name: `${dayNameOf(later)}, €35` }));
-    expect(screen.getByRole('button', { name: `${dayNameOf(later)}, €35` })).toHaveAttribute('aria-pressed', 'true');
+    await user().click(screen.getByRole('button', { name: `€35 ${dayNameOf(later)}` }));
+    expect(screen.getByRole('button', { name: `€35 ${dayNameOf(later)}` })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('heading', { name: `${dayNameOf(later)} · 1 job` })).toBeInTheDocument();
 
     const empty = new Date(now.getTime() + DAY);
-    await user().click(screen.getByRole('button', { name: `${dayNameOf(empty)}, €0` }));
+    await user().click(screen.getByRole('button', { name: dayNameOf(empty) }));
     expect(screen.getByRole('heading', { name: `${dayNameOf(empty)} · 0 jobs` })).toBeInTheDocument();
     expect(screen.getByText('Day off')).toBeInTheDocument();
   });
@@ -169,7 +169,7 @@ describe('My week (D99)', () => {
     expect(payout).toHaveTextContent('Next payout: 27 Nov 2026');
     expect(payout).toHaveTextContent('€120 ready · €45.50 pending · to •••• 3000');
 
-    await user().click(await screen.findByRole('button', { name: `${dayNameOf(off)}, €0` }));
+    await user().click(await screen.findByRole('button', { name: dayNameOf(off) }));
     const heading = screen.getByRole('heading', { name: new RegExp(`^${dayNameOf(off)} · 0 jobs`) });
     expect(within(heading).getByText('Day off')).toBeInTheDocument();
 

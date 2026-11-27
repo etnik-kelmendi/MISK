@@ -53,7 +53,7 @@ test.describe.serial('MISK marketplace', () => {
     await page.getByRole('button', { name: /Continue · from €35/ }).click();
 
     await page.getByLabel('Street and house number').fill('12 Linden Street');
-    await page.getByLabel('Postcode').selectOption('10115');
+    await page.getByLabel('Postcode').fill('10115');
     await expectAccessible(page);
     await page.getByRole('button', { name: 'Continue · €45.50' }).click();
 
@@ -64,7 +64,7 @@ test.describe.serial('MISK marketplace', () => {
     await page.getByRole('button', { name: /^Continue · / }).click();
 
     await expect(page.getByRole('region', { name: 'Price' }).getByText('€48.40')).toBeVisible();
-    await page.getByRole('button', { name: 'Book and pay €48.40' }).click();
+    await page.getByRole('button', { name: 'Book & pay €48.40' }).click();
     await expect(page.getByRole('heading', { name: 'Lawn mowing' })).toBeVisible();
     bookingUrl = page.url();
     expect(bookingUrl).toMatch(/\/bookings\/[0-9a-f-]{36}$/);
@@ -87,8 +87,8 @@ test.describe.serial('MISK marketplace', () => {
     await page.getByRole('button', { name: 'Add extra work' }).click();
     const extra = page.getByRole('dialog', { name: 'Add extra work' });
     await extra.getByText('Extra 30 minutes of work').click();
-    await extra.getByRole('button', { name: 'Send to Sara for approval' }).click();
-    await expect(page.getByText('Waiting for Sara to approve Extra 30 minutes of work +€22.75.')).toBeVisible();
+    await extra.getByRole('button', { name: 'Send to customer for approval' }).click();
+    await expect(page.getByText('Waiting for the customer to approve Extra 30 minutes of work +€22.75')).toBeVisible();
 
     // The main button asks for the photos of the finished work first.
     await page.locator('.cta-bar input[type="file"]').setInputFiles({ name: 'lawn.png', mimeType: 'image/png', buffer: PHOTO });
@@ -101,7 +101,7 @@ test.describe.serial('MISK marketplace', () => {
     const customer = await signInByPhone(browser, CUSTOMER_PHONE);
     await customer.goto(bookingUrl);
     await customer.getByRole('button', { name: 'Approve +€22.75' }).click();
-    await expect(customer.getByText('Approved', { exact: true })).toBeVisible();
+    await expect(customer.getByText('Approved by you', { exact: true })).toBeVisible();
     await expect(customer.getByText('€71.15')).toBeVisible();
 
     const pro = await signInByPhone(browser, PRO_PHONE);
@@ -113,13 +113,17 @@ test.describe.serial('MISK marketplace', () => {
 
     await customer.reload();
     // The card is charged 24 hours after the job, unless the customer reports a problem first.
-    await expect(customer.getByRole('button', { name: 'Report a problem' })).toBeVisible();
-    await customer.getByRole('img', { name: '5 stars' }).click();
-    await expect(customer.getByRole('radio', { name: '5 stars' })).toBeChecked();
-    await customer.getByText('Tidy work').click();
-    await customer.getByRole('button', { name: 'Send rating' }).click();
-    await expect(customer.getByText('You gave 5 stars. Thank you!')).toBeVisible();
+    await expect(customer.getByRole('button', { name: 'Report' })).toBeVisible();
     await expect(customer.getByText('The amount is held on your card.')).toBeVisible();
+
+    // Rating has a page of its own, opened from the finished booking.
+    await customer.getByRole('link', { name: 'Rate Daniel' }).click();
+    await expect(customer.getByRole('heading', { name: 'How was Daniel?' })).toBeVisible();
+    await customer.getByRole('radio', { name: '5 stars' }).check({ force: true });
+    await expect(customer.getByRole('radio', { name: '5 stars' })).toBeChecked();
+    await customer.getByRole('checkbox', { name: 'Tidy work' }).check({ force: true });
+    await customer.getByRole('button', { name: 'Send review' }).click();
+    await expect(customer.getByText('Review sent')).toBeVisible();
     await expectAccessible(customer);
     await customer.context().close();
   });
@@ -133,11 +137,11 @@ test.describe.serial('MISK marketplace', () => {
     await page.getByLabel(/^First name/).fill('Lena');
     await page.getByLabel(/^Last name/).fill('Berg');
     await page.getByLabel(/^Email address/).fill('lena@example.com');
-    await page.getByLabel(/^Password/).fill('garden42');
+    await page.getByRole('textbox', { name: 'Password (required)', exact: true }).fill('garden42');
     await page.getByLabel(/^Confirm password/).fill('garden42');
     await page.getByRole('checkbox', { name: /I accept the terms/ }).check();
     await expectAccessible(page);
-    await page.getByRole('button', { name: 'Sign up', exact: true }).click();
+    await page.getByRole('button', { name: 'Create account' }).click();
     // Signing up does not sign in: the email has to be confirmed first, with the link that was emailed.
     await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible();
     await expect(page.getByRole('status')).toContainText('We sent a link to lena@example.com.');
@@ -170,7 +174,7 @@ test.describe.serial('MISK marketplace', () => {
     await page.getByLabel('Username or email').fill('lina@misk.test');
     await page.getByLabel('Password').fill('a long new admin password');
     await page.getByRole('button', { name: 'Sign in' }).click();
-    await expect(page.getByRole('alert')).toContainText('waiting for an admin to approve it');
+    await expect(page.getByRole('alert')).toContainText('waiting for approval by an admin');
     await context.close();
   });
 
@@ -273,10 +277,11 @@ test.describe.serial('MISK marketplace', () => {
     await customer.context().close();
 
     const pro = await signInByPhone(browser, PRO_PHONE);
+    // The plans in the pro's trades are on My week.
+    await pro.goto('/pro/week');
     const plans = pro.getByRole('region', { name: 'Monthly plans in your trades' });
     await expect(plans.getByText('Weekly lawn care')).toBeVisible();
     await expect(plans.getByText('1 of your customers')).toBeVisible();
-    await pro.goto('/pro/week');
     await expectAccessible(pro);
     await pro.context().close();
   });

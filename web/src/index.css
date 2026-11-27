@@ -730,7 +730,8 @@ input.check { width: 18px; height: 18px; accent-color: var(--brand); }
 a.cta { text-decoration: none; }
 .mini-btn { text-decoration: none; border: 0; }
 .mini-btn.green { background: var(--brand); color: #fff; }
-.mini-btn.danger { background: var(--danger-soft); color: var(--danger); }
+/* The darker red, as on .badge.r: --danger on --danger-soft is 4.39:1, below WCAG AA's 4.5:1 for 13px text. */
+.mini-btn.danger { background: var(--danger-soft); color: #a32b2b; }
 .count-badge { margin-left: 2px; background: var(--danger); color: #fff; border-radius: 99px; padding: 1px 6px; font-size: 11px; }
 .info.red { background: #fdecec; color: #7a1c1c; }
 .info.red svg { color: var(--danger); }

@@ -222,27 +222,32 @@ export function ProWeekPage() {
                     {days.map((d, i) => {
                       const key = dayKeys[i] ?? '';
                       const total = totals[i] ?? 0;
-                      const label = i === 0 ? t('week.today') : dayParts(d, timezone).weekday;
+                      const parts = dayParts(d, timezone);
+                      const label = i === 0 ? t('week.today') : parts.weekday;
+                      // The name is the visible amount and day, so it matches what is on screen for speech and voice
+                      // control (WCAG 2.5.3), with the date added for screen readers only.
                       return (
                         <button
                           key={key}
                           type="button"
                           className="bcol"
                           aria-pressed={key === selected}
-                          aria-label={t('week.barLabel', { day: i === 0 ? t('week.today') : dayName(d, timezone), amount: euro(total) })}
                           onClick={() => setSelected(key)}
                         >
-                          <span className="tiny b" aria-hidden="true">
-                            {total ? euro(total) : ''}
-                          </span>
+                          {/* The spaces between the spans separate the words of the name; the grid ignores them. */}
+                          <span className="tiny b">{total ? euro(total) : ''}</span>{' '}
                           <span
                             className={`bar ${key === selected ? 'hl' : ''}`}
                             style={{ height: `${Math.max(4, (total / max) * 70)}px` }}
                             aria-hidden="true"
                           />
-                          <span className="bl" aria-hidden="true">
-                            {label}
-                          </span>
+                          <span className="bl">{label}</span>
+                          {i !== 0 && (
+                            <>
+                              {' '}
+                              <span className="visually-hidden">{`${parts.day} ${parts.month}`}</span>
+                            </>
+                          )}
                         </button>
                       );
                     })}

@@ -976,7 +976,6 @@
     "tapDay": "Tippe auf einen Tag",
     "today": "Heute",
     "todayDate": "Heute, {{date}}",
-    "barLabel": "{{day}}, {{amount}}",
     "jobsOn_one": "{{count}} Auftrag",
     "jobsOn_other": "{{count}} Aufträge",
     "jobsList": "Aufträge am {{day}}",

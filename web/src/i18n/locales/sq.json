@@ -976,7 +976,6 @@
     "tapDay": "Prek një ditë",
     "today": "Sot",
     "todayDate": "Sot, {{date}}",
-    "barLabel": "{{day}}, {{amount}}",
     "jobsOn_one": "{{count}} punë",
     "jobsOn_other": "{{count}} punë",
     "jobsList": "Punët më {{day}}",
