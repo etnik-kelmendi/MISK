@@ -1256,7 +1256,8 @@ describe('messages', () => {
     // An overlay placed below the page header, not in the page flow, so the page does not move down.
     const layer = box.parentElement as HTMLElement;
     expect(layer).toHaveClass('new-message-layer');
-    expect(layer.style.transform).toMatch(/^translate\(-50%, \d+px\)$/);
+    // Flush with the header's bottom edge, no gap (D108); jsdom has no layout, so that edge is at 0 here.
+    expect(layer.style.transform).toBe('translate(-50%, 0px)');
     await user().click(within(box).getByRole('button', { name: 'Close the new message' }));
     expect(screen.queryByText('New message')).not.toBeInTheDocument();
 

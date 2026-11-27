@@ -695,14 +695,20 @@ input.check { width: 18px; height: 18px; accent-color: var(--brand); }
 .psec-body { border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
 /* A message that just arrived, at the top of the customer and pro app until opened or closed. */
 /* An overlay below the page header (its offset is set from script), so a new message never moves the page. */
-.new-message-layer { position: fixed; top: 0; left: 50%; transform: translate(-50%, 8px); width: 100%; max-width: 480px; padding: 0 16px; z-index: 40; pointer-events: none; will-change: transform; }
+.new-message-layer { position: fixed; top: 0; left: 50%; transform: translate(-50%, 0); width: 100%; max-width: 480px; z-index: 40; pointer-events: none; overflow: hidden; padding-bottom: 24px; will-change: transform; }
+/* The clipping lets the banner slide out from under the header's edge; the transparent room below keeps its shadow. */
+.new-message-layer.at-top { padding-top: env(safe-area-inset-top); }
 .new-message-layer .new-message { pointer-events: auto; }
-.new-message { display: flex; gap: 10px; align-items: flex-start; margin: 0; padding: 12px; border-radius: 14px; background: var(--brand); color: #fff; box-shadow: 0 6px 16px rgba(11, 122, 85, 0.3); animation: slidein 0.3s ease; }
+/* Joined to the header (D108): full width, flat top, rounded only below, sliding out from under the header's edge. */
+.new-message { display: flex; gap: 10px; align-items: flex-start; margin: 0; padding: 12px 16px 14px; border-radius: 0 0 16px 16px; background: var(--brand); color: #fff; box-shadow: 0 8px 18px rgba(11, 122, 85, 0.28); animation: nm-in 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.new-message.leaving { animation: nm-out 0.22s ease-in both; }
 .new-message > svg { margin-top: 3px; font-size: 18px; flex: none; }
 .new-message a { color: #fff; text-decoration: underline; }
 .new-message .muted { color: #fff; }
 .new-message .iconbtn { width: 32px; height: 32px; background: rgba(255, 255, 255, 0.18); color: #fff; box-shadow: none; flex: none; }
-@keyframes slidein { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+@keyframes nm-in { from { transform: translateY(-100%); } to { transform: none; } }
+@keyframes nm-out { from { transform: none; } to { transform: translateY(-100%); } }
+@media (prefers-reduced-motion: reduce) { .new-message, .new-message.leaving { animation: none; } }
 /* "Draft saved" in the plan editor: a short confirmation with one button to close it. */
 .saved-note { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; background: var(--brand-soft); color: var(--brand); }
 .saved-note .iconbtn { width: 32px; height: 32px; box-shadow: none; background: transparent; color: var(--brand); }
