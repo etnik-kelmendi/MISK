@@ -14,6 +14,8 @@ export interface User {
   adminRole?: AdminRole | null;
   /** The control panel areas this person may open (admins only). */
   areas?: AdminArea[];
+  /** The app language the person chose (D92, D110): "en", "de" or "sq". */
+  language?: string;
 }
 
 export const ADMIN_ROLES = ['admin', 'operations', 'support', 'finance'] as const;

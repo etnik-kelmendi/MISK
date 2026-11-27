@@ -3471,9 +3471,11 @@
     "email": "Email",
     "language": "Language",
     "languages": {
-      "en": "English"
+      "en": "English",
+      "de": "German",
+      "sq": "Albanian"
     },
-    "languageNote": "MISK is in English for now. More languages will follow.",
+    "languageNote": "The app is shown in this language. Text messages and emails from MISK are in English for now.",
     "privacy": "Pros only see your first name and the job address.",
     "save": "Save changes",
     "saved": "Your changes are saved."
@@ -3809,7 +3811,8 @@
     "docsChecking": "Checking",
     "last4": "•••• {{last4}}",
     "ratingValue": "{{rating}} ★",
-    "top": "Top {{pct}}%"
+    "top": "Top {{pct}}%",
+    "language": "Language"
   },
   "work": {
     "trades": "Trades",
@@ -3979,6 +3982,13 @@
         "q": "How do I get more jobs?",
         "a": "Stay online during your working hours and widen your travel distance. Keep your acceptance rate above {{acceptance}}%, arrive on time (goal {{onTime}}%) and finish your jobs (goal {{completion}}%): the pros with the best numbers are offered new jobs first. See Performance."
       }
+    }
+  },
+  "language": {
+    "names": {
+      "en": "English",
+      "de": "Deutsch",
+      "sq": "Shqip"
     }
   }
 }

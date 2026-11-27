@@ -1189,3 +1189,7 @@ ol.flow { list-style: none; padding: 0; margin: 12px 0 0; }
 .cta-bar.in-flow { position: static; background: none; }
 /* A field message that has to be seen (D107): the missing photo of a problem report. */
 .error-box { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 12px; background: var(--danger-soft); color: var(--danger); font-weight: 700; }
+/* Language in the pro Profile (D110): one row per language, the chosen one marked. */
+.language-row { cursor: pointer; }
+.language-row input { accent-color: var(--brand); width: 18px; height: 18px; flex: none; }
+.language-row.on { font-weight: 700; }

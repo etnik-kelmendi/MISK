@@ -1,10 +1,13 @@
 /** Formatting for money and times. Times are always shown in the market's time zone. */
 
-const LOCALE = 'en-GB';
+import { displayLocale } from './locale';
+
+/** "10:00" style clock times read back by code (`time` is split on ":"), so never another locale's style. */
+const CLOCK_LOCALE = 'en-GB';
 
 export function euro(cents: number): string {
   const whole = cents % 100 === 0;
-  return new Intl.NumberFormat(LOCALE, {
+  return new Intl.NumberFormat(displayLocale(), {
     style: 'currency',
     currency: 'EUR',
     minimumFractionDigits: whole ? 0 : 2,
@@ -14,7 +17,7 @@ export function euro(cents: number): string {
 
 /** "Tue 5 Nov, 10:00" */
 export function dateTime(iso: string, timeZone: string): string {
-  return new Intl.DateTimeFormat(LOCALE, {
+  return new Intl.DateTimeFormat(displayLocale(), {
     timeZone,
     weekday: 'short',
     day: 'numeric',
@@ -27,7 +30,7 @@ export function dateTime(iso: string, timeZone: string): string {
 
 /** "10:00" */
 export function time(iso: string, timeZone: string): string {
-  return new Intl.DateTimeFormat(LOCALE, { timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(
+  return new Intl.DateTimeFormat(CLOCK_LOCALE, { timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(
     new Date(iso),
   );
 }
@@ -43,7 +46,7 @@ export function dayKey(iso: string, timeZone: string): string {
 /** "Tue" and "5" for a day button. */
 export function dayParts(iso: string, timeZone: string): { weekday: string; day: string; month: string } {
   const date = new Date(iso);
-  const part = (options: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat(LOCALE, { timeZone, ...options }).format(date);
+  const part = (options: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat(displayLocale(), { timeZone, ...options }).format(date);
   return { weekday: part({ weekday: 'short' }), day: part({ day: 'numeric' }), month: part({ month: 'short' }) };
 }
 
@@ -128,7 +131,7 @@ export function zonedToIso(date: string, time: string, timeZone: string): string
 /** "5 Nov 2026", for an instant (in the market time zone) or a calendar date such as "2026-11-05". */
 export function longDate(value: string, timeZone: string): string {
   const calendarDay = /^\d{4}-\d{2}-\d{2}$/.test(value);
-  return new Intl.DateTimeFormat(LOCALE, {
+  return new Intl.DateTimeFormat(displayLocale(), {
     timeZone: calendarDay ? 'UTC' : timeZone,
     day: 'numeric',
     month: 'short',

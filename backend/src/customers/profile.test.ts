@@ -71,7 +71,7 @@ describe('Personal information', () => {
       { firstName: '   ' },
       { firstName: 'x'.repeat(61) },
       { firstName: 'Anna', lastName: 'x'.repeat(61) },
-      { firstName: 'Anna', language: 'de' },
+      { firstName: 'Anna', language: 'fr' },
       { firstName: 'Anna', language: 'EN' },
       { firstName: 'Anna', email: 'anna@example.com' },
     ];
@@ -85,7 +85,26 @@ describe('Personal information', () => {
 
   it('tells the app the language, the languages it may offer and the support contact', async () => {
     expect((await get('/account/settings')).json()).toEqual({ language: 'en', languages: [...LANGUAGES], support: { email: null, phone: null } });
+    expect(LANGUAGES).toEqual(['en', 'de', 'sq']);
     expect((await call(t, 'GET', '/account/settings')).statusCode).toBe(401);
+  });
+
+  it('saves the language on its own, sends it with the account, and only takes English, German and Albanian (D110)', async () => {
+    expect((await get('/auth/me')).json().user.language).toBe('en');
+    for (const language of ['de', 'sq', 'en', 'sq']) {
+      const saved = await patch('/account/language', { language });
+      expect(saved.statusCode).toBe(200);
+      expect(saved.json()).toEqual({ user: expect.objectContaining({ language }), language });
+    }
+    expect((await get('/auth/me')).json().user.language).toBe('sq');
+    expect((await get('/account/settings')).json().language).toBe('sq');
+    for (const body of [{}, { language: 'fr' }, { language: 'DE' }, { language: 'de', firstName: 'Anna' }]) {
+      expect((await patch('/account/language', body)).statusCode).toBe(400);
+    }
+    expect((await call(t, 'PATCH', '/account/language', { body: { language: 'de' } })).statusCode).toBe(401);
+    // A pro sets it too, from the pro Profile.
+    const pro = await signIn(t, '+4915100000009', 'pro', 'Daniel');
+    expect((await patch('/account/language', { language: 'de' }, pro)).json().language).toBe('de');
   });
 });
 

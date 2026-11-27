@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { useApi } from '../api/ApiContext';
 import { ApiError, suspensionOf, type Suspension } from '../api/client';
 import type { User } from '../api/types';
+import { setAppLanguage } from '../i18n';
 
 type AuthState =
   | { status: 'loading' }
@@ -49,6 +50,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       current = false;
     };
   }, [api, attempt]);
+
+  // The app shows itself in the account's language once it is known, and again whenever it changes (D110).
+  const accountLanguage = state.status === 'signedIn' ? state.user.language : null;
+  useEffect(() => {
+    if (accountLanguage) void setAppLanguage(accountLanguage);
+  }, [accountLanguage]);
 
   // Any request that finds the account suspended, also signing in or in the middle of a session (D87).
   useEffect(() => api.onSuspended((suspension) => setState({ status: 'suspended', suspension })), [api]);

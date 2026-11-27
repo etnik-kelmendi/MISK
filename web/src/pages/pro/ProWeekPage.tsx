@@ -12,6 +12,7 @@ import { dayKey, dayName, dayParts, euro, isoWeekday, longDate, time, zonedToIso
 import { loadSchedule, type ScheduleItem } from '../../lib/proSchedule';
 import { OnlineSwitch, saveOnline } from './OnlineSwitch';
 import { ProPlansSection } from './ProVisitPage';
+import { displayLocale } from '../../lib/locale';
 
 const DAY_MS = 24 * 3600 * 1000;
 const WEEKDAYS = [1, 2, 3, 4, 5, 6, 7];
@@ -46,7 +47,7 @@ function workingDaysText(days: number[], noDays: string): string {
   if (days.length === 0) return noDays;
   // 5 January 2026 was a Monday.
   return WEEKDAYS.filter((day) => days.includes(day))
-    .map((day) => new Intl.DateTimeFormat('en-GB', { weekday: 'short', timeZone: 'UTC' }).format(new Date(Date.UTC(2026, 0, 4 + day, 12))))
+    .map((day) => new Intl.DateTimeFormat(displayLocale(), { weekday: 'short', timeZone: 'UTC' }).format(new Date(Date.UTC(2026, 0, 4 + day, 12))))
     .join(', ');
 }
 

@@ -4,6 +4,7 @@ import type { UploadKind } from '../../../api/types';
 export const PRO_PROFILE_PATHS = {
   profile: '/pro/profile',
   personal: '/pro/profile/personal',
+  language: '/pro/profile/language',
   work: '/pro/profile/work',
   availability: '/pro/availability',
   documents: '/pro/profile/documents',

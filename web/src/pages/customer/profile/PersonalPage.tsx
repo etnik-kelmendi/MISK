@@ -7,7 +7,7 @@ import { useAuth, useUser } from '../../../auth/AuthContext';
 import { ErrorText } from '../../../components/ErrorText';
 import { FieldError } from '../../../components/FieldError';
 import { Icon } from '../../../components/Icon';
-import { LANGUAGE } from '../../../i18n';
+import { LANGUAGE, LANGUAGES } from '../../../i18n';
 import { useAction } from '../../../lib/useAction';
 import { useValidation } from '../../../lib/useValidation';
 import { AppHeader } from '../../../shells/Shells';
@@ -17,8 +17,8 @@ import { AccountPhone } from '../../AccountPhone';
 /** The API's limit for a first or last name. */
 export const MAX_NAME_LENGTH = 60;
 
-/** The languages the app has texts for (one translation file each). The API keeps the same list. */
-export const APP_LANGUAGES = [LANGUAGE] as const;
+/** The languages the app has texts for (one translation file each, D110). The API keeps the same list. */
+export const APP_LANGUAGES = LANGUAGES;
 
 /** What `GET /account/settings` answers (D92). */
 export interface AccountSettings {
@@ -40,7 +40,18 @@ export function useAccountSettings() {
  * The pro app shows the same page under its Profile (D100), with the pro's photo on top and its own privacy note,
  * since what customers see of a pro is not what pros see of a customer (D105).
  */
-export function PersonalPage({ back = '/profile', top, privacy }: { back?: string; top?: ReactNode; privacy?: string } = {}) {
+export function PersonalPage({
+  back = '/profile',
+  top,
+  privacy,
+  showLanguage = true,
+}: {
+  back?: string;
+  top?: ReactNode;
+  privacy?: string;
+  /** False in the pro app, where Language is a Profile row of its own (D110). */
+  showLanguage?: boolean;
+} = {}) {
   const { t } = useTranslation();
   const api = useApi();
   const user = useUser();
@@ -67,7 +78,7 @@ export function PersonalPage({ back = '/profile', top, privacy }: { back?: strin
       api.patch<{ user: User; language: string }>('/account/personal', {
         firstName: firstName.trim(),
         lastName: lastName.trim() || null,
-        language,
+        ...(showLanguage ? { language } : {}),
       }),
     );
     if (result) {
@@ -112,27 +123,29 @@ export function PersonalPage({ back = '/profile', top, privacy }: { back?: strin
         <AccountPhone />
         <AccountEmail />
 
-        <div className="card stack">
-          <div className="field">
-            <label htmlFor="personal-language">{t('personal.language')}</label>
-            <select
-              id="personal-language"
-              form="personal-form"
-              aria-describedby="personal-language-note"
-              value={language}
-              onChange={(event) => setLanguage(event.target.value)}
-            >
-              {languages.map((code) => (
-                <option key={code} value={code}>
-                  {t(`personal.languages.${code}`)}
-                </option>
-              ))}
-            </select>
-            <span id="personal-language-note" className="hint">
-              {t('personal.languageNote')}
-            </span>
+        {showLanguage && (
+          <div className="card stack">
+            <div className="field">
+              <label htmlFor="personal-language">{t('personal.language')}</label>
+              <select
+                id="personal-language"
+                form="personal-form"
+                aria-describedby="personal-language-note"
+                value={language}
+                onChange={(event) => setLanguage(event.target.value)}
+              >
+                {languages.map((code) => (
+                  <option key={code} value={code}>
+                    {t(`personal.languages.${code}`)}
+                  </option>
+                ))}
+              </select>
+              <span id="personal-language-note" className="hint">
+                {t('personal.languageNote')}
+              </span>
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="info">
           <Icon name="shield" />

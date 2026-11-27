@@ -127,7 +127,8 @@ describe('Personal information', () => {
     expect(screen.getByRole('region', { name: 'Phone number' })).toHaveTextContent('+4915100000001');
     expect(screen.getByRole('region', { name: 'Email' })).toHaveTextContent('sara@example.com');
     const language = screen.getByLabelText('Language');
-    expect(within(language).getAllByRole('option').map((option) => option.textContent)).toEqual(['English']);
+    // English, German and Albanian (D110).
+    expect(within(language).getAllByRole('option').map((option) => option.textContent)).toEqual(['English', 'German', 'Albanian']);
     expect(screen.getByText('Pros only see your first name and the job address.')).toBeInTheDocument();
 
     await user().clear(first);

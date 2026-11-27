@@ -12,6 +12,7 @@ import { ResourceState } from '../../components/ResourceState';
 import { dateTime, dayKey, longDate } from '../../lib/format';
 import { useAction } from '../../lib/useAction';
 import { AppHeader } from '../../shells/Shells';
+import { displayLocale } from '../../lib/locale';
 
 /** Working hours run on the hour; a day can end at midnight (24:00). */
 const START_OPTIONS = Array.from({ length: 24 }, (_, hour) => `${String(hour).padStart(2, '0')}:00`);
@@ -20,12 +21,12 @@ const WEEKDAYS = [1, 2, 3, 4, 5, 6, 7];
 
 /** A weekday name (1 = Monday), short ("Mon") or long ("Monday"). 5 January 2026 was a Monday. */
 function weekdayName(day: number, style: 'short' | 'long'): string {
-  return new Intl.DateTimeFormat('en-GB', { weekday: style, timeZone: 'UTC' }).format(new Date(Date.UTC(2026, 0, 4 + day, 12)));
+  return new Intl.DateTimeFormat(displayLocale(), { weekday: style, timeZone: 'UTC' }).format(new Date(Date.UTC(2026, 0, 4 + day, 12)));
 }
 
 /** "Wed 3 Dec 2026" for a calendar day "2026-12-03". */
 function dayLabel(day: string): string {
-  const weekday = new Intl.DateTimeFormat('en-GB', { weekday: 'short', timeZone: 'UTC' }).format(new Date(`${day}T12:00:00Z`));
+  const weekday = new Intl.DateTimeFormat(displayLocale(), { weekday: 'short', timeZone: 'UTC' }).format(new Date(`${day}T12:00:00Z`));
   return `${weekday} ${longDate(day, 'UTC')}`;
 }
 

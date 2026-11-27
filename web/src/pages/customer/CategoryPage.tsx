@@ -13,6 +13,7 @@ import { planRuleTexts, planSizePrice } from '../../lib/plans';
 import { AppHeader } from '../../shells/Shells';
 import { CATEGORY_COLORS } from './categoryColors';
 import { PickedProChip, PRO_PARAM, usePickedPro } from './PickedPro';
+import { displayLocale } from '../../lib/locale';
 
 type Mode = 'one' | 'plan';
 
@@ -72,7 +73,7 @@ export function CategoryPage() {
 /** The month names of a season, e.g. "March to October". */
 function seasonText(plan: Plan, t: TFunction): string {
   if (!plan.seasonal || plan.seasonFrom === null || plan.seasonTo === null) return t('services.allYear');
-  const month = (m: number) => new Intl.DateTimeFormat('en-GB', { month: 'long', timeZone: 'UTC' }).format(new Date(Date.UTC(2026, m - 1, 1)));
+  const month = (m: number) => new Intl.DateTimeFormat(displayLocale(), { month: 'long', timeZone: 'UTC' }).format(new Date(Date.UTC(2026, m - 1, 1)));
   return t('services.season', { from: month(plan.seasonFrom), to: month(plan.seasonTo) });
 }
 

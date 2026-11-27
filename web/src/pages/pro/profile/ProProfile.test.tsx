@@ -1,6 +1,7 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ProAvailability, ProProfile } from '../../../api/types';
+import { setAppLanguage } from '../../../i18n';
 import { BASE, fakeApi, renderAt, users, type FakeApi } from '../../../test/harness';
 import type { BankSummary, Performance, ProDocumentView, ProfileOverview, ReviewsPage } from './types';
 
@@ -74,6 +75,8 @@ describe('the pro Profile', () => {
       ['Availability08:00–18:00', '/pro/availability'],
       ['Documents1 expiring', '/pro/profile/documents'],
       ['Bank account•••• 1183', '/pro/profile/bank'],
+      // Last in Work, right above Notifications in App (D110).
+      ['LanguageEnglish', '/pro/profile/language'],
     ]);
     expect(rows('Performance')).toEqual([
       ['Ratings & reviews4.9 ★', '/pro/profile/ratings'],
@@ -125,18 +128,65 @@ describe('the pro Profile', () => {
 });
 
 describe('Personal information', () => {
-  it('has the photo, name, phone number (changed with a texted code), email and language, and "Save changes"', async () => {
+  it('has the photo, name, phone number (changed with a texted code), email and "Save changes", but no language', async () => {
     proApi();
     renderAt('/pro/profile/personal');
     expect(await screen.findByRole('region', { name: 'Your photo' })).toBeInTheDocument();
     expect(screen.getByLabelText('First name')).toHaveValue('Daniel');
-    expect(screen.getByLabelText('Language')).toBeInTheDocument();
+    // Language is a Profile row of its own in the pro app (D110).
+    expect(screen.queryByLabelText('Language')).not.toBeInTheDocument();
     expect(screen.getByText(/\+4915100000002/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Save changes' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Back' })).toHaveAttribute('href', '/pro/profile');
     // What customers see of the pro, not the customer note about what pros see (D105).
     expect(screen.getByText(/Customers see your first name and your photo, never your phone number or email/)).toBeInTheDocument();
     expect(screen.queryByText('Pros only see your first name and the job address.')).not.toBeInTheDocument();
+  });
+});
+
+describe('Language (D110)', () => {
+  afterEach(async () => {
+    // The language is kept for the next tests in this file otherwise.
+    await setAppLanguage('en');
+  });
+
+  it('offers English, German and Albanian, each in itself, saves the choice and shows the app in it', async () => {
+    const api = proApi();
+    api.on('PATCH /account/language', ({ body }) => {
+      const { language } = body as { language: string };
+      return { body: { user: { ...users.pro, lastName: 'Keller', language }, language } };
+    });
+    renderAt('/pro/profile/language');
+    const group = await screen.findByRole('group', { name: 'Language' });
+    expect(
+      within(group)
+        .getAllByRole('radio')
+        .map((radio) => radio.closest('label')?.textContent),
+    ).toEqual(['English', 'Deutsch', 'Shqip']);
+    expect(within(group).getByRole('radio', { name: 'English' })).toBeChecked();
+    expect(screen.getByRole('link', { name: 'Back' })).toHaveAttribute('href', '/pro/profile');
+    const save = screen.getByRole('button', { name: 'Save changes' });
+    // Nothing to save until another language is chosen.
+    expect(save).toBeDisabled();
+
+    await user().click(within(group).getByRole('radio', { name: 'Deutsch' }));
+    await user().click(save);
+    await waitFor(() => expect(api.bodies['PATCH /account/language']).toEqual({ language: 'de' }));
+    // The whole app switches at once, without a reload.
+    expect(await screen.findByRole('heading', { level: 1, name: 'Sprache' })).toBeInTheDocument();
+    expect(document.documentElement.lang).toBe('de');
+  });
+
+  it('shows the error and keeps the language when saving fails', async () => {
+    const api = proApi();
+    api.on('PATCH /account/language', { status: 500, body: { error: 'internal' } });
+    renderAt('/pro/profile/language');
+    const group = await screen.findByRole('group', { name: 'Language' });
+    await user().click(within(group).getByRole('radio', { name: 'Shqip' }));
+    await user().click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(api.calls).toContain('PATCH /account/language'));
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(document.documentElement.lang).toBe('en');
   });
 });
 

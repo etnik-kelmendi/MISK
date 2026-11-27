@@ -19,9 +19,11 @@ import { ACCESS } from './access.js';
 const phoneProperty = { type: 'string', minLength: 6, maxLength: 32 } as const;
 const firstNameProperty = { type: 'string', minLength: 1, maxLength: 60, pattern: '\\S' } as const;
 
-export function publicUser({ id, role, phone, username, email, firstName, lastName, adminRole }: User) {
+export function publicUser({ id, role, phone, username, email, firstName, lastName, adminRole, language }: User) {
   // The control panel shows only what the team role may open; the API checks it again on every request.
-  return { id, role, phone, username, email, firstName, lastName, adminRole, areas: adminRole ? ACCESS[adminRole] : [] };
+  // The language lets the app show itself in the person's language straight after sign-in (D110).
+  const areas = adminRole ? ACCESS[adminRole] : [];
+  return { id, role, phone, username, email, firstName, lastName, adminRole, areas, language: language ?? 'en' };
 }
 
 export const cookieOptionsFor = (config: Config) => ({ path: '/', httpOnly: true, secure: config.secureCookies, sameSite: 'lax' }) as const;

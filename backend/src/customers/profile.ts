@@ -7,10 +7,10 @@ import { withTransaction, type Queryable } from '../db.js';
 import { conflict } from '../errors.js';
 
 /**
- * The languages the app has texts for. Only English so far: a language is added here together with its
- * translation file in the web app, never before (D92).
+ * The languages the app has texts for: English, German and Albanian (D110). A language is added here together
+ * with its translation file in the web app, never before (D92).
  */
-export const LANGUAGES = ['en'] as const;
+export const LANGUAGES = ['en', 'de', 'sq'] as const;
 export type Language = (typeof LANGUAGES)[number];
 export const MAX_NAME_LENGTH = 60;
 
@@ -77,6 +77,28 @@ export async function profileRoutes(app: FastifyInstance, ctx: AppContext) {
         [userId, firstName.trim(), lastName !== undefined, last || null, language ?? null],
       );
       request.log.info({ event: 'personal_information_saved' });
+      return { user: publicUser(await reload(pool, userId)), language: await languageOf(pool, userId) };
+    },
+  );
+
+  // Language on its own (D110): the pro app sets it from a Profile row of its own, without the name form.
+  app.patch<{ Body: { language: Language } }>(
+    '/account/language',
+    {
+      preHandler: guards.customer,
+      schema: {
+        body: {
+          type: 'object',
+          required: ['language'],
+          additionalProperties: false,
+          properties: { language: { type: 'string', enum: [...LANGUAGES] } },
+        },
+      },
+    },
+    async (request) => {
+      const userId = currentUser(request).id;
+      await pool.query('UPDATE users SET language = $2 WHERE id = $1', [userId, request.body.language]);
+      request.log.info({ event: 'language_saved', language: request.body.language });
       return { user: publicUser(await reload(pool, userId)), language: await languageOf(pool, userId) };
     },
   );

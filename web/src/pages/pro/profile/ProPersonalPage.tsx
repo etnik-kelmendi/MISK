@@ -61,10 +61,11 @@ export function ProPhoto() {
 
 /**
  * Personal information in the pro app (D100): the photo, then the same name, phone number (a new one is confirmed
- * with a code sent by text message, D87), email and language as for customers, with "Save changes". The note at
- * the bottom says what customers see of the pro, not the customer note about what pros see (D105).
+ * with a code sent by text message, D87) and email as for customers, with "Save changes". Language is a row of its
+ * own in the Profile's Work group (D110). The note at the bottom says what customers see of the pro, not the
+ * customer note about what pros see (D105).
  */
 export function ProPersonalPage() {
   const { t } = useTranslation();
-  return <PersonalPage back={PRO_PROFILE_PATHS.profile} top={<ProPhoto />} privacy={t('proPersonal.privacy')} />;
+  return <PersonalPage back={PRO_PROFILE_PATHS.profile} top={<ProPhoto />} privacy={t('proPersonal.privacy')} showLanguage={false} />;
 }

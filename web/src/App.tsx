@@ -58,6 +58,7 @@ import { BankAccountPage } from './pages/pro/profile/BankAccountPage';
 import { DocumentsPage } from './pages/pro/profile/DocumentsPage';
 import { PerformancePage } from './pages/pro/profile/PerformancePage';
 import { ProHelpPage, ProNotificationsPage, ProTermsPage } from './pages/pro/profile/ProAppPages';
+import { LanguagePage } from './pages/pro/profile/LanguagePage';
 import { ProPersonalPage } from './pages/pro/profile/ProPersonalPage';
 import { RatingsPage } from './pages/pro/profile/RatingsPage';
 import { WorkInfoPage } from './pages/pro/profile/WorkInfoPage';
@@ -148,6 +149,7 @@ function CustomerAndProRoutes() {
         {/* The pro's Profile and its pages (D100); the older /pro/account address opens Personal information. */}
         <Route path="profile" element={<ProProfilePage />} />
         <Route path="profile/personal" element={<ProPersonalPage />} />
+        <Route path="profile/language" element={<LanguagePage />} />
         <Route path="profile/work" element={<WorkInfoPage />} />
         <Route path="profile/documents" element={<DocumentsPage />} />
         <Route path="profile/bank" element={<BankAccountPage />} />

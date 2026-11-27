@@ -3,6 +3,8 @@
  * change never moves a date, and text comparison orders them like dates.
  */
 
+import { displayLocale } from './locale';
+
 const DAY_FORMAT = /^\d{4}-\d{2}-\d{2}$/;
 
 /** True for text shaped like "2026-11-25". */
@@ -61,9 +63,9 @@ export function monthWeeks(month: string): (string | null)[][] {
   return weeks;
 }
 
-/** Formats a calendar day in English, e.g. { weekday: 'long', day: 'numeric', month: 'long' }. */
+/** Formats a calendar day in the app's language (D110), e.g. { weekday: 'long', day: 'numeric', month: 'long' }. */
 export function formatDay(day: string, options: Intl.DateTimeFormatOptions): string {
-  return new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', ...options }).format(noon(day));
+  return new Intl.DateTimeFormat(displayLocale(), { timeZone: 'UTC', ...options }).format(noon(day));
 }
 
 /** "Wednesday 14 January". */

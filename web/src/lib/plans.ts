@@ -1,5 +1,6 @@
 import type { TFunction } from 'i18next';
 import type { Frequency, JobSize, PlanStart, PublicPlan } from '../api/types';
+import { displayLocale } from './locale';
 
 /** Average visits a month, as the API counts them. */
 export const VISITS_PER_MONTH: Record<Frequency, number> = {
@@ -120,7 +121,7 @@ export function firstChargeDay(today: string, firstVisit: string): string {
 /** The months a plan runs: "April – October" for a seasonal plan, else "All year". */
 export function seasonText(t: TFunction, plan: { seasonal: boolean; seasonFrom: number | null; seasonTo: number | null }): string {
   if (!plan.seasonal) return t('plans.allYear');
-  const month = (m: number) => new Intl.DateTimeFormat('en-GB', { month: 'long', timeZone: 'UTC' }).format(Date.UTC(2026, m - 1, 15));
+  const month = (m: number) => new Intl.DateTimeFormat(displayLocale(), { month: 'long', timeZone: 'UTC' }).format(Date.UTC(2026, m - 1, 15));
   return t('plans.season', { from: month(plan.seasonFrom ?? 1), to: month(plan.seasonTo ?? 12) });
 }
 

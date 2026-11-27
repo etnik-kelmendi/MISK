@@ -8,6 +8,7 @@ import { useAuth, useUser } from '../../auth/AuthContext';
 import { AppSwitch } from '../../components/AppSwitch';
 import { Icon, type IconKey } from '../../components/Icon';
 import { Avatar } from '../../components/Photos';
+import { isAppLanguage, LANGUAGE } from '../../i18n';
 import { ResourceState } from '../../components/ResourceState';
 import { PRO_PROFILE_PATHS, type ProfileOverview } from './profile/types';
 
@@ -95,6 +96,7 @@ function ProfileHeader({ profile, overview }: { profile: ProProfile; overview: P
  */
 export function ProProfilePage() {
   const { t } = useTranslation();
+  const user = useUser();
   const api = useApi();
   const { logout } = useAuth();
   const navigate = useNavigate();
@@ -133,6 +135,13 @@ export function ProProfilePage() {
                 icon="card"
                 label={t('proProfile.bank')}
                 value={overview?.bankLast4 ? <span>{t('proProfile.last4', { last4: overview.bankLast4 })}</span> : null}
+              />
+              {/* Last in Work, right above Notifications (D110); each language is named in itself. */}
+              <ProfileRow
+                to={PRO_PROFILE_PATHS.language}
+                icon="chat"
+                label={t('proProfile.language')}
+                value={<span>{t(`language.names.${isAppLanguage(user.language) ? user.language : LANGUAGE}`)}</span>}
               />
             </ul>
 
